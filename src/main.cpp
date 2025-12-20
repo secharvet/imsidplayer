@@ -441,16 +441,16 @@ int main(int argc, char* argv[]) {
                 // Onglet Player
                 if (ImGui::BeginTabItem("Player")) {
                     // Section informations
-                    ImGui::Text("Fichier actuel:");
+                    ImGui::Text("Current file:");
                     if (!player.getCurrentFile().empty()) {
                         ImGui::SameLine();
                         ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", 
                             fs::path(player.getCurrentFile()).filename().string().c_str());
                         ImGui::Separator();
-                        ImGui::TextWrapped("Informations: %s", player.getTuneInfo().c_str());
+                        ImGui::TextWrapped("Information: %s", player.getTuneInfo().c_str());
                     } else {
                         ImGui::SameLine();
-                        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Aucun fichier chargé");
+                        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No file loaded");
                     }
                     
                     ImGui::Separator();
@@ -491,17 +491,17 @@ int main(int argc, char* argv[]) {
             ImGui::Spacing();
             ImGui::Separator();
 
-            // État
-            ImGui::Text("État:");
+            // State
+            ImGui::Text("State:");
             ImGui::SameLine();
             if (player.isPlaying()) {
                 if (player.isPaused()) {
-                    ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "En pause");
+                    ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Paused");
                 } else {
-                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "En lecture");
+                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Playing");
                 }
             } else {
-                ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Arrêté");
+                ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Stopped");
             }
             
             ImGui::Spacing();
@@ -513,10 +513,10 @@ int main(int argc, char* argv[]) {
                 ImGui::Spacing();
                 
                 const char* engineNames[] = {
-                    "Audio mixé (toutes voix)",
-                    "Voix 1 seule",
-                    "Voix 2 seule",
-                    "Voix 3 seule"
+                    "Mixed audio (all voices)",
+                    "Voice 1 only",
+                    "Voice 2 only",
+                    "Voice 3 only"
                 };
                 
                 int currentEngine = static_cast<int>(player.getAudioEngine());
@@ -556,7 +556,7 @@ int main(int argc, char* argv[]) {
             
                     // Oscilloscopes par voix (approche bas niveau optimisée)
                     if (!player.getCurrentFile().empty()) {
-                        ImGui::Text("Oscilloscopes par voix:");
+                        ImGui::Text("Oscilloscopes by voice:");
                         ImGui::Spacing();
                         
                         // Accès direct aux buffers (pas de copies!)
@@ -627,8 +627,8 @@ int main(int argc, char* argv[]) {
                     ImGui::Separator();
                     ImGui::Spacing();
                     
-                    // Section Image de fond
-                    ImGui::Text("Image de fond");
+                    // Background image section
+                    ImGui::Text("Background image");
                     ImGui::Separator();
                     
                     if (backgroundImages.empty()) {
@@ -653,7 +653,7 @@ int main(int argc, char* argv[]) {
                         ImGui::Spacing();
                         
                         // Bouton Afficher/Masquer
-                        if (ImGui::Button(showBackground ? "Masquer" : "Afficher", ImVec2(120, 0))) {
+                        if (ImGui::Button(showBackground ? "Hide" : "Show", ImVec2(120, 0))) {
                             showBackground = !showBackground;
                         }
                         
@@ -661,7 +661,7 @@ int main(int argc, char* argv[]) {
                         ImGui::Separator();
                         
                         // Slider de transparence
-                        ImGui::Text("Transparence:");
+                        ImGui::Text("Transparency:");
                         ImGui::SameLine();
                         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "%d%%", 
                             (int)((backgroundAlpha / 255.0f) * 100.0f));
@@ -698,11 +698,11 @@ int main(int argc, char* argv[]) {
                 ImGuiWindowFlags_NoCollapse);
             
             // Zone de drop pour les fichiers et dossiers
-            ImGui::Text("Glissez-déposez des fichiers .sid ou dossiers ici");
+            ImGui::Text("Drag & drop .sid files or folders here");
             ImGui::Separator();
             
-            // Bouton pour vider la playlist
-            if (ImGui::Button("Vider", ImVec2(-1, 0))) {
+            // Clear playlist button
+            if (ImGui::Button("Clear", ImVec2(-1, 0))) {
                 playlistRoot->children.clear();
                 currentPlaylistNode = nullptr;
             }
@@ -799,7 +799,7 @@ int main(int argc, char* argv[]) {
             // Boutons Précédent et Suivant sur la même ligne
             float navButtonWidth = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) / 2.0f;
             
-            if (ImGui::Button("<< Précédent", ImVec2(navButtonWidth, 0))) {
+            if (ImGui::Button("<< Previous", ImVec2(navButtonWidth, 0))) {
                 if (!allFiles.empty() && currentPlaylistNode) {
                     auto it = std::find(allFiles.begin(), allFiles.end(), currentPlaylistNode);
                     if (it != allFiles.end()) {
@@ -821,7 +821,7 @@ int main(int argc, char* argv[]) {
                 }
             }
             ImGui::SameLine();
-            if (ImGui::Button(">> Suivant", ImVec2(navButtonWidth, 0))) {
+            if (ImGui::Button(">> Next", ImVec2(navButtonWidth, 0))) {
                 if (!allFiles.empty() && currentPlaylistNode) {
                     auto it = std::find(allFiles.begin(), allFiles.end(), currentPlaylistNode);
                     if (it != allFiles.end()) {
@@ -849,10 +849,10 @@ int main(int argc, char* argv[]) {
         if (showFileDialog) {
             ImGui::SetNextWindowSize(ImVec2(700, 500), ImGuiCond_FirstUseEver);
             ImGui::SetNextWindowBgAlpha(0.9f); // Dialog légèrement opaque pour lisibilité
-            ImGui::Begin("Sélectionner un fichier SID", &showFileDialog, ImGuiWindowFlags_None);
+            ImGui::Begin("Select a SID file", &showFileDialog, ImGuiWindowFlags_None);
             
-            // Barre de navigation (répertoire actuel)
-            ImGui::Text("Répertoire:");
+            // Navigation bar (current directory)
+            ImGui::Text("Directory:");
             ImGui::SameLine();
             char dirBuffer[512];
             strncpy(dirBuffer, currentDirectory.string().c_str(), sizeof(dirBuffer) - 1);
@@ -874,7 +874,7 @@ int main(int argc, char* argv[]) {
             ImGui::Separator();
             
             // Boutons de navigation
-            if (ImGui::Button("< Précédent")) {
+            if (ImGui::Button("< Previous")) {
                 if (currentDirectory.has_parent_path() && currentDirectory != currentDirectory.root_path()) {
                     currentDirectory = currentDirectory.parent_path();
                     updateDirectoryList();
@@ -948,7 +948,7 @@ int main(int argc, char* argv[]) {
             ImGui::Spacing();
             
             // Boutons d'action
-            if (ImGui::Button("Charger", ImVec2(150, 0))) {
+            if (ImGui::Button("Load", ImVec2(150, 0))) {
                 if (!selectedFilePath.empty() && fs::exists(selectedFilePath)) {
                     if (player.loadFile(selectedFilePath)) {
                         showFileDialog = false;
@@ -957,7 +957,7 @@ int main(int argc, char* argv[]) {
                 }
             }
             ImGui::SameLine();
-            if (ImGui::Button("Annuler", ImVec2(150, 0))) {
+            if (ImGui::Button("Cancel", ImVec2(150, 0))) {
                 showFileDialog = false;
                 selectedFilePath = "";
             }

@@ -1,49 +1,51 @@
 # imSid Player
 
-Un lecteur de fichiers SID (Commodore 64) pour Linux avec une interface graphique moderne utilisant ImGui.
+**Alpha - Work In Progress**
+
+A SID file (Commodore 64) player for Linux with a modern graphical interface using ImGui.
 
 ![Screenshot](Screenshot.png)
 
-## Fonctionnalités
+## Features
 
-### Lecture audio
-- ✅ Lecture de fichiers SID (.sid)
-- ✅ Contrôles Play/Pause/Stop
-- ✅ Support de 4 moteurs SID en parallèle :
-  - Moteur audio principal (toutes les voix)
-  - 3 moteurs d'analyse pour isoler chaque voix individuellement
-- ✅ Sélection de l'engine audio (mixé ou voix individuelles)
-- ✅ Contrôle individuel des voix (mute/unmute)
+### Audio playback
+- ✅ SID file (.sid) playback
+- ✅ Play/Pause/Stop controls
+- ✅ Support for 4 parallel SID engines :
+  - Main audio engine (all voices)
+  - 3 analysis engines to isolate each voice individually
+- ✅ Audio engine selection (mixed or individual voices)
+- ✅ Individual voice control (mute/unmute)
 
-### Interface graphique
-- ✅ Interface moderne avec ImGui
-- ✅ Onglets Player et Config
-- ✅ Oscilloscopes en temps réel pour chaque voix (3 canaux)
-- ✅ Affichage des informations de la chanson
-- ✅ Images de fond personnalisables (PNG, JPG) avec transparence réglable
-- ✅ Fenêtre redimensionnable
+### Graphical interface
+- ✅ Modern interface with ImGui
+- ✅ Player and Config tabs
+- ✅ Real-time oscilloscopes for each voice (3 channels)
+- ✅ Song information display
+- ✅ Customizable background images (PNG, JPG) with adjustable transparency
+- ✅ Resizable window
 
 ### Playlist
-- ✅ Playlist hiérarchique avec structure arborescente
-- ✅ Drag & Drop de fichiers et dossiers
-- ✅ Navigation précédent/suivant
-- ✅ Tri automatique alphabétique
-- ✅ Support des dossiers imbriqués
+- ✅ Hierarchical playlist with tree structure
+- ✅ Drag & Drop files and folders
+- ✅ Previous/Next navigation
+- ✅ Automatic alphabetical sorting
+- ✅ Support for nested folders
 
 ### Configuration
-- ✅ Sauvegarde automatique de la configuration
-- ✅ Restauration de l'état au démarrage :
-  - Fichier en cours de lecture
-  - Playlist complète
-  - Position et taille de la fenêtre
-  - Image de fond sélectionnée
-  - État des voix (actives/mutées)
-  - Engine audio sélectionné
-  - Transparence de l'image de fond
+- ✅ Automatic configuration saving
+- ✅ State restoration on startup :
+  - Currently playing file
+  - Complete playlist
+  - Window position and size
+  - Selected background image
+  - Voice states (active/muted)
+  - Selected audio engine
+  - Background image transparency
 
-## Prérequis
+## Prerequisites
 
-### Dépendances système
+### System dependencies
 
 ```bash
 # Ubuntu/Debian
@@ -57,32 +59,32 @@ sudo apt-get install -y \
     pkg-config
 ```
 
-### Dépendances du projet
+### Project dependencies
 
-- **ImGui** : Cloné automatiquement dans `third_party/imgui`
-- **SDL2** : Pour la fenêtre et l'audio
-- **SDL2_image** : Pour le chargement des images de fond (PNG, JPG)
-- **sidplayfp** : Pour la lecture des fichiers SID
+- **ImGui** : Automatically cloned in `third_party/imgui`
+- **SDL2** : For window and audio
+- **SDL2_image** : For loading background images (PNG, JPG)
+- **sidplayfp** : For SID file playback
 
 ## Compilation
 
 ```bash
-# Créer le dossier de build
+# Create build directory
 mkdir build
 cd build
 
-# Configurer avec CMake
+# Configure with CMake
 cmake ..
 
-# Compiler
+# Compile
 make -j$(nproc)
 
-# L'exécutable sera dans build/bin/imSidPlayer
+# The executable will be in build/bin/imSidPlayer
 ```
 
-## Utilisation
+## Usage
 
-### Lancement
+### Launch
 
 ```bash
 ./build/bin/imSidPlayer
@@ -90,30 +92,30 @@ make -j$(nproc)
 
 ### Interface
 
-L'interface est divisée en deux panneaux :
+The interface is divided into two panels:
 
-**Panneau gauche (Player/Config) :**
-- **Onglet Player** :
-  - Informations sur le fichier actuel
-  - Boutons Play/Pause/Stop
-  - État de lecture
-  - Sélection de l'engine audio
-  - Contrôles des voix (Voice 1, 2, 3)
-  - Oscilloscopes en temps réel (3 canaux)
+**Left panel (Player/Config):**
+- **Player tab** :
+  - Current file information
+  - Play/Pause/Stop buttons
+  - Playback state
+  - Audio engine selection
+  - Voice controls (Voice 1, 2, 3)
+  - Real-time oscilloscopes (3 channels)
 
-- **Onglet Config** :
-  - Configuration de l'image de fond
-  - Slider de transparence
-  - Navigation entre les images
+- **Config tab** :
+  - Background image configuration
+  - Transparency slider
+  - Image navigation
 
-**Panneau droit (Playlist) :**
-- Zone de drag & drop pour ajouter des fichiers/dossiers
-- Arborescence de la playlist
-- Boutons Précédent/Suivant
+**Right panel (Playlist):**
+- Drag & drop area to add files/folders
+- Playlist tree structure
+- Previous/Next buttons
 
-### Images de fond
+### Background images
 
-Placez vos images de fond (PNG, JPG) dans le répertoire `background/` à côté de l'exécutable :
+Place your background images (PNG, JPG) in the `background/` directory next to the executable:
 ```
 build/bin/
 ├── imSidPlayer
@@ -123,71 +125,71 @@ build/bin/
     └── ...
 ```
 
-Les images seront chargées automatiquement au démarrage.
+Images will be automatically loaded on startup.
 
 ### Configuration
 
-Le fichier de configuration `config.txt` est créé automatiquement dans le répertoire de l'exécutable. Il sauvegarde :
-- Le fichier en cours de lecture
-- La playlist complète
-- La position et taille de la fenêtre
-- L'image de fond sélectionnée
-- L'état des voix
-- L'engine audio sélectionné
-- La transparence de l'image de fond
+The configuration file `config.txt` is automatically created in the executable directory. It saves:
+- Currently playing file
+- Complete playlist
+- Window position and size
+- Selected background image
+- Voice states
+- Selected audio engine
+- Background image transparency
 
-La configuration est sauvegardée automatiquement à la fermeture de l'application.
+Configuration is automatically saved when closing the application.
 
-## Structure du projet
+## Project structure
 
 ```
 imSid/
-├── CMakeLists.txt          # Configuration CMake principale
-├── README.md               # Ce fichier
+├── CMakeLists.txt          # Main CMake configuration
+├── README.md               # This file
 ├── include/
-│   ├── SidPlayer.h         # Classe principale du lecteur SID
-│   └── Config.h             # Classe de gestion de la configuration
+│   ├── SidPlayer.h         # Main SID player class
+│   └── Config.h            # Configuration management class
 ├── src/
-│   ├── main.cpp             # Point d'entrée et interface ImGui
-│   ├── SidPlayer.cpp        # Implémentation du lecteur SID
-│   └── Config.cpp           # Implémentation de la configuration
+│   ├── main.cpp             # Entry point and ImGui interface
+│   ├── SidPlayer.cpp        # SID player implementation
+│   └── Config.cpp           # Configuration implementation
 └── third_party/
-    └── imgui/               # Bibliothèque ImGui (git submodule)
+    └── imgui/               # ImGui library (git submodule)
 ```
 
-## Développement
+## Development
 
-### Debug avec Cursor/VS Code
+### Debug with Cursor/VS Code
 
-Le projet est configuré pour le debug avec Cursor. Utilisez la configuration `.vscode/launch.json` pour lancer le debug.
+The project is configured for debugging with Cursor. Use the `.vscode/launch.json` configuration to launch debugging.
 
 ### LSP (Language Server Protocol)
 
-Le projet génère automatiquement `compile_commands.json` pour le LSP. Le fichier `.vscode/c_cpp_properties.json` est configuré pour utiliser ce fichier.
+The project automatically generates `compile_commands.json` for the LSP. The `.vscode/c_cpp_properties.json` file is configured to use this file.
 
-## Fonctionnalités techniques
+## Technical features
 
-### Architecture multi-moteurs
+### Multi-engine architecture
 
-Le lecteur utilise 4 moteurs SID en parallèle :
-- **Moteur #0** : Audio réel (toutes les voix, pour la sortie audio)
-- **Moteur #1** : Analyse voix 1 (voix 2+3 mutées)
-- **Moteur #2** : Analyse voix 2 (voix 1+3 mutées)
-- **Moteur #3** : Analyse voix 3 (voix 1+2 mutées)
+The player uses 4 parallel SID engines:
+- **Engine #0** : Real audio (all voices, for audio output)
+- **Engine #1** : Voice 1 analysis (voices 2+3 muted)
+- **Engine #2** : Voice 2 analysis (voices 1+3 muted)
+- **Engine #3** : Voice 3 analysis (voices 1+2 muted)
 
-Cette architecture permet d'isoler chaque voix pour l'analyse oscilloscope tout en maintenant un rendu audio de qualité.
+This architecture allows isolating each voice for oscilloscope analysis while maintaining high-quality audio rendering.
 
 ### Oscilloscopes
 
-Les oscilloscopes utilisent un buffer circulaire optimisé pour des performances en temps réel (60 FPS minimum). Les données sont capturées directement depuis les moteurs d'analyse.
+The oscilloscopes use an optimized circular buffer for real-time performance (60 FPS minimum). Data is captured directly from the analysis engines.
 
-### Format de configuration
+### Configuration format
 
-Le fichier de configuration utilise un format simple inspiré de YAML, sans dépendance externe. Le parsing est fait manuellement avec la bibliothèque standard C++.
+The configuration file uses a simple YAML-inspired format, without external dependencies. Parsing is done manually with the C++ standard library.
 
-## Licence
+## License
 
-Ce projet utilise :
+This project uses:
 - **ImGui** : MIT License
 - **SDL2** : zlib License
 - **SDL2_image** : zlib License
