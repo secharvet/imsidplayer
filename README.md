@@ -2,6 +2,8 @@
 
 Un lecteur de fichiers SID (Commodore 64) pour Linux avec une interface graphique moderne utilisant ImGui.
 
+![Screenshot](Screenshot.png)
+
 ## Fonctionnalités
 
 ### Lecture audio
