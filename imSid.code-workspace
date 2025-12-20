@@ -1,0 +1,25 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"C_Cpp.default.includePath": [
+			"${workspaceFolder}/**",
+			"${workspaceFolder}/include",
+			"${workspaceFolder}/third_party/imgui",
+			"${workspaceFolder}/third_party/imgui/backends",
+			"/usr/include/sidplayfp",
+			"/usr/include/SDL2"
+		],
+		"C_Cpp.default.cppStandard": "c++17",
+		"C_Cpp.default.compilerPath": "/usr/bin/g++",
+		"C_Cpp.default.intelliSenseMode": "linux-gcc-x64",
+		"C_Cpp.default.compileCommands": "${workspaceFolder}/compile_commands.json",
+		"files.associations": {
+			"*.h": "cpp",
+			"*.cpp": "cpp"
+		}
+	}
+}
