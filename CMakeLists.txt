@@ -71,6 +71,16 @@ set(SOURCES
     ${IMGUI_DIR}/backends/imgui_impl_sdlrenderer2.cpp
 )
 
+# Ajouter les fichiers ImGui si pas de CMakeLists.txt (compilation directe)
+if(IMGUI_FOUND AND NOT EXISTS "${IMGUI_DIR}/CMakeLists.txt")
+    list(APPEND SOURCES
+        ${IMGUI_DIR}/imgui.cpp
+        ${IMGUI_DIR}/imgui_draw.cpp
+        ${IMGUI_DIR}/imgui_tables.cpp
+        ${IMGUI_DIR}/imgui_widgets.cpp
+    )
+endif()
+
 set(HEADERS
     include/SidPlayer.h
     include/Config.h
