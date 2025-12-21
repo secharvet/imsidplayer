@@ -178,18 +178,79 @@ jobs:
         WORKSPACE=$(cygpath -u "${{ github.workspace }}")
         cd "$WORKSPACE"
         mkdir -p artifacts/windows
+        
         # Copy executable
-        cp build/bin/imSidPlayer.exe artifacts/windows/ || cp build/bin/imSidPlayer artifacts/windows/imSidPlayer.exe
-        # Copy required DLLs
-        cp /mingw64/bin/SDL2.dll artifacts/windows/ 2>/dev/null || true
-        cp /mingw64/bin/libsidplayfp-*.dll artifacts/windows/ 2>/dev/null || true
+        EXE_PATH="build/bin/imSidPlayer.exe"
+        if [ ! -f "$EXE_PATH" ]; then
+          EXE_PATH="build/bin/imSidPlayer"
+        fi
+        cp "$EXE_PATH" artifacts/windows/imSidPlayer.exe
+        
+        # Core runtime DLLs (MinGW)
         cp /mingw64/bin/libgcc_s_seh-*.dll artifacts/windows/ 2>/dev/null || true
         cp /mingw64/bin/libstdc++-*.dll artifacts/windows/ 2>/dev/null || true
         cp /mingw64/bin/libwinpthread-*.dll artifacts/windows/ 2>/dev/null || true
-        # Copy SDL2_image DLL if available
+        
+        # SDL2 DLLs
+        cp /mingw64/bin/SDL2.dll artifacts/windows/ 2>/dev/null || true
+        
+        # SDL2_image DLL and all its dependencies
         cp /mingw64/bin/SDL2_image.dll artifacts/windows/ 2>/dev/null || true
-        echo "Windows artifacts prepared"
+        cp /mingw64/bin/libpng16-16.dll artifacts/windows/ 2>/dev/null || true
+        cp /mingw64/bin/libjpeg-8.dll artifacts/windows/ 2>/dev/null || true
+        cp /mingw64/bin/libtiff-6.dll artifacts/windows/ 2>/dev/null || true
+        cp /mingw64/bin/libwebp-7.dll artifacts/windows/ 2>/dev/null || true
+        cp /mingw64/bin/libwebpdemux-2.dll artifacts/windows/ 2>/dev/null || true
+        cp /mingw64/bin/libavif-16.dll artifacts/windows/ 2>/dev/null || true
+        cp /mingw64/bin/libjxl.dll artifacts/windows/ 2>/dev/null || true
+        cp /mingw64/bin/zlib1.dll artifacts/windows/ 2>/dev/null || true
+        
+        # sidplayfp DLL and its dependencies
+        cp /mingw64/bin/libsidplayfp-*.dll artifacts/windows/ 2>/dev/null || true
+        cp /mingw64/bin/libgcrypt-20.dll artifacts/windows/ 2>/dev/null || true
+        cp /mingw64/bin/libgpg-error-*.dll artifacts/windows/ 2>/dev/null || true
+        
+        # Find and copy any additional dependencies using objdump
+        echo "=== Finding additional dependencies ==="
+        if command -v objdump &> /dev/null; then
+          # Get dependencies from the executable
+          EXE_DEPS=$(objdump -p artifacts/windows/imSidPlayer.exe 2>/dev/null | grep "DLL Name:" | awk '{print $3}' | grep -v "^$" || true)
+          for dep in $EXE_DEPS; do
+            if [ -f "/mingw64/bin/$dep" ] && [ ! -f "artifacts/windows/$dep" ]; then
+              echo "Copying dependency: $dep"
+              cp "/mingw64/bin/$dep" artifacts/windows/ 2>/dev/null || true
+            fi
+          done
+          
+          # Get dependencies from SDL2_image.dll
+          if [ -f artifacts/windows/SDL2_image.dll ]; then
+            SDL2_IMG_DEPS=$(objdump -p artifacts/windows/SDL2_image.dll 2>/dev/null | grep "DLL Name:" | awk '{print $3}' | grep -v "^$" || true)
+            for dep in $SDL2_IMG_DEPS; do
+              if [ -f "/mingw64/bin/$dep" ] && [ ! -f "artifacts/windows/$dep" ]; then
+                echo "Copying SDL2_image dependency: $dep"
+                cp "/mingw64/bin/$dep" artifacts/windows/ 2>/dev/null || true
+              fi
+            done
+          fi
+          
+          # Get dependencies from libsidplayfp DLL
+          SIDPLAYFP_DLL=$(ls artifacts/windows/libsidplayfp-*.dll 2>/dev/null | head -1)
+          if [ -n "$SIDPLAYFP_DLL" ]; then
+            SIDPLAYFP_DEPS=$(objdump -p "$SIDPLAYFP_DLL" 2>/dev/null | grep "DLL Name:" | awk '{print $3}' | grep -v "^$" || true)
+            for dep in $SIDPLAYFP_DEPS; do
+              if [ -f "/mingw64/bin/$dep" ] && [ ! -f "artifacts/windows/$dep" ]; then
+                echo "Copying libsidplayfp dependency: $dep"
+                cp "/mingw64/bin/$dep" artifacts/windows/ 2>/dev/null || true
+              fi
+            done
+          fi
+        fi
+        
+        echo "=== Windows artifacts prepared ==="
         ls -lh artifacts/windows/
+        echo ""
+        echo "=== DLL count ==="
+        ls -1 artifacts/windows/*.dll 2>/dev/null | wc -l || echo "0"
     
     - name: Upload Linux artifacts
       if: runner.os == 'Linux'
