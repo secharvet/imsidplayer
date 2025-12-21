@@ -113,9 +113,11 @@ jobs:
         # Convert Unix paths to Windows paths for CMake
         GCC_PATH=$(cygpath -w "$(which gcc)")
         GXX_PATH=$(cygpath -w "$(which g++)")
+        MAKE_PATH=$(cygpath -w "$(which make)")
         PKG_CONFIG_PATH=$(cygpath -w "$(which pkg-config)")
         echo "GCC path (Windows): $GCC_PATH"
         echo "G++ path (Windows): $GXX_PATH"
+        echo "Make path (Windows): $MAKE_PATH"
         echo "pkg-config path (Windows): $PKG_CONFIG_PATH"
         
         # Configure CMake with MinGW
@@ -124,7 +126,7 @@ jobs:
           -DCMAKE_BUILD_TYPE=Release \
           -DCMAKE_C_COMPILER="$GCC_PATH" \
           -DCMAKE_CXX_COMPILER="$GXX_PATH" \
-          -DCMAKE_MAKE_PROGRAM=make \
+          -DCMAKE_MAKE_PROGRAM="$MAKE_PATH" \
           -DPKG_CONFIG_EXECUTABLE="$PKG_CONFIG_PATH"
     
     - name: Build (Windows MinGW)
