@@ -25,6 +25,7 @@ jobs:
     
     - name: Get version from tag
       id: get_version
+      shell: bash
       run: |
         if [ "${{ github.ref_type }}" = "tag" ]; then
           VERSION="${{ github.ref_name }}"
@@ -41,7 +42,11 @@ jobs:
           echo "is_release=false" >> $GITHUB_OUTPUT
         fi
         echo "Version: $VERSION"
-        echo "Is release: $(echo ${{ github.ref_type }} | grep -q tag && echo true || echo false)"
+        if [ "${{ github.ref_type }}" = "tag" ]; then
+          echo "Is release: true"
+        else
+          echo "Is release: false"
+        fi
     
     - name: Install Linux dependencies
       if: runner.os == 'Linux'
