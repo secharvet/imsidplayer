@@ -3,11 +3,17 @@ name: CMake Multi-Platform
 on:
   push:
     branches: [ main ]
+    tags:
+      - 'v*'  # Triggers on tags like v1.0.0, v1.2.3, etc.
   pull_request:
     branches: [ main ]
 
 jobs:
   build:
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+      tag: ${{ steps.get_version.outputs.tag }}
+      is_release: ${{ steps.get_version.outputs.is_release }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -19,6 +25,27 @@ jobs:
       uses: actions/checkout@v4
       with:
         submodules: 'recursive'
+        fetch-depth: 0  # Fetch all history for tags
+    
+    - name: Get version from tag
+      id: get_version
+      run: |
+        if [ "${{ github.ref_type }}" = "tag" ]; then
+          VERSION="${{ github.ref_name }}"
+          # Remove 'v' prefix if present
+          VERSION=${VERSION#v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          echo "is_release=true" >> $GITHUB_OUTPUT
+        else
+          # Use commit SHA for non-tag builds
+          VERSION="dev-${{ github.sha }}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=" >> $GITHUB_OUTPUT
+          echo "is_release=false" >> $GITHUB_OUTPUT
+        fi
+        echo "Version: $VERSION"
+        echo "Is release: $(echo ${{ github.ref_type }} | grep -q tag && echo true || echo false)"
     
     - name: Install Linux dependencies
       if: runner.os == 'Linux'
@@ -165,8 +192,13 @@ jobs:
       if: runner.os == 'Linux'
       run: |
         mkdir -p artifacts/linux
+        VERSION="${{ steps.get_version.outputs.version }}"
         cp build/bin/imSidPlayer artifacts/linux/
         strip artifacts/linux/imSidPlayer || true
+        # Rename with version if it's a release
+        if [ "${{ steps.get_version.outputs.is_release }}" = "true" ]; then
+          cp artifacts/linux/imSidPlayer "artifacts/linux/imSidPlayer-${VERSION}-linux"
+        fi
         echo "Linux executable prepared"
         ls -lh artifacts/linux/
     
@@ -285,19 +317,105 @@ jobs:
         echo ""
         echo "=== DLL count ==="
         ls -1 artifacts/windows/*.dll 2>/dev/null | wc -l || echo "0"
+        
+        # Create versioned archive for releases
+        if [ "${{ steps.get_version.outputs.is_release }}" = "true" ]; then
+          VERSION="${{ steps.get_version.outputs.version }}"
+          cd artifacts/windows
+          zip -r "../imSidPlayer-${VERSION}-windows.zip" . -x "*.zip"
+          cd ../..
+          echo "Created: imSidPlayer-${VERSION}-windows.zip"
+        fi
     
     - name: Upload Linux artifacts
       if: runner.os == 'Linux'
       uses: actions/upload-artifact@v4
       with:
-        name: imSidPlayer-linux
-        path: artifacts/linux/imSidPlayer
+        name: imSidPlayer-linux${{ steps.get_version.outputs.is_release && format('-{0}', steps.get_version.outputs.version) || '' }}
+        path: artifacts/linux/
         retention-days: 30
     
     - name: Upload Windows artifacts
       if: runner.os == 'Windows'
       uses: actions/upload-artifact@v4
       with:
-        name: imSidPlayer-windows
-        path: artifacts/windows/
+        name: imSidPlayer-windows${{ steps.get_version.outputs.is_release && format('-{0}', steps.get_version.outputs.version) || '' }}
+        path: artifacts/
+        if-no-files-found: ignore
         retention-days: 30
+
+  release:
+    needs: build
+    if: needs.build.outputs.is_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: imSidPlayer-linux-${{ needs.build.outputs.version }}
+          path: release-artifacts/
+      
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: imSidPlayer-windows-${{ needs.build.outputs.version }}
+          path: release-artifacts/
+      
+      - name: Prepare release files
+        run: |
+          VERSION="${{ needs.build.outputs.version }}"
+          cd release-artifacts
+          
+          # Find and rename Linux binary
+          if [ -f "linux/imSidPlayer-$VERSION-linux" ]; then
+            cp "linux/imSidPlayer-$VERSION-linux" "imSidPlayer-$VERSION-linux"
+          elif [ -f "linux/imSidPlayer" ]; then
+            cp "linux/imSidPlayer" "imSidPlayer-$VERSION-linux"
+          fi
+          
+          # Find Windows zip
+          if [ -f "imSidPlayer-$VERSION-windows.zip" ]; then
+            mv "imSidPlayer-$VERSION-windows.zip" "imSidPlayer-$VERSION-windows.zip"
+          elif [ -d "windows" ]; then
+            cd windows
+            zip -r "../imSidPlayer-$VERSION-windows.zip" . -x "*.zip"
+            cd ..
+          fi
+          
+          ls -lh
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.build.outputs.tag }}
+          name: Release ${{ needs.build.outputs.tag }}
+          body: |
+            ## imSid Player ${{ needs.build.outputs.version }}
+            
+            ### Downloads
+            
+            - **Linux**: `imSidPlayer-${{ needs.build.outputs.version }}-linux`
+            - **Windows**: `imSidPlayer-${{ needs.build.outputs.version }}-windows.zip`
+            
+            ### Installation
+            
+            **Linux:**
+            ```bash
+            chmod +x imSidPlayer-${{ needs.build.outputs.version }}-linux
+            ./imSidPlayer-${{ needs.build.outputs.version }}-linux
+            ```
+            
+            **Windows:**
+            Extract the zip file and run `imSidPlayer.exe`
+            
+            ### Changes
+            
+            See commit history for details.
+          files: |
+            release-artifacts/imSidPlayer-${{ needs.build.outputs.version }}-linux
+            release-artifacts/imSidPlayer-${{ needs.build.outputs.version }}-windows.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
