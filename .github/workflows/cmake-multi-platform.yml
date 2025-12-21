@@ -200,9 +200,11 @@ jobs:
         VERSION="${{ steps.get_version.outputs.version }}"
         cp build/bin/imSidPlayer artifacts/linux/
         strip artifacts/linux/imSidPlayer || true
-        # Rename with version if it's a release
+        # Always create versioned file for releases
         if [ "${{ steps.get_version.outputs.is_release }}" = "true" ]; then
           cp artifacts/linux/imSidPlayer "artifacts/linux/imSidPlayer-${VERSION}-linux"
+          chmod +x "artifacts/linux/imSidPlayer-${VERSION}-linux"
+          echo "Created versioned Linux binary: imSidPlayer-${VERSION}-linux"
         fi
         echo "Linux executable prepared"
         ls -lh artifacts/linux/
@@ -399,13 +401,27 @@ jobs:
           mkdir -p release-files
           
           echo "=== Searching for Linux binary ==="
-          # Find and copy Linux binary
-          if [ -f "release-artifacts/linux/imSidPlayer-$VERSION-linux" ]; then
-            echo "Found: release-artifacts/linux/imSidPlayer-$VERSION-linux"
-            cp "release-artifacts/linux/imSidPlayer-$VERSION-linux" "release-files/imSidPlayer-$VERSION-linux"
+          # Find and copy Linux binary (check multiple possible locations)
+          # The artifact structure depends on how GitHub Actions downloads it
+          LINUX_BINARY=""
+          if [ -f "release-artifacts/imSidPlayer-$VERSION-linux" ]; then
+            LINUX_BINARY="release-artifacts/imSidPlayer-$VERSION-linux"
+          elif [ -f "release-artifacts/linux/imSidPlayer-$VERSION-linux" ]; then
+            LINUX_BINARY="release-artifacts/linux/imSidPlayer-$VERSION-linux"
+          elif [ -f "release-artifacts/artifacts/linux/imSidPlayer-$VERSION-linux" ]; then
+            LINUX_BINARY="release-artifacts/artifacts/linux/imSidPlayer-$VERSION-linux"
+          elif [ -f "release-artifacts/imSidPlayer" ]; then
+            LINUX_BINARY="release-artifacts/imSidPlayer"
           elif [ -f "release-artifacts/linux/imSidPlayer" ]; then
-            echo "Found: release-artifacts/linux/imSidPlayer"
-            cp "release-artifacts/linux/imSidPlayer" "release-files/imSidPlayer-$VERSION-linux"
+            LINUX_BINARY="release-artifacts/linux/imSidPlayer"
+          elif [ -f "release-artifacts/artifacts/linux/imSidPlayer" ]; then
+            LINUX_BINARY="release-artifacts/artifacts/linux/imSidPlayer"
+          fi
+          
+          if [ -n "$LINUX_BINARY" ]; then
+            echo "Found Linux binary: $LINUX_BINARY"
+            cp "$LINUX_BINARY" "release-files/imSidPlayer-$VERSION-linux"
+            chmod +x "release-files/imSidPlayer-$VERSION-linux"
           else
             echo "Linux binary not found, searching..."
             find release-artifacts -name "*imSidPlayer*" -type f || true
@@ -465,21 +481,22 @@ jobs:
             
             ⚠️ **This is an alpha release - Work In Progress**
             
-            ### Downloads
+            ## 📦 Downloads
             
-            - **Linux**: `imSidPlayer-${{ steps.get_version.outputs.version }}-linux`
-            - **Windows**: `imSidPlayer-${{ steps.get_version.outputs.version }}-windows.zip`
+            ### Linux
+            - **[Download imSidPlayer-${{ steps.get_version.outputs.version }}-linux](https://github.com/${{ github.repository }}/releases/download/${{ steps.get_version.outputs.tag }}/imSidPlayer-${{ steps.get_version.outputs.version }}-linux)**
             
-            ### Installation
-            
-            **Linux:**
             ```bash
             chmod +x imSidPlayer-${{ steps.get_version.outputs.version }}-linux
             ./imSidPlayer-${{ steps.get_version.outputs.version }}-linux
             ```
             
-            **Windows:**
+            ### Windows
+            - **[Download imSidPlayer-${{ steps.get_version.outputs.version }}-windows.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.get_version.outputs.tag }}/imSidPlayer-${{ steps.get_version.outputs.version }}-windows.zip)**
+            
             Extract the zip file and run `imSidPlayer.exe`
+            
+            ---
             
             ### Changes
             
