@@ -210,40 +210,74 @@ jobs:
         cp /mingw64/bin/libgcrypt-20.dll artifacts/windows/ 2>/dev/null || true
         cp /mingw64/bin/libgpg-error-*.dll artifacts/windows/ 2>/dev/null || true
         
-        # Find and copy any additional dependencies using objdump
-        echo "=== Finding additional dependencies ==="
-        if command -v objdump &> /dev/null; then
-          # Get dependencies from the executable
-          EXE_DEPS=$(objdump -p artifacts/windows/imSidPlayer.exe 2>/dev/null | grep "DLL Name:" | awk '{print $3}' | grep -v "^$" || true)
-          for dep in $EXE_DEPS; do
-            if [ -f "/mingw64/bin/$dep" ] && [ ! -f "artifacts/windows/$dep" ]; then
-              echo "Copying dependency: $dep"
-              cp "/mingw64/bin/$dep" artifacts/windows/ 2>/dev/null || true
+        # Recursive function to copy all DLL dependencies
+        copy_dll_deps() {
+          local dll_file="$1"
+          local depth="${2:-0}"
+          
+          # Limit recursion depth to avoid infinite loops
+          if [ "$depth" -gt 10 ]; then
+            return 0
+          fi
+          
+          if [ ! -f "$dll_file" ]; then
+            return 0
+          fi
+          
+          # Get dependencies using objdump
+          if ! command -v objdump &> /dev/null; then
+            return 0
+          fi
+          
+          local deps=$(objdump -p "$dll_file" 2>/dev/null | grep "DLL Name:" | awk '{print $3}' | grep -v "^$" | grep -v "^KERNEL32.dll$" | grep -v "^msvcrt.dll$" | grep -v "^USER32.dll$" | grep -v "^GDI32.dll$" || true)
+          
+          for dep in $deps; do
+            # Skip Windows system DLLs
+            case "$dep" in
+              KERNEL32.dll|msvcrt.dll|USER32.dll|GDI32.dll|ADVAPI32.dll|SHELL32.dll|WS2_32.dll|WINMM.dll|OLE32.dll|OLEAUT32.dll|RPCRT4.dll|SHLWAPI.dll|VERSION.dll|WINSPOOL.DRV|comdlg32.dll|gdiplus.dll|IMM32.dll|MSIMG32.dll|PROPSYS.dll|SETUPAPI.dll|UxTheme.dll|dwmapi.dll|IPHLPAPI.DLL|NSI.dll|WINNSI.DLL|dhcpcsvc.DLL|dhcpcsvc6.DLL|DNSAPI.dll|WINHTTP.dll|WINMM.dll|WSOCK32.dll|WS2_32.dll|WS2HELP.dll|ntdll.dll|kernelbase.dll)
+                continue
+                ;;
+            esac
+            
+            local src_dll="/mingw64/bin/$dep"
+            local dst_dll="artifacts/windows/$dep"
+            
+            # Copy if exists in mingw64 and not already copied
+            if [ -f "$src_dll" ] && [ ! -f "$dst_dll" ]; then
+              echo "Copying dependency (depth $depth): $dep"
+              cp "$src_dll" "$dst_dll" 2>/dev/null || true
+              
+              # Recursively copy dependencies of this DLL
+              copy_dll_deps "$dst_dll" $((depth + 1))
             fi
           done
+        }
+        
+        # Find and copy all dependencies recursively
+        echo "=== Finding all dependencies recursively ==="
+        if command -v objdump &> /dev/null; then
+          # Start with the executable
+          copy_dll_deps "artifacts/windows/imSidPlayer.exe" 0
           
-          # Get dependencies from SDL2_image.dll
-          if [ -f artifacts/windows/SDL2_image.dll ]; then
-            SDL2_IMG_DEPS=$(objdump -p artifacts/windows/SDL2_image.dll 2>/dev/null | grep "DLL Name:" | awk '{print $3}' | grep -v "^$" || true)
-            for dep in $SDL2_IMG_DEPS; do
-              if [ -f "/mingw64/bin/$dep" ] && [ ! -f "artifacts/windows/$dep" ]; then
-                echo "Copying SDL2_image dependency: $dep"
-                cp "/mingw64/bin/$dep" artifacts/windows/ 2>/dev/null || true
+          # Process all DLLs in artifacts/windows recursively
+          # This ensures we catch dependencies of dependencies
+          changed=1
+          iteration=0
+          while [ "$changed" -eq 1 ] && [ "$iteration" -lt 5 ]; do
+            changed=0
+            iteration=$((iteration + 1))
+            echo "=== Dependency pass $iteration ==="
+            for dll in artifacts/windows/*.dll; do
+              if [ -f "$dll" ]; then
+                deps_before=$(ls -1 artifacts/windows/*.dll 2>/dev/null | wc -l)
+                copy_dll_deps "$dll" 0
+                deps_after=$(ls -1 artifacts/windows/*.dll 2>/dev/null | wc -l)
+                if [ "$deps_after" -gt "$deps_before" ]; then
+                  changed=1
+                fi
               fi
             done
-          fi
-          
-          # Get dependencies from libsidplayfp DLL
-          SIDPLAYFP_DLL=$(ls artifacts/windows/libsidplayfp-*.dll 2>/dev/null | head -1)
-          if [ -n "$SIDPLAYFP_DLL" ]; then
-            SIDPLAYFP_DEPS=$(objdump -p "$SIDPLAYFP_DLL" 2>/dev/null | grep "DLL Name:" | awk '{print $3}' | grep -v "^$" || true)
-            for dep in $SIDPLAYFP_DEPS; do
-              if [ -f "/mingw64/bin/$dep" ] && [ ! -f "artifacts/windows/$dep" ]; then
-                echo "Copying libsidplayfp dependency: $dep"
-                cp "/mingw64/bin/$dep" artifacts/windows/ 2>/dev/null || true
-              fi
-            done
-          fi
+          done
         fi
         
         echo "=== Windows artifacts prepared ==="
