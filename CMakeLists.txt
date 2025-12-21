@@ -132,14 +132,56 @@ else()
 endif()
 
 # sidplayfp
-find_library(SIDPLAYFP_LIB sidplayfp)
-if(NOT SIDPLAYFP_LIB)
-    message(FATAL_ERROR "sidplayfp library not found. Install it with: sudo apt-get install libsidplayfp-dev")
-endif()
+if(WIN32)
+    # Sur Windows, utiliser la détection manuelle
+    if(DEFINED ENV{SIDPLAYFP_ROOT})
+        # Prendre seulement le premier chemin si plusieurs sont présents
+        string(REPLACE " " ";" SIDPLAYFP_ROOT_LIST "$ENV{SIDPLAYFP_ROOT}")
+        list(GET SIDPLAYFP_ROOT_LIST 0 SIDPLAYFP_ROOT)
+        message(STATUS "SIDPLAYFP_ROOT from environment: $ENV{SIDPLAYFP_ROOT}")
+        message(STATUS "Using SIDPLAYFP_ROOT: ${SIDPLAYFP_ROOT}")
+    else()
+        set(SIDPLAYFP_ROOT "")
+        message(WARNING "SIDPLAYFP_ROOT not set, sidplayfp detection may fail")
+    endif()
+    
+    # Détection manuelle de sidplayfp sur Windows
+    message(STATUS "Searching sidplayfp manually in: ${SIDPLAYFP_ROOT}")
+    
+    find_library(SIDPLAYFP_LIB
+        NAMES sidplayfp
+        PATHS
+        ${SIDPLAYFP_ROOT}
+        PATH_SUFFIXES lib lib/x64
+    )
+    
+    find_path(SIDPLAYFP_INCLUDE_DIR sidplayfp/sidplayfp.h
+        PATHS
+        ${SIDPLAYFP_ROOT}
+        PATH_SUFFIXES include
+    )
+    
+    if(SIDPLAYFP_INCLUDE_DIR AND SIDPLAYFP_LIB)
+        message(STATUS "sidplayfp found manually:")
+        message(STATUS "  Include: ${SIDPLAYFP_INCLUDE_DIR}")
+        message(STATUS "  Library: ${SIDPLAYFP_LIB}")
+    else()
+        message(FATAL_ERROR "sidplayfp not found. SIDPLAYFP_ROOT: ${SIDPLAYFP_ROOT}, Include: ${SIDPLAYFP_INCLUDE_DIR}, Library: ${SIDPLAYFP_LIB}")
+    endif()
+else()
+    # Linux/macOS: utiliser find_library standard
+    find_library(SIDPLAYFP_LIB sidplayfp)
+    if(NOT SIDPLAYFP_LIB)
+        message(FATAL_ERROR "sidplayfp library not found. Install it with: sudo apt-get install libsidplayfp-dev")
+    endif()
 
-find_path(SIDPLAYFP_INCLUDE_DIR sidplayfp/sidplayfp.h)
-if(NOT SIDPLAYFP_INCLUDE_DIR)
-    message(FATAL_ERROR "sidplayfp headers not found. Install it with: sudo apt-get install libsidplayfp-dev")
+    find_path(SIDPLAYFP_INCLUDE_DIR sidplayfp/sidplayfp.h)
+    if(NOT SIDPLAYFP_INCLUDE_DIR)
+        message(FATAL_ERROR "sidplayfp headers not found. Install it with: sudo apt-get install libsidplayfp-dev")
+    endif()
+    message(STATUS "sidplayfp found:")
+    message(STATUS "  Include: ${SIDPLAYFP_INCLUDE_DIR}")
+    message(STATUS "  Library: ${SIDPLAYFP_LIB}")
 endif()
 
 

@@ -70,12 +70,43 @@ jobs:
         # Utiliser Add-Content pour éviter les problèmes d'encodage et de duplication
         Add-Content -Path $env:GITHUB_ENV -Value "SDL2_DIR=$sdl2ConfigDir"
         Add-Content -Path $env:GITHUB_ENV -Value "CMAKE_PREFIX_PATH=$sdl2Path"
+        
+        # Build sidplayfp from source
+        Write-Host "Cloning sidplayfp repository..."
+        git clone --depth 1 --branch 2.7.0 https://github.com/libsidplayfp/libsidplayfp.git sidplayfp-src
+        if (-not (Test-Path "sidplayfp-src")) {
+          Write-Host "Error: Failed to clone sidplayfp"
+          exit 1
+        }
+        
+        Write-Host "Building sidplayfp..."
+        New-Item -ItemType Directory -Force -Path "sidplayfp-build" | Out-Null
+        Push-Location "sidplayfp-build"
+        cmake -G "Visual Studio 17 2022" -A x64 `
+          -DCMAKE_BUILD_TYPE=Release `
+          -DCMAKE_INSTALL_PREFIX="$PWD/install" `
+          ../sidplayfp-src
+        if ($LASTEXITCODE -ne 0) {
+          Write-Host "Error: CMake configuration failed for sidplayfp"
+          exit 1
+        }
+        cmake --build . --config Release --target install
+        if ($LASTEXITCODE -ne 0) {
+          Write-Host "Error: Build failed for sidplayfp"
+          exit 1
+        }
+        Pop-Location
+        
+        $sidplayfpPath = Join-Path (Get-Location) "sidplayfp-build/install"
+        Write-Host "sidplayfp installed to: $sidplayfpPath"
+        Add-Content -Path $env:GITHUB_ENV -Value "SIDPLAYFP_ROOT=$sidplayfpPath"
     
     - name: Configure CMake
       run: cmake -B ${{ github.workspace }}/build -S ${{ github.workspace }}
       env:
         SDL2_DIR: ${{ env.SDL2_DIR }}
         CMAKE_PREFIX_PATH: ${{ env.CMAKE_PREFIX_PATH }}
+        SIDPLAYFP_ROOT: ${{ env.SIDPLAYFP_ROOT }}
     
     - name: Build
       run: cmake --build ${{ github.workspace }}/build --config Release
