@@ -348,10 +348,17 @@ jobs:
 
   release:
     needs: build
-    if: github.ref_type == 'tag'
+    if: github.ref_type == 'tag' && github.event_name == 'push'
     runs-on: ubuntu-latest
     # Only wait for Linux and Windows builds (macOS disabled)
     steps:
+      - name: Debug context
+        run: |
+          echo "Ref type: ${{ github.ref_type }}"
+          echo "Ref name: ${{ github.ref_name }}"
+          echo "Event name: ${{ github.event_name }}"
+          echo "Ref: ${{ github.ref }}"
+      
       - name: Get version from tag
         id: get_version
         run: |
