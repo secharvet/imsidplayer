@@ -43,7 +43,24 @@ jobs:
       uses: msys2/setup-msys2@v2
       with:
         update: true
-        install: mingw-w64-x86_64-libsidplayfp
+    
+    - name: Install sidplayfp via MSYS2
+      if: runner.os == 'Windows'
+      shell: msys2 {0}
+      run: |
+        # Install with retry logic (network issues can cause timeouts)
+        for i in 1 2 3; do
+          echo "Attempt $i/3 to install sidplayfp..."
+          if pacman -S --noconfirm --needed mingw-w64-x86_64-libsidplayfp; then
+            echo "Successfully installed sidplayfp"
+            exit 0
+          else
+            echo "Installation failed, waiting 15 seconds before retry..."
+            sleep 15
+          fi
+        done
+        echo "Failed to install sidplayfp after 3 attempts"
+        exit 1
     
     - name: Install Windows dependencies
       if: runner.os == 'Windows'
