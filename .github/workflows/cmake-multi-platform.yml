@@ -84,7 +84,8 @@ jobs:
           mingw-w64-x86_64-SDL2 \
           mingw-w64-x86_64-SDL2_image \
           mingw-w64-x86_64-libsidplayfp \
-          mingw-w64-x86_64-pkg-config
+          mingw-w64-x86_64-pkg-config \
+          zip
         
         # Verify installations
         echo "=== Checking MinGW tools ==="
