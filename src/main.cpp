@@ -178,6 +178,75 @@ int main(int argc, char* argv[]) {
     bool showBackground = config.isBackgroundShown();
     int backgroundAlpha = config.getBackgroundAlpha(); // Transparence de l'image de fond (0-255)
     
+    // Variable pour savoir si on est dans l'onglet Config (pour drag and drop d'images)
+    bool isConfigTabActive = false;
+    
+    // Fonction pour recharger les images de fond
+    auto reloadBackgroundImages = [&]() {
+        // Libérer les textures existantes
+        for (auto& bgImg : backgroundImages) {
+            if (bgImg.texture) {
+                SDL_DestroyTexture(bgImg.texture);
+            }
+        }
+        backgroundImages.clear();
+        
+#ifdef HAS_SDL2_IMAGE
+        fs::path configDir = getConfigDir();
+        fs::path backgroundPath = configDir / "background";
+        
+        if (!fs::exists(backgroundPath)) {
+            try {
+                fs::create_directories(backgroundPath);
+            } catch (const std::exception& e) {
+                std::cerr << "Impossible de créer le répertoire background: " << e.what() << std::endl;
+                return;
+            }
+        }
+        
+        std::vector<std::string> imageExtensions = {".png", ".jpg", ".jpeg", ".bmp", ".gif"};
+        try {
+            for (const auto& entry : fs::directory_iterator(backgroundPath)) {
+                if (entry.is_regular_file()) {
+                    std::string ext = entry.path().extension().string();
+                    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+                    
+                    if (std::find(imageExtensions.begin(), imageExtensions.end(), ext) != imageExtensions.end()) {
+                        std::string filename = entry.path().filename().string();
+                        std::string fullPath = entry.path().string();
+                        if (filename[0] != '.') {
+                            SDL_Surface* bgSurface = IMG_Load(fullPath.c_str());
+                            if (bgSurface) {
+                                SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, bgSurface);
+                                if (texture) {
+                                    BackgroundImage bgImg;
+                                    bgImg.texture = texture;
+                                    bgImg.filename = filename;
+                                    bgImg.width = bgSurface->w;
+                                    bgImg.height = bgSurface->h;
+                                    backgroundImages.push_back(bgImg);
+                                }
+                                SDL_FreeSurface(bgSurface);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Réajuster l'index si nécessaire
+            if (!backgroundImages.empty()) {
+                if (currentBackgroundIndex >= (int)backgroundImages.size()) {
+                    currentBackgroundIndex = 0;
+                }
+            } else {
+                currentBackgroundIndex = -1;
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "Erreur lors du rechargement des images: " << e.what() << std::endl;
+        }
+#endif
+    };
+    
 #ifdef HAS_SDL2_IMAGE
     // Initialiser SDL_image
     int imgFlags = IMG_INIT_PNG | IMG_INIT_JPG;
@@ -368,6 +437,58 @@ int main(int argc, char* argv[]) {
                 if (droppedPath) {
                     fs::path path(droppedPath);
                     
+                    // Vérifier d'abord si c'est une image (fonctionne sur tous les onglets)
+                    if (fs::is_regular_file(path)) {
+                        std::string ext = path.extension().string();
+                        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+                        std::vector<std::string> imageExtensions = {".png", ".jpg", ".jpeg", ".bmp", ".gif"};
+                        
+                        if (std::find(imageExtensions.begin(), imageExtensions.end(), ext) != imageExtensions.end()) {
+                            // C'est une image, la copier dans le dossier background
+                            try {
+                                fs::path configDir = getConfigDir();
+                                fs::path backgroundPath = configDir / "background";
+                                
+                                if (!fs::exists(backgroundPath)) {
+                                    fs::create_directories(backgroundPath);
+                                }
+                                
+                                fs::path destPath = backgroundPath / path.filename();
+                                
+                                // Si le fichier existe déjà, ajouter un numéro
+                                int counter = 1;
+                                std::string baseName = path.stem().string();
+                                std::string extension = path.extension().string();
+                                while (fs::exists(destPath)) {
+                                    std::string newName = baseName + "_" + std::to_string(counter) + extension;
+                                    destPath = backgroundPath / newName;
+                                    counter++;
+                                }
+                                
+                                fs::copy_file(path, destPath, fs::copy_options::overwrite_existing);
+                                std::cout << "Image copiée dans background: " << destPath.filename().string() << std::endl;
+                                
+                                // Recharger les images
+                                reloadBackgroundImages();
+                                
+                                // Sélectionner la nouvelle image
+                                if (!backgroundImages.empty()) {
+                                    for (size_t i = 0; i < backgroundImages.size(); i++) {
+                                        if (backgroundImages[i].filename == destPath.filename().string()) {
+                                            currentBackgroundIndex = i;
+                                            break;
+                                        }
+                                    }
+                                }
+                            } catch (const std::exception& e) {
+                                std::cerr << "Erreur lors de la copie de l'image: " << e.what() << std::endl;
+                            }
+                            
+                            SDL_free(droppedPath);
+                            continue; // Ne pas traiter comme un fichier SID
+                        }
+                    }
+                    
                     // Fonction pour trier les enfants d'un nœud (récursive)
                     std::function<void(PlaylistNode*)> sortNode;
                     sortNode = [&sortNode](PlaylistNode* node) {
@@ -452,6 +573,9 @@ int main(int argc, char* argv[]) {
             }
         }
 
+        // Réinitialiser isConfigTabActive au début de chaque frame
+        isConfigTabActive = false;
+        
         // Démarrer le frame ImGui
         ImGui_ImplSDLRenderer2_NewFrame();
         ImGui_ImplSDL2_NewFrame();
@@ -656,6 +780,7 @@ int main(int argc, char* argv[]) {
                 
                 // Onglet Config
                 if (ImGui::BeginTabItem("Config")) {
+                    isConfigTabActive = true;
                     ImGui::Text("Configuration");
                     ImGui::Separator();
                     ImGui::Spacing();
@@ -663,6 +788,16 @@ int main(int argc, char* argv[]) {
                     // Background image section
                     ImGui::Text("Background image");
                     ImGui::Separator();
+                    
+                    // Zone de drag and drop pour les images
+                    ImGui::Text("Drag & drop image files here to add them");
+                    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.2f, 0.2f, 0.2f, 0.3f));
+                    ImGui::BeginChild("DropZone", ImVec2(-1, 60), true);
+                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), 
+                        "Drop PNG, JPG, JPEG, BMP, GIF files here");
+                    ImGui::EndChild();
+                    ImGui::PopStyleColor();
+                    ImGui::Spacing();
                     
                     if (backgroundImages.empty()) {
                         ImGui::TextColored(ImVec4(0.7f, 0.5f, 0.5f, 1.0f), "Aucune image trouvée dans background/");
@@ -712,6 +847,8 @@ int main(int argc, char* argv[]) {
                     ImGui::Spacing();
                     
                     ImGui::EndTabItem();
+                } else {
+                    isConfigTabActive = false;
                 }
                 
                 ImGui::EndTabBar();
