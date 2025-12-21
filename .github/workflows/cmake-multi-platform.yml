@@ -357,6 +357,11 @@ jobs:
     runs-on: ubuntu-latest
     # Only wait for Linux and Windows builds (macOS disabled)
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for tags
+      
       - name: Debug context
         run: |
           echo "Ref type: ${{ github.ref_type }}"
@@ -465,6 +470,18 @@ jobs:
         run: |
           echo "=== Files to attach ==="
           ls -lh release-files/ || echo "No files found"
+          echo ""
+          echo "=== Checking for specific files ==="
+          if [ -f "release-files/imSidPlayer-${{ steps.get_version.outputs.version }}-linux" ]; then
+            echo "✓ Linux binary found"
+          else
+            echo "✗ Linux binary NOT found"
+          fi
+          if [ -f "release-files/imSidPlayer-${{ steps.get_version.outputs.version }}-windows.zip" ]; then
+            echo "✓ Windows zip found"
+          else
+            echo "✗ Windows zip NOT found"
+          fi
           if [ ! -f "release-files/imSidPlayer-${{ steps.get_version.outputs.version }}-linux" ] && [ ! -f "release-files/imSidPlayer-${{ steps.get_version.outputs.version }}-windows.zip" ]; then
             echo "ERROR: Required release files not found!"
             exit 1
