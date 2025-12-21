@@ -149,16 +149,16 @@ if(WIN32)
     message(STATUS "Searching sidplayfp manually in: ${SIDPLAYFP_ROOT}")
     
     find_library(SIDPLAYFP_LIB
-        NAMES sidplayfp
+        NAMES sidplayfp libsidplayfp
         PATHS
         ${SIDPLAYFP_ROOT}
-        PATH_SUFFIXES lib lib/x64
+        PATH_SUFFIXES lib lib/x64 lib/x86_64-w64-mingw32/lib
     )
     
     find_path(SIDPLAYFP_INCLUDE_DIR sidplayfp/sidplayfp.h
         PATHS
         ${SIDPLAYFP_ROOT}
-        PATH_SUFFIXES include
+        PATH_SUFFIXES include include/x86_64-w64-mingw32
     )
     
     if(SIDPLAYFP_INCLUDE_DIR AND SIDPLAYFP_LIB)

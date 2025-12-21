@@ -38,6 +38,13 @@ jobs:
         brew update
         brew install cmake sdl2 sdl2_image sidplayfp pkg-config
     
+    - name: Setup MSYS2
+      if: runner.os == 'Windows'
+      uses: msys2/setup-msys2@v2
+      with:
+        update: true
+        install: mingw-w64-x86_64-libsidplayfp
+    
     - name: Install Windows dependencies
       if: runner.os == 'Windows'
       shell: powershell
@@ -71,33 +78,8 @@ jobs:
         Add-Content -Path $env:GITHUB_ENV -Value "SDL2_DIR=$sdl2ConfigDir"
         Add-Content -Path $env:GITHUB_ENV -Value "CMAKE_PREFIX_PATH=$sdl2Path"
         
-        # Build sidplayfp from source
-        Write-Host "Cloning sidplayfp repository..."
-        git clone --depth 1 --branch v2.15.2 https://github.com/libsidplayfp/libsidplayfp.git sidplayfp-src
-        if (-not (Test-Path "sidplayfp-src")) {
-          Write-Host "Error: Failed to clone sidplayfp"
-          exit 1
-        }
-        
-        Write-Host "Building sidplayfp..."
-        New-Item -ItemType Directory -Force -Path "sidplayfp-build" | Out-Null
-        Push-Location "sidplayfp-build"
-        cmake -G "Visual Studio 17 2022" -A x64 `
-          -DCMAKE_BUILD_TYPE=Release `
-          -DCMAKE_INSTALL_PREFIX="$PWD/install" `
-          ../sidplayfp-src
-        if ($LASTEXITCODE -ne 0) {
-          Write-Host "Error: CMake configuration failed for sidplayfp"
-          exit 1
-        }
-        cmake --build . --config Release --target install
-        if ($LASTEXITCODE -ne 0) {
-          Write-Host "Error: Build failed for sidplayfp"
-          exit 1
-        }
-        Pop-Location
-        
-        $sidplayfpPath = Join-Path (Get-Location) "sidplayfp-build/install"
+        # MSYS2 MinGW packages are installed in C:\msys64\mingw64
+        $sidplayfpPath = "C:\msys64\mingw64"
         Write-Host "sidplayfp installed to: $sidplayfpPath"
         Add-Content -Path $env:GITHUB_ENV -Value "SIDPLAYFP_ROOT=$sidplayfpPath"
     
