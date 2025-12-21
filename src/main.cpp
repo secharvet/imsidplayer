@@ -1,3 +1,4 @@
+#include "imgui_internal.h"
 #include <iostream>
 #include <string>
 #include <filesystem>
@@ -727,14 +728,12 @@ int main(int argc, char* argv[]) {
                         
                         // Voix 0 (Rouge)
                         ImVec2 plotPos0 = ImGui::GetCursorScreenPos();
+                        
                         ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
+                        ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
                         ImGui::PlotLines("##voice0", voice0, SidPlayer::OSCILLOSCOPE_SIZE, 0, nullptr, -1.0f, 1.0f, 
                                         ImVec2(plotWidth, plotHeight));
-                        // Désactiver le tooltip en le vidant
-                        if (ImGui::IsItemHovered()) {
-                            ImGui::BeginTooltip();
-                            ImGui::EndTooltip();
-                        }
+                        ImGui::PopItemFlag();
                         ImGui::PopStyleColor();
                         // Afficher "0" à l'intérieur en haut à gauche
                         ImGui::GetWindowDrawList()->AddText(ImVec2(plotPos0.x + 5.0f, plotPos0.y + 5.0f), 
@@ -745,13 +744,11 @@ int main(int argc, char* argv[]) {
                         // Voix 1 (Vert)
                         ImVec2 plotPos1 = ImGui::GetCursorScreenPos();
                         ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.3f, 1.0f, 0.3f, 1.0f));
+                        ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
                         ImGui::PlotLines("##voice1", voice1, SidPlayer::OSCILLOSCOPE_SIZE, 0, nullptr, -1.0f, 1.0f, 
                                         ImVec2(plotWidth, plotHeight));
-                        // Désactiver le tooltip en le vidant
-                        if (ImGui::IsItemHovered()) {
-                            ImGui::BeginTooltip();
-                            ImGui::EndTooltip();
-                        }
+                        ImGui::PopItemFlag();
+ 
                         ImGui::PopStyleColor();
                         // Afficher "1" à l'intérieur en haut à gauche
                         ImGui::GetWindowDrawList()->AddText(ImVec2(plotPos1.x + 5.0f, plotPos1.y + 5.0f), 
@@ -761,15 +758,15 @@ int main(int argc, char* argv[]) {
                         
                         // Voix 2 (Bleu)
                         ImVec2 plotPos2 = ImGui::GetCursorScreenPos();
+                        
                         ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.3f, 0.3f, 1.0f, 1.0f));
+                        ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
+                       
                         ImGui::PlotLines("##voice2", voice2, SidPlayer::OSCILLOSCOPE_SIZE, 0, nullptr, -1.0f, 1.0f, 
                                         ImVec2(plotWidth, plotHeight));
-                        // Désactiver le tooltip en le vidant
-                        if (ImGui::IsItemHovered()) {
-                            ImGui::BeginTooltip();
-                            ImGui::EndTooltip();
-                        }
+                        ImGui::PopItemFlag();
                         ImGui::PopStyleColor();
+                       
                         // Afficher "2" à l'intérieur en haut à gauche
                         ImGui::GetWindowDrawList()->AddText(ImVec2(plotPos2.x + 5.0f, plotPos2.y + 5.0f), 
                                                            IM_COL32(255, 255, 255, 255), "2");

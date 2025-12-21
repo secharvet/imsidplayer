@@ -14,13 +14,19 @@ A SID file (Commodore 64) player for Linux and Windows with a modern graphical i
 
 ### ⚠️ Windows SmartScreen Warning
 
-**imSidPlayer is an unsigned indie executable.** This is normal for passion projects.
+**imSidPlayer is an unsigned indie executable.** 
 
 To run it:
 1. Click **"More info"**
 2. Click **"Run anyway"**
 
 Source code is public and reproducible via GitHub Actions. Enjoy! 🎵
+
+### 🍎 macOS Version
+
+**macOS support is coming soon!** If you're a macOS user and would like to help test the application, your feedback would be greatly appreciated! 🚀
+
+Please open an issue or contact me if you're interested in beta testing.
 
 ## Features
 
