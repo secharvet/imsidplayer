@@ -16,27 +16,23 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 # SDL2 pour l'audio (doit être trouvé AVANT ImGui)
 # Sur Windows, utiliser find_package(SDL2), sur Linux/macOS utiliser pkg-config
 if(WIN32)
-    # Sur Windows, SDL2_DIR doit pointer vers le répertoire contenant SDL2Config.cmake (généralement cmake/)
-    # Il faut définir SDL2_DIR comme variable CMake (pas seulement environnement) pour que find_package le trouve
-    if(DEFINED ENV{SDL2_DIR})
-        set(SDL2_DIR "$ENV{SDL2_DIR}" CACHE PATH "Path to SDL2 cmake directory")
-        message(STATUS "SDL2_DIR set to: ${SDL2_DIR}")
-        # Vérifier que SDL2Config.cmake existe
-        if(EXISTS "${SDL2_DIR}/SDL2Config.cmake")
-            message(STATUS "Found SDL2Config.cmake at: ${SDL2_DIR}/SDL2Config.cmake")
-        else()
-            message(WARNING "SDL2Config.cmake not found at: ${SDL2_DIR}/SDL2Config.cmake")
-        endif()
-    endif()
-    
+    # Sur Windows, utiliser uniquement la détection manuelle (find_package ne fonctionne pas toujours)
+    # SDL2_DIR pointe vers cmake/, CMAKE_PREFIX_PATH pointe vers la racine de SDL2
     if(DEFINED ENV{CMAKE_PREFIX_PATH})
-        list(APPEND CMAKE_PREFIX_PATH "$ENV{CMAKE_PREFIX_PATH}")
-        message(STATUS "CMAKE_PREFIX_PATH from environment: $ENV{CMAKE_PREFIX_PATH}")
+        set(SDL2_ROOT "$ENV{CMAKE_PREFIX_PATH}")
+        message(STATUS "CMAKE_PREFIX_PATH from environment: ${SDL2_ROOT}")
+    elseif(DEFINED ENV{SDL2_DIR})
+        # Si SDL2_DIR pointe vers cmake/, remonter d'un niveau pour obtenir la racine
+        get_filename_component(SDL2_ROOT "$ENV{SDL2_DIR}" DIRECTORY)
+        message(STATUS "SDL2_DIR from environment: $ENV{SDL2_DIR}, using root: ${SDL2_ROOT}")
+    else()
+        set(SDL2_ROOT "")
+        message(WARNING "Neither CMAKE_PREFIX_PATH nor SDL2_DIR set, SDL2 detection may fail")
     endif()
     
-    # Chercher SDL2 avec find_package (sans REQUIRED pour permettre le fallback)
-    # find_package utilise SDL2_DIR si défini
-    find_package(SDL2 QUIET)
+    # Détection manuelle de SDL2 sur Windows
+    message(STATUS "Searching SDL2 manually in: ${SDL2_ROOT}")
+    
     if(NOT SDL2_FOUND)
         message(STATUS "find_package(SDL2) failed, trying manual detection...")
         # Si find_package échoue, essayer de trouver manuellement
