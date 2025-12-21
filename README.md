@@ -193,3 +193,4 @@ This project uses:
 - **SDL2** : zlib License
 - **SDL2_image** : zlib License
 - **sidplayfp** : GPL v2+
+

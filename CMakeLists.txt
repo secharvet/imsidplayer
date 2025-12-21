@@ -126,6 +126,14 @@ target_compile_options(${PROJECT_NAME} PRIVATE
     ${SDL2_CFLAGS_OTHER}
 )
 
+# Flags de debug (symboles de debug pour gdb)
+if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR NOT CMAKE_BUILD_TYPE)
+    target_compile_options(${PROJECT_NAME} PRIVATE -g -O0)
+    message(STATUS "Build type: Debug - symbols enabled")
+else()
+    message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
+endif()
+
 # Flags de linkage
 target_link_directories(${PROJECT_NAME} PRIVATE
     ${SDL2_LIBRARY_DIRS}

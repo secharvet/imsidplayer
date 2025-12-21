@@ -8,6 +8,7 @@
 #include <fstream>
 #include <functional>
 #include <unistd.h>
+#include <pwd.h>
 #include "SidPlayer.h"
 #include "Config.h"
 
@@ -26,6 +27,28 @@
 
 namespace fs = std::filesystem;
 
+// Fonction helper pour obtenir le répertoire de configuration (~/.imsidplayer/)
+fs::path getConfigDir() {
+    const char* home = getenv("HOME");
+    if (!home) {
+        struct passwd* pw = getpwuid(getuid());
+        home = pw ? pw->pw_dir : nullptr;
+    }
+    if (!home) {
+        return fs::current_path() / ".imsidplayer";
+    }
+    fs::path configDir = fs::path(home) / ".imsidplayer";
+    if (!fs::exists(configDir)) {
+        try {
+            fs::create_directories(configDir);
+        } catch (const std::exception& e) {
+            std::cerr << "Impossible de créer le répertoire de configuration: " << e.what() << std::endl;
+            return fs::current_path() / ".imsidplayer";
+        }
+    }
+    return configDir;
+}
+
 int main(int argc, char* argv[]) {
     // Initialiser SDL
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
@@ -33,16 +56,10 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
-    // Charger la configuration
+    // Charger la configuration depuis ~/.imsidplayer/config.txt
     Config& config = Config::getInstance();
-    char exePath[1024];
-    ssize_t len = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
-    std::string configPath = "config.txt";
-    if (len != -1) {
-        exePath[len] = '\0';
-        fs::path exeDir = fs::path(exePath).parent_path();
-        configPath = (exeDir / "config.txt").string();
-    }
+    fs::path configDir = getConfigDir();
+    std::string configPath = (configDir / "config.txt").string();
     config.load(configPath);
     
     // Créer la fenêtre avec position et taille sauvegardées
@@ -144,20 +161,9 @@ int main(int argc, char* argv[]) {
     } else {
         std::cout << "SDL_image initialisé avec succès" << std::endl;
         
-        // Chercher toutes les images de fond dans exepath/background
-        fs::path backgroundPath;
-        
-        // Obtenir le chemin de l'exécutable
-        char exePath[1024];
-        ssize_t len = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
-        if (len != -1) {
-            exePath[len] = '\0';
-            fs::path exeDir = fs::path(exePath).parent_path();
-            backgroundPath = exeDir / "background";
-        } else {
-            // Fallback: utiliser le répertoire courant
-            backgroundPath = fs::current_path() / "background";
-        }
+        // Chercher toutes les images de fond dans ~/.imsidplayer/background
+        fs::path configDir = getConfigDir();
+        fs::path backgroundPath = configDir / "background";
         
         // Créer le répertoire s'il n'existe pas
         if (!fs::exists(backgroundPath)) {
@@ -166,7 +172,6 @@ int main(int argc, char* argv[]) {
                 std::cout << "Répertoire background créé: " << backgroundPath << std::endl;
             } catch (const std::exception& e) {
                 std::cerr << "Impossible de créer le répertoire background: " << e.what() << std::endl;
-                backgroundPath = fs::current_path() / "background";
             }
         }
         
@@ -530,15 +535,25 @@ int main(int argc, char* argv[]) {
                 bool voice1Active = !player.isVoiceMuted(1);
                 bool voice2Active = !player.isVoiceMuted(2);
                 
-                if (ImGui::Checkbox("Voice 1", &voice0Active)) {
-                    player.setVoiceMute(0, !voice0Active); // Inverser : si active, alors pas mutée
-                }
+                // Sauvegarder l'état avant le checkbox pour détecter le changement
+                bool prev0 = voice0Active;
+                bool prev1 = voice1Active;
+                bool prev2 = voice2Active;
+                
+                ImGui::Checkbox("Voice 1", &voice0Active);
                 ImGui::SameLine();
-                if (ImGui::Checkbox("Voice 2", &voice1Active)) {
+                ImGui::Checkbox("Voice 2", &voice1Active);
+                ImGui::SameLine();
+                ImGui::Checkbox("Voice 3", &voice2Active);
+                
+                // Détecter les changements et appeler setVoiceMute
+                if (voice0Active != prev0) {
+                    player.setVoiceMute(0, !voice0Active);
+                }
+                if (voice1Active != prev1) {
                     player.setVoiceMute(1, !voice1Active);
                 }
-                ImGui::SameLine();
-                if (ImGui::Checkbox("Voice 3", &voice2Active)) {
+                if (voice2Active != prev2) {
                     player.setVoiceMute(2, !voice2Active);
                 }
             }
