@@ -375,25 +375,32 @@ jobs:
       - name: Prepare release files
         run: |
           VERSION="${{ steps.get_version.outputs.version }}"
-          cd release-artifacts
+          mkdir -p release-files
           
-          # Find and rename Linux binary
-          if [ -f "linux/imSidPlayer-$VERSION-linux" ]; then
-            cp "linux/imSidPlayer-$VERSION-linux" "imSidPlayer-$VERSION-linux"
-          elif [ -f "linux/imSidPlayer" ]; then
-            cp "linux/imSidPlayer" "imSidPlayer-$VERSION-linux"
+          # Find and copy Linux binary
+          if [ -f "release-artifacts/linux/imSidPlayer-$VERSION-linux" ]; then
+            cp "release-artifacts/linux/imSidPlayer-$VERSION-linux" "release-files/imSidPlayer-$VERSION-linux"
+          elif [ -f "release-artifacts/linux/imSidPlayer" ]; then
+            cp "release-artifacts/linux/imSidPlayer" "release-files/imSidPlayer-$VERSION-linux"
           fi
           
-          # Find Windows zip
-          if [ -f "imSidPlayer-$VERSION-windows.zip" ]; then
-            mv "imSidPlayer-$VERSION-windows.zip" "imSidPlayer-$VERSION-windows.zip"
-          elif [ -d "windows" ]; then
-            cd windows
-            zip -r "../imSidPlayer-$VERSION-windows.zip" . -x "*.zip"
-            cd ..
+          # Find Windows zip (could be in artifacts/ or directly in release-artifacts/)
+          if [ -f "release-artifacts/imSidPlayer-$VERSION-windows.zip" ]; then
+            cp "release-artifacts/imSidPlayer-$VERSION-windows.zip" "release-files/imSidPlayer-$VERSION-windows.zip"
+          elif [ -f "release-artifacts/artifacts/imSidPlayer-$VERSION-windows.zip" ]; then
+            cp "release-artifacts/artifacts/imSidPlayer-$VERSION-windows.zip" "release-files/imSidPlayer-$VERSION-windows.zip"
+          elif [ -d "release-artifacts/windows" ]; then
+            cd release-artifacts/windows
+            zip -r "../../release-files/imSidPlayer-$VERSION-windows.zip" . -x "*.zip"
+            cd ../..
+          elif [ -d "release-artifacts/artifacts/windows" ]; then
+            cd release-artifacts/artifacts/windows
+            zip -r "../../../release-files/imSidPlayer-$VERSION-windows.zip" . -x "*.zip"
+            cd ../../..
           fi
           
-          ls -lh
+          echo "=== Release files prepared ==="
+          ls -lh release-files/
       
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -425,8 +432,8 @@ jobs:
             
             See commit history for details.
           files: |
-            release-artifacts/imSidPlayer-${{ steps.get_version.outputs.version }}-linux
-            release-artifacts/imSidPlayer-${{ steps.get_version.outputs.version }}-windows.zip
+            release-files/imSidPlayer-${{ steps.get_version.outputs.version }}-linux
+            release-files/imSidPlayer-${{ steps.get_version.outputs.version }}-windows.zip
           draft: false
           prerelease: false
         env:
