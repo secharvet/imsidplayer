@@ -15,12 +15,14 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 # ImGui (intégration directe)
 set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui)
+set(IMGUI_FOUND FALSE)
 if(EXISTS "${IMGUI_DIR}/imgui.h" AND EXISTS "${IMGUI_DIR}/CMakeLists.txt")
     message(STATUS "ImGui found: adding include path and library targets")
     add_subdirectory(${IMGUI_DIR})
+    set(IMGUI_FOUND TRUE)
 elseif(EXISTS "${IMGUI_DIR}/imgui.h")
-    message(WARNING "third_party/imgui exists but no CMakeLists.txt found — skipping add_subdirectory.")
-    target_include_directories(imSidPlayer PRIVATE "${IMGUI_DIR}")
+    message(STATUS "ImGui found: adding include path (no CMakeLists.txt, using direct include)")
+    set(IMGUI_FOUND TRUE)
 elseif(EXISTS "${IMGUI_DIR}")
     message(WARNING "third_party/imgui exists but imgui.h not found.")
     message(FATAL_ERROR "ImGui submodule is incomplete. Please run: git submodule update --init --recursive")
@@ -87,12 +89,21 @@ if(SDL2_IMAGE_FOUND)
     target_include_directories(${PROJECT_NAME} PRIVATE ${SDL2_IMAGE_INCLUDE_DIRS})
 endif()
 
+# Ajouter les include directories pour ImGui si nécessaire (quand pas de CMakeLists.txt)
+if(IMGUI_FOUND AND NOT EXISTS "${IMGUI_DIR}/CMakeLists.txt")
+    target_include_directories(${PROJECT_NAME} PRIVATE "${IMGUI_DIR}")
+endif()
+
 # Libraries
 target_link_libraries(${PROJECT_NAME} PRIVATE
-    imgui
     ${SDL2_LIBRARIES}
     ${SIDPLAYFP_LIB}
 )
+
+# Linker avec imgui seulement si le target existe (quand CMakeLists.txt est présent)
+if(TARGET imgui)
+    target_link_libraries(${PROJECT_NAME} PRIVATE imgui)
+endif()
 if(SDL2_IMAGE_FOUND)
     target_link_libraries(${PROJECT_NAME} PRIVATE ${SDL2_IMAGE_LIBRARIES})
 endif()
