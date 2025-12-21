@@ -110,13 +110,13 @@ jobs:
         gcc --version
         pkg-config --version
         
-        # Get actual paths to compilers using which
-        GCC_PATH=$(which gcc)
-        GXX_PATH=$(which g++)
-        PKG_CONFIG_PATH=$(which pkg-config)
-        echo "GCC path: $GCC_PATH"
-        echo "G++ path: $GXX_PATH"
-        echo "pkg-config path: $PKG_CONFIG_PATH"
+        # Convert Unix paths to Windows paths for CMake
+        GCC_PATH=$(cygpath -w "$(which gcc)")
+        GXX_PATH=$(cygpath -w "$(which g++)")
+        PKG_CONFIG_PATH=$(cygpath -w "$(which pkg-config)")
+        echo "GCC path (Windows): $GCC_PATH"
+        echo "G++ path (Windows): $GXX_PATH"
+        echo "pkg-config path (Windows): $PKG_CONFIG_PATH"
         
         # Configure CMake with MinGW
         cmake -B build -S . \
