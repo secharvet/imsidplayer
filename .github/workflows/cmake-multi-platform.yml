@@ -1,5 +1,8 @@
 name: CMake Multi-Platform
 
+permissions:
+  contents: write
+
 on:
   push:
     branches: [ main ]
