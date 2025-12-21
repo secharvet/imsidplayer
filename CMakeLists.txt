@@ -30,57 +30,34 @@ if(WIN32)
         message(WARNING "Neither CMAKE_PREFIX_PATH nor SDL2_DIR set, SDL2 detection may fail")
     endif()
     
-    # Détection manuelle de SDL2 sur Windows
+    # Détection manuelle de SDL2 sur Windows (pas de find_package pour éviter les erreurs)
     message(STATUS "Searching SDL2 manually in: ${SDL2_ROOT}")
     
-    if(NOT SDL2_FOUND)
-        message(STATUS "find_package(SDL2) failed, trying manual detection...")
-        # Si find_package échoue, essayer de trouver manuellement
-        # Sur Windows, SDL2 est généralement dans: SDL2-2.x.x/include et SDL2-2.x.x/lib/x64
-        if(DEFINED ENV{CMAKE_PREFIX_PATH})
-            set(SDL2_ROOT "$ENV{CMAKE_PREFIX_PATH}")
-        elseif(DEFINED ENV{SDL2_DIR})
-            # Si SDL2_DIR pointe vers cmake/, remonter d'un niveau
-            get_filename_component(SDL2_ROOT "$ENV{SDL2_DIR}" DIRECTORY)
-        else()
-            set(SDL2_ROOT "")
-        endif()
-        
-        message(STATUS "Searching SDL2 in: ${SDL2_ROOT}")
-        
-        find_path(SDL2_INCLUDE_DIR SDL.h
-            PATHS
-            ${SDL2_ROOT}
-            ${CMAKE_PREFIX_PATH}
-            PATH_SUFFIXES include include/SDL2
-        )
-        
-        find_library(SDL2_LIBRARY
-            NAMES SDL2
-            PATHS
-            ${SDL2_ROOT}
-            ${CMAKE_PREFIX_PATH}
-            PATH_SUFFIXES lib lib/x64
-        )
-        
-        if(SDL2_INCLUDE_DIR AND SDL2_LIBRARY)
-            set(SDL2_FOUND TRUE)
-            set(SDL2_INCLUDE_DIRS ${SDL2_INCLUDE_DIR})
-            set(SDL2_LIBRARIES ${SDL2_LIBRARY})
-            set(SDL2_LIBRARY_DIRS "")
-            set(SDL2_CFLAGS_OTHER "")
-            message(STATUS "SDL2 found manually:")
-            message(STATUS "  Include: ${SDL2_INCLUDE_DIRS}")
-            message(STATUS "  Library: ${SDL2_LIBRARIES}")
-        else()
-            message(FATAL_ERROR "SDL2 not found. SDL2_ROOT: ${SDL2_ROOT}, Include: ${SDL2_INCLUDE_DIR}, Library: ${SDL2_LIBRARY}")
-        endif()
-    else()
+    # Sur Windows, SDL2 est généralement dans: SDL2-2.x.x/include et SDL2-2.x.x/lib/x64
+    find_path(SDL2_INCLUDE_DIR SDL.h
+        PATHS
+        ${SDL2_ROOT}
+        PATH_SUFFIXES include include/SDL2
+    )
+    
+    find_library(SDL2_LIBRARY
+        NAMES SDL2
+        PATHS
+        ${SDL2_ROOT}
+        PATH_SUFFIXES lib lib/x64
+    )
+    
+    if(SDL2_INCLUDE_DIR AND SDL2_LIBRARY)
+        set(SDL2_FOUND TRUE)
         set(SDL2_INCLUDE_DIRS ${SDL2_INCLUDE_DIR})
         set(SDL2_LIBRARIES ${SDL2_LIBRARY})
         set(SDL2_LIBRARY_DIRS "")
         set(SDL2_CFLAGS_OTHER "")
-        message(STATUS "SDL2 found via find_package: ${SDL2_LIBRARY}")
+        message(STATUS "SDL2 found manually:")
+        message(STATUS "  Include: ${SDL2_INCLUDE_DIRS}")
+        message(STATUS "  Library: ${SDL2_LIBRARIES}")
+    else()
+        message(FATAL_ERROR "SDL2 not found. SDL2_ROOT: ${SDL2_ROOT}, Include: ${SDL2_INCLUDE_DIR}, Library: ${SDL2_LIBRARY}")
     endif()
 else()
     find_package(PkgConfig REQUIRED)
