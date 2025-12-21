@@ -160,3 +160,49 @@ jobs:
     - name: Build (Linux/macOS)
       if: runner.os != 'Windows'
       run: cmake --build ${{ github.workspace }}/build --config Release
+    
+    - name: Prepare Linux artifacts
+      if: runner.os == 'Linux'
+      run: |
+        mkdir -p artifacts/linux
+        cp build/bin/imSidPlayer artifacts/linux/
+        strip artifacts/linux/imSidPlayer || true
+        echo "Linux executable prepared"
+        ls -lh artifacts/linux/
+    
+    - name: Prepare Windows artifacts
+      if: runner.os == 'Windows'
+      shell: msys2 {0}
+      run: |
+        export PATH="/mingw64/bin:/usr/bin:$PATH"
+        WORKSPACE=$(cygpath -u "${{ github.workspace }}")
+        cd "$WORKSPACE"
+        mkdir -p artifacts/windows
+        # Copy executable
+        cp build/bin/imSidPlayer.exe artifacts/windows/ || cp build/bin/imSidPlayer artifacts/windows/imSidPlayer.exe
+        # Copy required DLLs
+        cp /mingw64/bin/SDL2.dll artifacts/windows/ 2>/dev/null || true
+        cp /mingw64/bin/libsidplayfp-*.dll artifacts/windows/ 2>/dev/null || true
+        cp /mingw64/bin/libgcc_s_seh-*.dll artifacts/windows/ 2>/dev/null || true
+        cp /mingw64/bin/libstdc++-*.dll artifacts/windows/ 2>/dev/null || true
+        cp /mingw64/bin/libwinpthread-*.dll artifacts/windows/ 2>/dev/null || true
+        # Copy SDL2_image DLL if available
+        cp /mingw64/bin/SDL2_image.dll artifacts/windows/ 2>/dev/null || true
+        echo "Windows artifacts prepared"
+        ls -lh artifacts/windows/
+    
+    - name: Upload Linux artifacts
+      if: runner.os == 'Linux'
+      uses: actions/upload-artifact@v4
+      with:
+        name: imSidPlayer-linux
+        path: artifacts/linux/imSidPlayer
+        retention-days: 30
+    
+    - name: Upload Windows artifacts
+      if: runner.os == 'Windows'
+      uses: actions/upload-artifact@v4
+      with:
+        name: imSidPlayer-windows
+        path: artifacts/windows/
+        retention-days: 30
