@@ -16,15 +16,39 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 # SDL2 pour l'audio (doit être trouvé AVANT ImGui)
 # Sur Windows, utiliser find_package(SDL2), sur Linux/macOS utiliser pkg-config
 if(WIN32)
-    find_package(SDL2 REQUIRED)
-    if(SDL2_FOUND)
+    # Chercher SDL2 avec find_package
+    find_package(SDL2 QUIET)
+    if(NOT SDL2_FOUND)
+        # Si find_package échoue, essayer de trouver manuellement
+        find_path(SDL2_INCLUDE_DIR SDL.h
+            PATHS
+            ${CMAKE_PREFIX_PATH}/include
+            ${CMAKE_PREFIX_PATH}/include/SDL2
+            ENV SDL2_DIR
+        )
+        find_library(SDL2_LIBRARY
+            NAMES SDL2
+            PATHS
+            ${CMAKE_PREFIX_PATH}/lib
+            ${CMAKE_PREFIX_PATH}/lib/x64
+            ENV SDL2_DIR
+        )
+        if(SDL2_INCLUDE_DIR AND SDL2_LIBRARY)
+            set(SDL2_FOUND TRUE)
+            set(SDL2_INCLUDE_DIRS ${SDL2_INCLUDE_DIR})
+            set(SDL2_LIBRARIES ${SDL2_LIBRARY})
+            set(SDL2_LIBRARY_DIRS "")
+            set(SDL2_CFLAGS_OTHER "")
+            message(STATUS "SDL2 found manually: ${SDL2_LIBRARY}")
+        else()
+            message(FATAL_ERROR "SDL2 not found. On Windows, SDL2_DIR should point to SDL2 installation directory")
+        endif()
+    else()
         set(SDL2_INCLUDE_DIRS ${SDL2_INCLUDE_DIR})
         set(SDL2_LIBRARIES ${SDL2_LIBRARY})
         set(SDL2_LIBRARY_DIRS "")
         set(SDL2_CFLAGS_OTHER "")
         message(STATUS "SDL2 found via find_package: ${SDL2_LIBRARY}")
-    else()
-        message(FATAL_ERROR "SDL2 not found. On Windows, install SDL2 via vcpkg or download from libsdl.org")
     endif()
 else()
     find_package(PkgConfig REQUIRED)
