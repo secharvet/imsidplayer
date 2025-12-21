@@ -236,7 +236,12 @@ set(HEADERS
 )
 
 # Exécutable
-add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
+# Sur Windows, utiliser WIN32 pour créer une application GUI sans console
+if(WIN32)
+    add_executable(${PROJECT_NAME} WIN32 ${SOURCES} ${HEADERS})
+else()
+    add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
+endif()
 
 # Include directories
 target_include_directories(${PROJECT_NAME} PRIVATE
