@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main ]
     tags:
-      - 'v*'  # Triggers on tags like v1.0.0, v1.2.3, etc.
+      - 'v*'  # Triggers on tags like v0.0.1, v0.0.2, etc. (alpha versioning)
   pull_request:
     branches: [ main ]
 
@@ -395,7 +395,9 @@ jobs:
           tag_name: ${{ steps.get_version.outputs.tag }}
           name: Release ${{ steps.get_version.outputs.tag }}
           body: |
-            ## imSid Player ${{ steps.get_version.outputs.version }}
+            ## imSid Player ${{ steps.get_version.outputs.version }} (Alpha)
+            
+            ⚠️ **This is an alpha release - Work In Progress**
             
             ### Downloads
             
