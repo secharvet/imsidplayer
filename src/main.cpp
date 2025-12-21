@@ -292,7 +292,7 @@ int main(int argc, char* argv[]) {
         player.loadFile(config.getCurrentFile());
     }
     
-    // Restaurer l'état des voix
+    // Restore voice states
     for (int i = 0; i < 3; i++) {
         player.setVoiceMute(i, !config.isVoiceActive(i));
     }
@@ -509,9 +509,9 @@ int main(int argc, char* argv[]) {
             ImGui::Spacing();
             ImGui::Separator();
             
-            // Contrôles des voix (inverser la logique : checkbox = voix active)
+            // Voice controls (inverted logic: checkbox = voice active)
             if (!player.getCurrentFile().empty()) {
-                ImGui::Text("Voix:");
+                ImGui::Text("Voices:");
                 ImGui::Spacing();
                 
                 // Inverser la logique : checkbox cochée = voix active (non mutée)
@@ -1024,7 +1024,7 @@ int main(int argc, char* argv[]) {
     config.setWindowPos(winX, winY);
     config.setWindowSize(winW, winH);
     
-    // Sauvegarder l'état des voix
+    // Save voice states
     for (int i = 0; i < 3; i++) {
         config.setVoiceActive(i, !player.isVoiceMuted(i));
     }
