@@ -44,8 +44,14 @@ jobs:
       run: |
         # Install SDL2
         Invoke-WebRequest -Uri "https://www.libsdl.org/release/SDL2-devel-2.32.8-VC.zip" -OutFile "SDL2-devel.zip"
-        Expand-Archive -Path SDL2-devel.zip -DestinationPath .
-        $sdl2Path = (Resolve-Path "SDL2-*").Path
+        Expand-Archive -Path SDL2-devel.zip -DestinationPath . -Force
+        # Trouver le répertoire SDL2 (ignorer le zip)
+        $sdl2Path = Get-ChildItem -Directory -Filter "SDL2-*" | Select-Object -First 1 | ForEach-Object { $_.FullName }
+        if (-not $sdl2Path) {
+          Write-Host "Error: SDL2 directory not found"
+          exit 1
+        }
+        Write-Host "SDL2 extracted to: $sdl2Path"
         # SDL2_DIR doit pointer vers le répertoire cmake/ qui contient SDL2Config.cmake
         $sdl2ConfigDir = Join-Path $sdl2Path "cmake"
         if (-not (Test-Path $sdl2ConfigDir)) {
@@ -61,8 +67,9 @@ jobs:
         }
         Write-Host "Setting SDL2_DIR to: $sdl2ConfigDir"
         Write-Host "Setting CMAKE_PREFIX_PATH to: $sdl2Path"
-        "SDL2_DIR=$sdl2ConfigDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-        "CMAKE_PREFIX_PATH=$sdl2Path" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        # Utiliser Add-Content pour éviter les problèmes d'encodage et de duplication
+        Add-Content -Path $env:GITHUB_ENV -Value "SDL2_DIR=$sdl2ConfigDir"
+        Add-Content -Path $env:GITHUB_ENV -Value "CMAKE_PREFIX_PATH=$sdl2Path"
     
     - name: Configure CMake
       run: cmake -B ${{ github.workspace }}/build -S ${{ github.workspace }}
