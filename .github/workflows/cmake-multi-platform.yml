@@ -442,10 +442,20 @@ jobs:
             exit 1
           fi
       
+      - name: Verify files before release
+        run: |
+          echo "=== Files to attach ==="
+          ls -lh release-files/ || echo "No files found"
+          if [ ! -f "release-files/imSidPlayer-${{ steps.get_version.outputs.version }}-linux" ] && [ ! -f "release-files/imSidPlayer-${{ steps.get_version.outputs.version }}-windows.zip" ]; then
+            echo "ERROR: Required release files not found!"
+            exit 1
+          fi
+      
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.get_version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           name: Release ${{ steps.get_version.outputs.tag }}
           body: |
             ## imSid Player ${{ steps.get_version.outputs.version }} (Alpha)
@@ -471,12 +481,11 @@ jobs:
             ### Changes
             
             See commit history for details.
-          files: |
-            release-files/*
+          files: release-files/*
           draft: false
           prerelease: true
-          make_latest: false
           generate_release_notes: false
+          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     
