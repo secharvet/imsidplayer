@@ -16,17 +16,22 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 # SDL2 pour l'audio (doit être trouvé AVANT ImGui)
 # Sur Windows, utiliser find_package(SDL2), sur Linux/macOS utiliser pkg-config
 if(WIN32)
-    # Ajouter CMAKE_PREFIX_PATH depuis l'environnement
+    # Sur Windows, SDL2_DIR doit pointer vers le répertoire contenant SDL2Config.cmake (généralement cmake/)
+    # CMAKE_PREFIX_PATH doit pointer vers la racine de SDL2
+    if(DEFINED ENV{SDL2_DIR})
+        set(SDL2_DIR "$ENV{SDL2_DIR}")
+        message(STATUS "SDL2_DIR from environment: ${SDL2_DIR}")
+        # Vérifier que SDL2Config.cmake existe
+        if(EXISTS "${SDL2_DIR}/SDL2Config.cmake")
+            message(STATUS "Found SDL2Config.cmake at: ${SDL2_DIR}/SDL2Config.cmake")
+        else()
+            message(WARNING "SDL2Config.cmake not found at: ${SDL2_DIR}/SDL2Config.cmake")
+        endif()
+    endif()
+    
     if(DEFINED ENV{CMAKE_PREFIX_PATH})
         list(APPEND CMAKE_PREFIX_PATH "$ENV{CMAKE_PREFIX_PATH}")
-        message(STATUS "Added CMAKE_PREFIX_PATH from environment: $ENV{CMAKE_PREFIX_PATH}")
-    endif()
-    if(DEFINED ENV{SDL2_DIR})
-        message(STATUS "SDL2_DIR from environment: $ENV{SDL2_DIR}")
-        # Si SDL2_DIR pointe vers cmake/, ajouter le parent à CMAKE_PREFIX_PATH
-        get_filename_component(SDL2_ROOT "$ENV{SDL2_DIR}" DIRECTORY)
-        list(APPEND CMAKE_PREFIX_PATH "${SDL2_ROOT}")
-        message(STATUS "Added SDL2 root to CMAKE_PREFIX_PATH: ${SDL2_ROOT}")
+        message(STATUS "CMAKE_PREFIX_PATH from environment: $ENV{CMAKE_PREFIX_PATH}")
     endif()
     
     # Chercher SDL2 avec find_package (sans REQUIRED pour permettre le fallback)
@@ -34,17 +39,21 @@ if(WIN32)
     if(NOT SDL2_FOUND)
         message(STATUS "find_package(SDL2) failed, trying manual detection...")
         # Si find_package échoue, essayer de trouver manuellement
-        # Chercher dans CMAKE_PREFIX_PATH et SDL2_DIR
+        # Sur Windows, SDL2 est généralement dans: SDL2-2.x.x/include et SDL2-2.x.x/lib/x64
+        if(DEFINED ENV{CMAKE_PREFIX_PATH})
+            set(SDL2_ROOT "$ENV{CMAKE_PREFIX_PATH}")
+        elseif(DEFINED ENV{SDL2_DIR})
+            # Si SDL2_DIR pointe vers cmake/, remonter d'un niveau
+            get_filename_component(SDL2_ROOT "$ENV{SDL2_DIR}" DIRECTORY)
+        else()
+            set(SDL2_ROOT "")
+        endif()
+        
+        message(STATUS "Searching SDL2 in: ${SDL2_ROOT}")
+        
         find_path(SDL2_INCLUDE_DIR SDL.h
             PATHS
-            ${CMAKE_PREFIX_PATH}
-            ENV CMAKE_PREFIX_PATH
-            ENV SDL2_DIR
-            PATH_SUFFIXES include include/SDL2
-            NO_DEFAULT_PATH
-        )
-        find_path(SDL2_INCLUDE_DIR SDL.h
-            PATHS
+            ${SDL2_ROOT}
             ${CMAKE_PREFIX_PATH}
             PATH_SUFFIXES include include/SDL2
         )
@@ -52,15 +61,7 @@ if(WIN32)
         find_library(SDL2_LIBRARY
             NAMES SDL2
             PATHS
-            ${CMAKE_PREFIX_PATH}
-            ENV CMAKE_PREFIX_PATH
-            ENV SDL2_DIR
-            PATH_SUFFIXES lib lib/x64
-            NO_DEFAULT_PATH
-        )
-        find_library(SDL2_LIBRARY
-            NAMES SDL2
-            PATHS
+            ${SDL2_ROOT}
             ${CMAKE_PREFIX_PATH}
             PATH_SUFFIXES lib lib/x64
         )
@@ -75,7 +76,7 @@ if(WIN32)
             message(STATUS "  Include: ${SDL2_INCLUDE_DIRS}")
             message(STATUS "  Library: ${SDL2_LIBRARIES}")
         else()
-            message(FATAL_ERROR "SDL2 not found. Include: ${SDL2_INCLUDE_DIR}, Library: ${SDL2_LIBRARY}")
+            message(FATAL_ERROR "SDL2 not found. SDL2_ROOT: ${SDL2_ROOT}, Include: ${SDL2_INCLUDE_DIR}, Library: ${SDL2_LIBRARY}")
         endif()
     else()
         set(SDL2_INCLUDE_DIRS ${SDL2_INCLUDE_DIR})
