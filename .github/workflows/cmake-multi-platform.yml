@@ -72,6 +72,27 @@ jobs:
         echo "PATH=/mingw64/bin:/usr/bin:$PATH" >> $GITHUB_ENV
         export PATH="/mingw64/bin:/usr/bin:$PATH"
     
+    - name: Inspect mingw64 directory
+      if: runner.os == 'Windows'
+      shell: msys2 {0}
+      run: |
+        echo "=== Contents of /mingw64 ==="
+        ls -la /mingw64 | head -20
+        echo ""
+        echo "=== Contents of /mingw64/lib ==="
+        ls -la /mingw64/lib | grep -i sid || echo "No sidplayfp in lib"
+        echo ""
+        echo "=== Contents of /mingw64/include ==="
+        ls -la /mingw64/include | grep -i sid || echo "No sidplayfp in include"
+        echo ""
+        echo "=== Searching for sidplayfp files ==="
+        find /mingw64 -name "*sidplayfp*" -type f 2>/dev/null | head -20
+        echo ""
+        echo "=== pkg-config info for libsidplayfp ==="
+        pkg-config --modversion libsidplayfp 2>&1 || echo "pkg-config libsidplayfp not found"
+        pkg-config --cflags libsidplayfp 2>&1 || echo "pkg-config --cflags failed"
+        pkg-config --libs libsidplayfp 2>&1 || echo "pkg-config --libs failed"
+    
     - name: Configure CMake (Windows MinGW)
       if: runner.os == 'Windows'
       shell: msys2 {0}
@@ -85,7 +106,9 @@ jobs:
         echo "=== Using MinGW tools ==="
         which gcc
         which cmake
+        which pkg-config
         gcc --version
+        pkg-config --version
         
         # Configure CMake with MinGW
         cmake -B build -S . \
@@ -95,7 +118,8 @@ jobs:
           -DCMAKE_CXX_COMPILER=/mingw64/bin/g++ \
           -DCMAKE_MAKE_PROGRAM=/usr/bin/make \
           -DCMAKE_SYSTEM_NAME=Windows \
-          -DCMAKE_SYSTEM_PROCESSOR=x86_64
+          -DCMAKE_SYSTEM_PROCESSOR=x86_64 \
+          -DPKG_CONFIG_EXECUTABLE=/mingw64/bin/pkg-config
     
     - name: Build (Windows MinGW)
       if: runner.os == 'Windows'
