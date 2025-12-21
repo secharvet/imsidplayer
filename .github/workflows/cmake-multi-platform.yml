@@ -52,8 +52,15 @@ jobs:
           Write-Host "Warning: cmake/ directory not found in SDL2, using root directory"
           $sdl2ConfigDir = $sdl2Path
         }
-        Write-Host "SDL2_DIR will be set to: $sdl2ConfigDir"
-        Write-Host "CMAKE_PREFIX_PATH will be set to: $sdl2Path"
+        # Vérifier que SDL2Config.cmake existe
+        $configFile = Join-Path $sdl2ConfigDir "SDL2Config.cmake"
+        if (Test-Path $configFile) {
+          Write-Host "Found SDL2Config.cmake at: $configFile"
+        } else {
+          Write-Host "Warning: SDL2Config.cmake not found at: $configFile"
+        }
+        Write-Host "Setting SDL2_DIR to: $sdl2ConfigDir"
+        Write-Host "Setting CMAKE_PREFIX_PATH to: $sdl2Path"
         "SDL2_DIR=$sdl2ConfigDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
         "CMAKE_PREFIX_PATH=$sdl2Path" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
     
