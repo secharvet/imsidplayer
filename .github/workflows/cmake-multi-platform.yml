@@ -73,7 +73,7 @@ jobs:
         
         # Build sidplayfp from source
         Write-Host "Cloning sidplayfp repository..."
-        git clone --depth 1 --branch 2.7.0 https://github.com/libsidplayfp/libsidplayfp.git sidplayfp-src
+        git clone --depth 1 --branch v2.15.2 https://github.com/libsidplayfp/libsidplayfp.git sidplayfp-src
         if (-not (Test-Path "sidplayfp-src")) {
           Write-Host "Error: Failed to clone sidplayfp"
           exit 1
