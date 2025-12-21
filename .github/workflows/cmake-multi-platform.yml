@@ -110,16 +110,22 @@ jobs:
         gcc --version
         pkg-config --version
         
+        # Get actual paths to compilers using which
+        GCC_PATH=$(which gcc)
+        GXX_PATH=$(which g++)
+        PKG_CONFIG_PATH=$(which pkg-config)
+        echo "GCC path: $GCC_PATH"
+        echo "G++ path: $GXX_PATH"
+        echo "pkg-config path: $PKG_CONFIG_PATH"
+        
         # Configure CMake with MinGW
         cmake -B build -S . \
           -G "MinGW Makefiles" \
           -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_C_COMPILER=/mingw64/bin/gcc \
-          -DCMAKE_CXX_COMPILER=/mingw64/bin/g++ \
-          -DCMAKE_MAKE_PROGRAM=/usr/bin/make \
-          -DCMAKE_SYSTEM_NAME=Windows \
-          -DCMAKE_SYSTEM_PROCESSOR=x86_64 \
-          -DPKG_CONFIG_EXECUTABLE=/mingw64/bin/pkg-config
+          -DCMAKE_C_COMPILER="$GCC_PATH" \
+          -DCMAKE_CXX_COMPILER="$GXX_PATH" \
+          -DCMAKE_MAKE_PROGRAM=make \
+          -DPKG_CONFIG_EXECUTABLE="$PKG_CONFIG_PATH"
     
     - name: Build (Windows MinGW)
       if: runner.os == 'Windows'
