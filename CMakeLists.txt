@@ -17,10 +17,10 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 # Sur Windows, utiliser find_package(SDL2), sur Linux/macOS utiliser pkg-config
 if(WIN32)
     # Sur Windows, SDL2_DIR doit pointer vers le répertoire contenant SDL2Config.cmake (généralement cmake/)
-    # CMAKE_PREFIX_PATH doit pointer vers la racine de SDL2
+    # Il faut définir SDL2_DIR comme variable CMake (pas seulement environnement) pour que find_package le trouve
     if(DEFINED ENV{SDL2_DIR})
-        set(SDL2_DIR "$ENV{SDL2_DIR}")
-        message(STATUS "SDL2_DIR from environment: ${SDL2_DIR}")
+        set(SDL2_DIR "$ENV{SDL2_DIR}" CACHE PATH "Path to SDL2 cmake directory")
+        message(STATUS "SDL2_DIR set to: ${SDL2_DIR}")
         # Vérifier que SDL2Config.cmake existe
         if(EXISTS "${SDL2_DIR}/SDL2Config.cmake")
             message(STATUS "Found SDL2Config.cmake at: ${SDL2_DIR}/SDL2Config.cmake")
@@ -35,6 +35,7 @@ if(WIN32)
     endif()
     
     # Chercher SDL2 avec find_package (sans REQUIRED pour permettre le fallback)
+    # find_package utilise SDL2_DIR si défini
     find_package(SDL2 QUIET)
     if(NOT SDL2_FOUND)
         message(STATUS "find_package(SDL2) failed, trying manual detection...")
