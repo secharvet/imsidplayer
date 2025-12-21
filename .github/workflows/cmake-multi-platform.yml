@@ -58,25 +58,53 @@ jobs:
           mingw-w64-x86_64-libsidplayfp \
           mingw-w64-x86_64-pkg-config
         
-        # Set environment variables for CMake
+        # Verify installations
+        echo "=== Checking MinGW tools ==="
+        which gcc
+        which g++
+        which cmake
+        which pkg-config
+        gcc --version
+        pkg-config --version
+        
+        # Set environment variables for CMake (export to GITHUB_ENV for next steps)
         echo "SIDPLAYFP_ROOT=/mingw64" >> $GITHUB_ENV
-        echo "PATH=/mingw64/bin:$PATH" >> $GITHUB_ENV
+        echo "PATH=/mingw64/bin:/usr/bin:$PATH" >> $GITHUB_ENV
+        export PATH="/mingw64/bin:/usr/bin:$PATH"
     
     - name: Configure CMake (Windows MinGW)
       if: runner.os == 'Windows'
       shell: msys2 {0}
       run: |
-        cmake -B ${{ github.workspace }}/build -S ${{ github.workspace }} \
+        # Convert Windows path to MSYS2 path and set PATH
+        export PATH="/mingw64/bin:/usr/bin:$PATH"
+        WORKSPACE=$(cygpath -u "${{ github.workspace }}")
+        cd "$WORKSPACE"
+        
+        # Verify we're using MinGW tools
+        echo "=== Using MinGW tools ==="
+        which gcc
+        which cmake
+        gcc --version
+        
+        # Configure CMake with MinGW
+        cmake -B build -S . \
           -G "MinGW Makefiles" \
           -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_C_COMPILER=gcc \
-          -DCMAKE_CXX_COMPILER=g++
+          -DCMAKE_C_COMPILER=/mingw64/bin/gcc \
+          -DCMAKE_CXX_COMPILER=/mingw64/bin/g++ \
+          -DCMAKE_MAKE_PROGRAM=/usr/bin/make \
+          -DCMAKE_SYSTEM_NAME=Windows \
+          -DCMAKE_SYSTEM_PROCESSOR=x86_64
     
     - name: Build (Windows MinGW)
       if: runner.os == 'Windows'
       shell: msys2 {0}
       run: |
-        cmake --build ${{ github.workspace }}/build --config Release -j$(nproc)
+        export PATH="/mingw64/bin:/usr/bin:$PATH"
+        WORKSPACE=$(cygpath -u "${{ github.workspace }}")
+        cd "$WORKSPACE"
+        cmake --build build --config Release -j$(nproc)
     
     - name: Configure CMake (Linux/macOS)
       if: runner.os != 'Windows'
