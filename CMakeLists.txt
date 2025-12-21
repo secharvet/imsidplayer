@@ -15,7 +15,14 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 # ImGui (intégration directe)
 set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui)
-add_subdirectory(${IMGUI_DIR})
+if(EXISTS "${IMGUI_DIR}/CMakeLists.txt")
+    add_subdirectory(${IMGUI_DIR})
+elseif(EXISTS "${IMGUI_DIR}")
+    message(WARNING "third_party/imgui exists but no CMakeLists.txt found — skipping add_subdirectory.")
+else()
+    message(WARNING "third_party/imgui not found. If you want ImGui, run: git submodule update --init --recursive")
+    message(FATAL_ERROR "ImGui submodule is required. Please run: git submodule update --init --recursive")
+endif()
 
 # SDL2 pour l'audio
 find_package(PkgConfig REQUIRED)
