@@ -44,68 +44,44 @@ jobs:
       with:
         update: true
     
-    - name: Install sidplayfp via MSYS2
+    - name: Install Windows dependencies (MinGW)
       if: runner.os == 'Windows'
       shell: msys2 {0}
       run: |
-        # Install with retry logic (network issues can cause timeouts)
-        for i in 1 2 3; do
-          echo "Attempt $i/3 to install sidplayfp..."
-          if pacman -S --noconfirm --needed mingw-w64-x86_64-libsidplayfp; then
-            echo "Successfully installed sidplayfp"
-            exit 0
-          else
-            echo "Installation failed, waiting 15 seconds before retry..."
-            sleep 15
-          fi
-        done
-        echo "Failed to install sidplayfp after 3 attempts"
-        exit 1
-    
-    - name: Install Windows dependencies
-      if: runner.os == 'Windows'
-      shell: powershell
-      run: |
-        # Install SDL2
-        Invoke-WebRequest -Uri "https://www.libsdl.org/release/SDL2-devel-2.32.8-VC.zip" -OutFile "SDL2-devel.zip"
-        Expand-Archive -Path SDL2-devel.zip -DestinationPath . -Force
-        # Trouver le répertoire SDL2 (ignorer le zip)
-        $sdl2Path = Get-ChildItem -Directory -Filter "SDL2-*" | Select-Object -First 1 | ForEach-Object { $_.FullName }
-        if (-not $sdl2Path) {
-          Write-Host "Error: SDL2 directory not found"
-          exit 1
-        }
-        Write-Host "SDL2 extracted to: $sdl2Path"
-        # SDL2_DIR doit pointer vers le répertoire cmake/ qui contient SDL2Config.cmake
-        $sdl2ConfigDir = Join-Path $sdl2Path "cmake"
-        if (-not (Test-Path $sdl2ConfigDir)) {
-          Write-Host "Warning: cmake/ directory not found in SDL2, using root directory"
-          $sdl2ConfigDir = $sdl2Path
-        }
-        # Vérifier que SDL2Config.cmake existe
-        $configFile = Join-Path $sdl2ConfigDir "SDL2Config.cmake"
-        if (Test-Path $configFile) {
-          Write-Host "Found SDL2Config.cmake at: $configFile"
-        } else {
-          Write-Host "Warning: SDL2Config.cmake not found at: $configFile"
-        }
-        Write-Host "Setting SDL2_DIR to: $sdl2ConfigDir"
-        Write-Host "Setting CMAKE_PREFIX_PATH to: $sdl2Path"
-        # Utiliser Add-Content pour éviter les problèmes d'encodage et de duplication
-        Add-Content -Path $env:GITHUB_ENV -Value "SDL2_DIR=$sdl2ConfigDir"
-        Add-Content -Path $env:GITHUB_ENV -Value "CMAKE_PREFIX_PATH=$sdl2Path"
+        # Install build tools and dependencies via MSYS2/MinGW
+        pacman -S --noconfirm --needed \
+          mingw-w64-x86_64-gcc \
+          mingw-w64-x86_64-cmake \
+          mingw-w64-x86_64-make \
+          mingw-w64-x86_64-SDL2 \
+          mingw-w64-x86_64-SDL2_image \
+          mingw-w64-x86_64-libsidplayfp \
+          mingw-w64-x86_64-pkg-config
         
-        # MSYS2 MinGW packages are installed in C:\msys64\mingw64
-        $sidplayfpPath = "C:\msys64\mingw64"
-        Write-Host "sidplayfp installed to: $sidplayfpPath"
-        Add-Content -Path $env:GITHUB_ENV -Value "SIDPLAYFP_ROOT=$sidplayfpPath"
+        # Set environment variables for CMake
+        echo "SIDPLAYFP_ROOT=/mingw64" >> $GITHUB_ENV
+        echo "PATH=/mingw64/bin:$PATH" >> $GITHUB_ENV
     
-    - name: Configure CMake
+    - name: Configure CMake (Windows MinGW)
+      if: runner.os == 'Windows'
+      shell: msys2 {0}
+      run: |
+        cmake -B ${{ github.workspace }}/build -S ${{ github.workspace }} \
+          -G "MinGW Makefiles" \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_C_COMPILER=gcc \
+          -DCMAKE_CXX_COMPILER=g++
+    
+    - name: Build (Windows MinGW)
+      if: runner.os == 'Windows'
+      shell: msys2 {0}
+      run: |
+        cmake --build ${{ github.workspace }}/build --config Release -j$(nproc)
+    
+    - name: Configure CMake (Linux/macOS)
+      if: runner.os != 'Windows'
       run: cmake -B ${{ github.workspace }}/build -S ${{ github.workspace }}
-      env:
-        SDL2_DIR: ${{ env.SDL2_DIR }}
-        CMAKE_PREFIX_PATH: ${{ env.CMAKE_PREFIX_PATH }}
-        SIDPLAYFP_ROOT: ${{ env.SIDPLAYFP_ROOT }}
     
-    - name: Build
+    - name: Build (Linux/macOS)
+      if: runner.os != 'Windows'
       run: cmake --build ${{ github.workspace }}/build --config Release

@@ -14,19 +14,17 @@ option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 # SDL2 pour l'audio (doit être trouvé AVANT ImGui)
-# Sur Windows, utiliser find_package(SDL2), sur Linux/macOS utiliser pkg-config
-if(WIN32)
-    # Sur Windows, utiliser uniquement la détection manuelle (find_package ne fonctionne pas toujours)
-    # SDL2_DIR pointe vers cmake/, CMAKE_PREFIX_PATH pointe vers la racine de SDL2
+# Sur Windows avec MinGW, utiliser pkg-config comme sur Linux
+# Sur Windows avec MSVC, utiliser la détection manuelle
+find_package(PkgConfig QUIET)
+if(WIN32 AND NOT PkgConfig_FOUND)
+    # Windows avec MSVC: détection manuelle
     if(DEFINED ENV{CMAKE_PREFIX_PATH})
-        # Prendre seulement le premier chemin si plusieurs sont présents (séparés par des espaces)
         string(REPLACE " " ";" CMAKE_PREFIX_PATH_LIST "$ENV{CMAKE_PREFIX_PATH}")
         list(GET CMAKE_PREFIX_PATH_LIST 0 SDL2_ROOT)
         message(STATUS "CMAKE_PREFIX_PATH from environment: $ENV{CMAKE_PREFIX_PATH}")
         message(STATUS "Using SDL2_ROOT: ${SDL2_ROOT}")
     elseif(DEFINED ENV{SDL2_DIR})
-        # Si SDL2_DIR pointe vers cmake/, remonter d'un niveau pour obtenir la racine
-        # Prendre seulement le premier chemin
         string(REPLACE " " ";" SDL2_DIR_LIST "$ENV{SDL2_DIR}")
         list(GET SDL2_DIR_LIST 0 SDL2_DIR_FIRST)
         get_filename_component(SDL2_ROOT "${SDL2_DIR_FIRST}" DIRECTORY)
@@ -36,10 +34,8 @@ if(WIN32)
         message(WARNING "Neither CMAKE_PREFIX_PATH nor SDL2_DIR set, SDL2 detection may fail")
     endif()
     
-    # Détection manuelle de SDL2 sur Windows (pas de find_package pour éviter les erreurs)
     message(STATUS "Searching SDL2 manually in: ${SDL2_ROOT}")
     
-    # Sur Windows, SDL2 est généralement dans: SDL2-2.x.x/include et SDL2-2.x.x/lib/x64
     find_path(SDL2_INCLUDE_DIR SDL.h
         PATHS
         ${SDL2_ROOT}
@@ -66,6 +62,7 @@ if(WIN32)
         message(FATAL_ERROR "SDL2 not found. SDL2_ROOT: ${SDL2_ROOT}, Include: ${SDL2_INCLUDE_DIR}, Library: ${SDL2_LIBRARY}")
     endif()
 else()
+    # Linux/macOS ou Windows avec MinGW: utiliser pkg-config
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(SDL2 REQUIRED sdl2)
 endif()
@@ -102,7 +99,8 @@ target_link_libraries(imgui PUBLIC
 )
 
 # SDL2_image pour charger des images (PNG, JPEG, etc.)
-if(WIN32)
+if(WIN32 AND NOT PkgConfig_FOUND)
+    # Windows avec MSVC: détection manuelle
     find_package(SDL2_image QUIET)
     if(SDL2_image_FOUND)
         set(SDL2_IMAGE_FOUND TRUE)
@@ -116,26 +114,39 @@ if(WIN32)
         message(WARNING "SDL2_image not found on Windows. Background image support will be disabled.")
     endif()
 else()
-    find_library(SDL2_IMAGE_LIB SDL2_image PATHS /usr/lib/x86_64-linux-gnu)
-    find_path(SDL2_IMAGE_INCLUDE_DIR SDL2/SDL_image.h PATHS /usr/include)
-    if(SDL2_IMAGE_LIB AND SDL2_IMAGE_INCLUDE_DIR)
-        set(SDL2_IMAGE_FOUND TRUE)
-        set(SDL2_IMAGE_LIBRARIES ${SDL2_IMAGE_LIB})
-        set(SDL2_IMAGE_INCLUDE_DIRS ${SDL2_IMAGE_INCLUDE_DIR})
-        add_definitions(-DHAS_SDL2_IMAGE=1)
-        message(STATUS "SDL2_image trouvé: support des images de fond activé")
+    # Linux/macOS ou Windows avec MinGW: utiliser pkg-config
+    if(PkgConfig_FOUND)
+        pkg_check_modules(SDL2_IMAGE QUIET SDL2_image)
+        if(SDL2_IMAGE_FOUND)
+            add_definitions(-DHAS_SDL2_IMAGE=1)
+            message(STATUS "SDL2_image trouvé: support des images de fond activé")
+        else()
+            set(SDL2_IMAGE_FOUND FALSE)
+            add_definitions(-DHAS_SDL2_IMAGE=0)
+            message(WARNING "SDL2_image not found. Background image support will be disabled.")
+        endif()
     else()
-        set(SDL2_IMAGE_FOUND FALSE)
-        add_definitions(-DHAS_SDL2_IMAGE=0)
-        message(WARNING "SDL2_image not found. Background image support will be disabled. Install with: sudo apt-get install libsdl2-image-dev")
+        # Fallback: détection manuelle
+        find_library(SDL2_IMAGE_LIB SDL2_image PATHS /usr/lib/x86_64-linux-gnu)
+        find_path(SDL2_IMAGE_INCLUDE_DIR SDL2/SDL_image.h PATHS /usr/include)
+        if(SDL2_IMAGE_LIB AND SDL2_IMAGE_INCLUDE_DIR)
+            set(SDL2_IMAGE_FOUND TRUE)
+            set(SDL2_IMAGE_LIBRARIES ${SDL2_IMAGE_LIB})
+            set(SDL2_IMAGE_INCLUDE_DIRS ${SDL2_IMAGE_INCLUDE_DIR})
+            add_definitions(-DHAS_SDL2_IMAGE=1)
+            message(STATUS "SDL2_image trouvé: support des images de fond activé")
+        else()
+            set(SDL2_IMAGE_FOUND FALSE)
+            add_definitions(-DHAS_SDL2_IMAGE=0)
+            message(WARNING "SDL2_image not found. Background image support will be disabled. Install with: sudo apt-get install libsdl2-image-dev")
+        endif()
     endif()
 endif()
 
 # sidplayfp
-if(WIN32)
-    # Sur Windows, utiliser la détection manuelle
+if(WIN32 AND NOT PkgConfig_FOUND)
+    # Windows avec MSVC: détection manuelle
     if(DEFINED ENV{SIDPLAYFP_ROOT})
-        # Prendre seulement le premier chemin si plusieurs sont présents
         string(REPLACE " " ";" SIDPLAYFP_ROOT_LIST "$ENV{SIDPLAYFP_ROOT}")
         list(GET SIDPLAYFP_ROOT_LIST 0 SIDPLAYFP_ROOT)
         message(STATUS "SIDPLAYFP_ROOT from environment: $ENV{SIDPLAYFP_ROOT}")
@@ -145,7 +156,6 @@ if(WIN32)
         message(WARNING "SIDPLAYFP_ROOT not set, sidplayfp detection may fail")
     endif()
     
-    # Détection manuelle de sidplayfp sur Windows
     message(STATUS "Searching sidplayfp manually in: ${SIDPLAYFP_ROOT}")
     
     find_library(SIDPLAYFP_LIB
@@ -169,19 +179,47 @@ if(WIN32)
         message(FATAL_ERROR "sidplayfp not found. SIDPLAYFP_ROOT: ${SIDPLAYFP_ROOT}, Include: ${SIDPLAYFP_INCLUDE_DIR}, Library: ${SIDPLAYFP_LIB}")
     endif()
 else()
-    # Linux/macOS: utiliser find_library standard
-    find_library(SIDPLAYFP_LIB sidplayfp)
-    if(NOT SIDPLAYFP_LIB)
-        message(FATAL_ERROR "sidplayfp library not found. Install it with: sudo apt-get install libsidplayfp-dev")
-    endif()
+    # Linux/macOS ou Windows avec MinGW: utiliser pkg-config ou find_library
+    if(PkgConfig_FOUND)
+        pkg_check_modules(SIDPLAYFP QUIET libsidplayfp)
+        if(SIDPLAYFP_FOUND)
+            set(SIDPLAYFP_INCLUDE_DIR ${SIDPLAYFP_INCLUDE_DIRS})
+            # Convertir SIDPLAYFP_LIBRARIES en SIDPLAYFP_LIB pour compatibilité
+            if(SIDPLAYFP_LIBRARIES)
+                list(GET SIDPLAYFP_LIBRARIES 0 SIDPLAYFP_LIB)
+            else()
+                set(SIDPLAYFP_LIB ${SIDPLAYFP_LIBRARIES})
+            endif()
+            message(STATUS "sidplayfp found via pkg-config:")
+            message(STATUS "  Include: ${SIDPLAYFP_INCLUDE_DIR}")
+            message(STATUS "  Library: ${SIDPLAYFP_LIB}")
+        else()
+            # Fallback to find_library
+            find_library(SIDPLAYFP_LIB sidplayfp)
+            find_path(SIDPLAYFP_INCLUDE_DIR sidplayfp/sidplayfp.h)
+            if(SIDPLAYFP_INCLUDE_DIR AND SIDPLAYFP_LIB)
+                message(STATUS "sidplayfp found via find_library:")
+                message(STATUS "  Include: ${SIDPLAYFP_INCLUDE_DIR}")
+                message(STATUS "  Library: ${SIDPLAYFP_LIB}")
+            else()
+                message(FATAL_ERROR "sidplayfp not found. Install it with: sudo apt-get install libsidplayfp-dev")
+            endif()
+        endif()
+    else()
+        # Fallback: find_library standard
+        find_library(SIDPLAYFP_LIB sidplayfp)
+        if(NOT SIDPLAYFP_LIB)
+            message(FATAL_ERROR "sidplayfp library not found. Install it with: sudo apt-get install libsidplayfp-dev")
+        endif()
 
-    find_path(SIDPLAYFP_INCLUDE_DIR sidplayfp/sidplayfp.h)
-    if(NOT SIDPLAYFP_INCLUDE_DIR)
-        message(FATAL_ERROR "sidplayfp headers not found. Install it with: sudo apt-get install libsidplayfp-dev")
+        find_path(SIDPLAYFP_INCLUDE_DIR sidplayfp/sidplayfp.h)
+        if(NOT SIDPLAYFP_INCLUDE_DIR)
+            message(FATAL_ERROR "sidplayfp headers not found. Install it with: sudo apt-get install libsidplayfp-dev")
+        endif()
+        message(STATUS "sidplayfp found:")
+        message(STATUS "  Include: ${SIDPLAYFP_INCLUDE_DIR}")
+        message(STATUS "  Library: ${SIDPLAYFP_LIB}")
     endif()
-    message(STATUS "sidplayfp found:")
-    message(STATUS "  Include: ${SIDPLAYFP_INCLUDE_DIR}")
-    message(STATUS "  Library: ${SIDPLAYFP_LIB}")
 endif()
 
 
