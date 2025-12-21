@@ -59,10 +59,6 @@ public:
         if (voice >= 0 && voice < 3) m_voiceActive[voice] = active;
     }
     
-    // Engine audio sélectionné
-    int getAudioEngine() const { return m_audioEngine; }
-    void setAudioEngine(int engine) { m_audioEngine = engine; }
-
 private:
     Config() = default;
     ~Config() = default;
@@ -81,7 +77,6 @@ private:
     int m_windowHeight = 800;
     std::vector<PlaylistItem> m_playlist;
     bool m_voiceActive[3] = {true, true, true}; // Par défaut toutes actives
-    int m_audioEngine = 0; // ENGINE_AUDIO par défaut
     
     // Parsing du fichier de config
     void parseLine(const std::string& line, int indent, std::vector<PlaylistItem>* currentList);

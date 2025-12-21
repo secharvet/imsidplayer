@@ -298,7 +298,6 @@ int main(int argc, char* argv[]) {
     }
     
     // Restaurer l'engine audio
-    player.setAudioEngine(static_cast<SidPlayer::EngineType>(config.getAudioEngine()));
     
     // Fonction pour mettre à jour la liste des fichiers
     auto updateDirectoryList = [&]() {
@@ -506,24 +505,6 @@ int main(int argc, char* argv[]) {
             
             ImGui::Spacing();
             ImGui::Separator();
-            
-            // Sélection de l'engine audio
-            if (!player.getCurrentFile().empty()) {
-                ImGui::Text("Engine audio:");
-                ImGui::Spacing();
-                
-                const char* engineNames[] = {
-                    "Mixed audio (all voices)",
-                    "Voice 1 only",
-                    "Voice 2 only",
-                    "Voice 3 only"
-                };
-                
-                int currentEngine = static_cast<int>(player.getAudioEngine());
-                if (ImGui::Combo("##engine", &currentEngine, engineNames, IM_ARRAYSIZE(engineNames))) {
-                    player.setAudioEngine(static_cast<SidPlayer::EngineType>(currentEngine));
-                }
-            }
             
             ImGui::Spacing();
             ImGui::Separator();
@@ -1049,7 +1030,6 @@ int main(int argc, char* argv[]) {
     }
     
     // Sauvegarder l'engine audio
-    config.setAudioEngine(static_cast<int>(player.getAudioEngine()));
     
     // Sauvegarder dans le fichier
     config.save(configPath);

@@ -75,8 +75,6 @@ bool Config::load(const std::string& filename) {
             m_voiceActive[1] = (value == "true" || value == "1");
         } else if (key == "voice_2_active") {
             m_voiceActive[2] = (value == "true" || value == "1");
-        } else if (key == "audio_engine") {
-            m_audioEngine = std::stoi(value);
         } else if (key == "playlist") {
             // Le début de la playlist
             m_playlist.clear();
@@ -173,7 +171,6 @@ bool Config::save(const std::string& filename) {
     file << "voice_0_active: " << (m_voiceActive[0] ? "true" : "false") << "\n";
     file << "voice_1_active: " << (m_voiceActive[1] ? "true" : "false") << "\n";
     file << "voice_2_active: " << (m_voiceActive[2] ? "true" : "false") << "\n";
-    file << "audio_engine: " << m_audioEngine << "\n";
     
     file << "\nplaylist:\n";
     writePlaylist(file, m_playlist, 1);

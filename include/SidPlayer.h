@@ -28,16 +28,6 @@ public:
     void setVoiceMute(int voice, bool muted);
     bool isVoiceMuted(int voice) const;
     
-    // Sélection de l'engine audio
-    enum EngineType {
-        ENGINE_AUDIO = 0,   // Engine #0 : toutes les voix (avec muting)
-        ENGINE_VOICE0 = 1,  // Engine #1 : voix 1 seule
-        ENGINE_VOICE1 = 2,   // Engine #2 : voix 2 seule
-        ENGINE_VOICE2 = 3    // Engine #3 : voix 3 seule
-    };
-    void setAudioEngine(EngineType engine);
-    EngineType getAudioEngine() const { return m_selectedEngine; }
-    
     // Pour les oscilloscopes - accès direct aux buffers (pas de copies!)
     static const int OSCILLOSCOPE_SIZE = 256;
     const float* getVoiceBuffer(int voice) const { 
@@ -53,19 +43,17 @@ private:
     void applyVoiceMuting(); // Fonction utilitaire pour appliquer le mute sur l'engine audio
     void applyAnalysisEngineMuting(); // Fonction utilitaire pour appliquer le mute sur les engines d'analyse
 
-    // 4 moteurs SID en parallèle :
-    // Engine #0 → audio réel (toutes les voix)
+    // 3 moteurs SID en parallèle pour l'analyse (mixage manuel pour l'audio) :
     // Engine #1 → analyse voix 1 (voix 2+3 mutées)
     // Engine #2 → analyse voix 2 (voix 1+3 mutées)
     // Engine #3 → analyse voix 3 (voix 1+2 mutées)
-    std::unique_ptr<sidplayfp> m_engineAudio;      // Engine #0
+    // L'audio mixé est généré en additionnant les 3 voix manuellement
     std::unique_ptr<sidplayfp> m_engineVoice0;      // Engine #1
     std::unique_ptr<sidplayfp> m_engineVoice1;      // Engine #2
     std::unique_ptr<sidplayfp> m_engineVoice2;      // Engine #3
     
     std::unique_ptr<SidTune> m_tune;
     // Un builder par moteur (nécessaire pour que chaque moteur fonctionne indépendamment)
-    std::unique_ptr<ReSIDfpBuilder> m_builderAudio;
     std::unique_ptr<ReSIDfpBuilder> m_builderVoice0;
     std::unique_ptr<ReSIDfpBuilder> m_builderVoice1;
     std::unique_ptr<ReSIDfpBuilder> m_builderVoice2;
@@ -78,19 +66,23 @@ private:
     bool m_playing;
     bool m_paused;
     
-    // État du mute pour chaque voix (pour l'engine audio)
+    // État du mute pour chaque voix
     bool m_voice0Muted;
     bool m_voice1Muted;
     bool m_voice2Muted;
-    
-    // Engine sélectionné pour l'audio
-    EngineType m_selectedEngine;
     
     // Buffers statiques pour les oscilloscopes (approche bas niveau C)
     float m_voice0Samples[OSCILLOSCOPE_SIZE];
     float m_voice1Samples[OSCILLOSCOPE_SIZE];
     float m_voice2Samples[OSCILLOSCOPE_SIZE];
     int m_writeIndex; // Index d'écriture circulaire
+    
+    // Buffers statiques pour le mixage audio (évite new/delete dans le callback)
+    // Taille suffisante pour gérer les callbacks audio (BUFFER_SIZE = 256, mais on prend une marge)
+    static const int MAX_AUDIO_BUFFER_SIZE = 512;
+    int16_t m_voice0AudioBuffer[MAX_AUDIO_BUFFER_SIZE];
+    int16_t m_voice1AudioBuffer[MAX_AUDIO_BUFFER_SIZE];
+    int16_t m_voice2AudioBuffer[MAX_AUDIO_BUFFER_SIZE];
     
     static const int SAMPLE_RATE = 44100;
     static const int BUFFER_SIZE = 256;

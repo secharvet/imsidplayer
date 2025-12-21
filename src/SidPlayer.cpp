@@ -14,7 +14,6 @@ SidPlayer::SidPlayer()
     , m_voice0Muted(false)  // Par défaut, toutes les voix sont actives (non mutées)
     , m_voice1Muted(false)
     , m_voice2Muted(false)
-    , m_selectedEngine(ENGINE_AUDIO)  // Par défaut, utiliser l'engine audio mixé
 {
     // Initialiser les buffers à zéro
     for (int i = 0; i < OSCILLOSCOPE_SIZE; ++i) {
@@ -28,30 +27,26 @@ SidPlayer::SidPlayer()
         return;
     }
 
-    // Créer les 4 moteurs SID
-    m_engineAudio = std::make_unique<sidplayfp>();  // Engine #0 : audio réel
+    // Créer les 3 moteurs SID pour l'analyse (on mixera manuellement)
     m_engineVoice0 = std::make_unique<sidplayfp>(); // Engine #1 : analyse voix 1
     m_engineVoice1 = std::make_unique<sidplayfp>(); // Engine #2 : analyse voix 2
     m_engineVoice2 = std::make_unique<sidplayfp>(); // Engine #3 : analyse voix 3
     
     // Créer un builder ReSIDfp pour chaque moteur (nécessaire pour fonctionnement indépendant)
-    m_builderAudio = std::make_unique<ReSIDfpBuilder>("ReSIDfp-Audio");
     m_builderVoice0 = std::make_unique<ReSIDfpBuilder>("ReSIDfp-Voice0");
     m_builderVoice1 = std::make_unique<ReSIDfpBuilder>("ReSIDfp-Voice1");
     m_builderVoice2 = std::make_unique<ReSIDfpBuilder>("ReSIDfp-Voice2");
     
     // Configurer chaque builder
-    unsigned int maxSids = m_engineAudio->info().maxsids();
+    unsigned int maxSids = m_engineVoice0->info().maxsids();
     
-    if (m_builderAudio->create(maxSids) == 0 ||
-        m_builderVoice0->create(maxSids) == 0 ||
+    if (m_builderVoice0->create(maxSids) == 0 ||
         m_builderVoice1->create(maxSids) == 0 ||
         m_builderVoice2->create(maxSids) == 0) {
         std::cerr << "Erreur: Impossible de créer les builders ReSIDfp" << std::endl;
         return;
     }
     
-    m_builderAudio->filter(true);
     m_builderVoice0->filter(true);
     m_builderVoice1->filter(true);
     m_builderVoice2->filter(true);
@@ -61,13 +56,6 @@ SidPlayer::SidPlayer()
     cfg.frequency = SAMPLE_RATE;
     cfg.playback = SidConfig::MONO;
     cfg.samplingMethod = SidConfig::INTERPOLATE;
-    
-    // Configurer Engine #0 (audio réel - toutes les voix actives)
-    cfg.sidEmulation = m_builderAudio.get();
-    if (!m_engineAudio->config(cfg)) {
-        std::cerr << "Erreur de configuration engine audio: " << m_engineAudio->error() << std::endl;
-        return;
-    }
     
     // Configurer Engine #1 (analyse voix 1 - muter voix 2 et 3)
     cfg.sidEmulation = m_builderVoice0.get();
@@ -124,12 +112,7 @@ bool SidPlayer::loadFile(const std::string& filepath) {
     // Sélectionner la première sous-chanson (les chansons commencent à 1)
     m_tune->selectSong(1);
     
-    // Charger le tune dans les 4 moteurs
-    if (!m_engineAudio->load(m_tune.get())) {
-        std::cerr << "Erreur: Impossible de charger la chanson dans le moteur audio" << std::endl;
-        m_tune.reset();
-        return false;
-    }
+    // Charger le tune dans les 3 moteurs d'analyse (plus besoin de m_engineAudio)
     if (!m_engineVoice0->load(m_tune.get())) {
         std::cerr << "Erreur: Impossible de charger la chanson dans le moteur voix 0" << std::endl;
         m_tune.reset();
@@ -148,9 +131,6 @@ bool SidPlayer::loadFile(const std::string& filepath) {
     
     // Réappliquer les muting après le load
     applyAnalysisEngineMuting();
-    
-    // Appliquer le mute des voix sur l'engine audio
-    applyVoiceMuting();
     
     // Configurer l'audio SDL
     SDL_AudioSpec desired, obtained;
@@ -171,19 +151,9 @@ bool SidPlayer::loadFile(const std::string& filepath) {
     
     m_audioSpec = obtained;
     
-    // Mettre à jour la fréquence d'échantillonnage dans la config pour tous les moteurs
+    // Mettre à jour la fréquence d'échantillonnage dans la config pour les 3 moteurs
     // Chaque moteur doit utiliser sa propre config avec son propre builder
-    SidConfig cfgAudio = m_engineAudio->config();
-    cfgAudio.frequency = obtained.freq;
-    cfgAudio.sidEmulation = m_builderAudio.get(); // Réassigner le builder
-    if (!m_engineAudio->config(cfgAudio)) {
-        std::cerr << "Erreur de configuration engine audio: " << m_engineAudio->error() << std::endl;
-        SDL_CloseAudioDevice(m_audioDevice);
-        m_audioDevice = 0;
-        m_tune.reset();
-        return false;
-    }
-    
+    // Plus besoin de configurer m_engineAudio, on mixera manuellement
     SidConfig cfgVoice0 = m_engineVoice0->config();
     cfgVoice0.frequency = obtained.freq;
     cfgVoice0.sidEmulation = m_builderVoice0.get(); // Réassigner le builder
@@ -248,17 +218,14 @@ void SidPlayer::play() {
         SDL_PauseAudioDevice(m_audioDevice, 0);
         m_paused = false;
     } else {
-        // Réinitialiser la lecture depuis le début pour tous les moteurs
-        m_engineAudio->load(m_tune.get());
+        // Réinitialiser la lecture depuis le début pour les 3 moteurs d'analyse
+        // Plus besoin de m_engineAudio, on mixera manuellement
         m_engineVoice0->load(m_tune.get());
         m_engineVoice1->load(m_tune.get());
         m_engineVoice2->load(m_tune.get());
         
         // Réappliquer les muting pour les engines d'analyse
         applyAnalysisEngineMuting();
-        
-        // Réappliquer le mute des voix sur l'engine audio
-        applyVoiceMuting();
         
         SDL_PauseAudioDevice(m_audioDevice, 0);
     }
@@ -276,22 +243,14 @@ void SidPlayer::stop() {
     SDL_PauseAudioDevice(m_audioDevice, 1);
     m_playing = false;
     m_paused = false;
-    if (m_engineAudio) {
-        m_engineAudio->stop();
-        m_engineVoice0->stop();
-        m_engineVoice1->stop();
-        m_engineVoice2->stop();
-    }
+    m_engineVoice0->stop();
+    m_engineVoice1->stop();
+    m_engineVoice2->stop();
 }
 
 void SidPlayer::applyVoiceMuting() {
-    // Appliquer le mute des voix sur l'engine audio
-    // mute(0, voice, false) = muter, mute(0, voice, true) = unmute
-    if (m_engineAudio) {
-        m_engineAudio->mute(0, 0, !m_voice0Muted);
-        m_engineAudio->mute(0, 1, !m_voice1Muted);
-        m_engineAudio->mute(0, 2, !m_voice2Muted);
-    }
+    // Plus besoin de cette fonction, le mixage manuel gère le mute dans audioCallback
+    // Cette fonction est conservée pour compatibilité mais ne fait plus rien
 }
 
 void SidPlayer::applyAnalysisEngineMuting() {
@@ -339,98 +298,61 @@ bool SidPlayer::isVoiceMuted(int voice) const {
     return false;
 }
 
-void SidPlayer::setAudioEngine(EngineType engine) {
-    if (engine >= ENGINE_AUDIO && engine <= ENGINE_VOICE2) {
-        m_selectedEngine = engine;
-        
-        // Si on passe à ENGINE_AUDIO, réappliquer les muting
-        if (engine == ENGINE_AUDIO) {
-            applyVoiceMuting();
-        }
-    }
-}
-
 void SidPlayer::audioCallback(void* userdata, Uint8* stream, int len) {
     if (!m_playing || m_paused) {
         SDL_memset(stream, 0, len);
         return;
     }
     
-    // Générer les échantillons audio selon l'engine sélectionné
     int16_t* mixBuffer = reinterpret_cast<int16_t*>(stream);
     int samples = len / sizeof(int16_t);
     
-    // Utiliser l'engine sélectionné
-    sidplayfp* engineToUse = nullptr;
-    switch (m_selectedEngine) {
-        case ENGINE_AUDIO:
-            engineToUse = m_engineAudio.get();
-            // Réappliquer le mute au cas où (pour l'engine audio)
-            applyVoiceMuting();
-            break;
-        case ENGINE_VOICE0:
-            engineToUse = m_engineVoice0.get();
-            // Réappliquer le mute pour s'assurer que seules les voix correctes sont actives
-            if (m_engineVoice0) {
-                m_engineVoice0->mute(0, 0, true);  // Unmute voix 1
-                m_engineVoice0->mute(0, 1, false); // Muter voix 2
-                m_engineVoice0->mute(0, 2, false); // Muter voix 3
-            }
-            break;
-        case ENGINE_VOICE1:
-            engineToUse = m_engineVoice1.get();
-            if (m_engineVoice1) {
-                m_engineVoice1->mute(0, 0, false); // Muter voix 1
-                m_engineVoice1->mute(0, 1, true);  // Unmute voix 2
-                m_engineVoice1->mute(0, 2, false); // Muter voix 3
-            }
-            break;
-        case ENGINE_VOICE2:
-            engineToUse = m_engineVoice2.get();
-            if (m_engineVoice2) {
-                m_engineVoice2->mute(0, 0, false); // Muter voix 1
-                m_engineVoice2->mute(0, 1, false); // Muter voix 2
-                m_engineVoice2->mute(0, 2, true);  // Unmute voix 3
-            }
-            break;
+    // Mixer manuellement les 3 voix selon leur état (mute/unmute)
+    // Utiliser les buffers statiques (pas de new/delete dans le callback!)
+    if (samples > MAX_AUDIO_BUFFER_SIZE) {
+        // Sécurité : si samples dépasse la taille du buffer, on limite
+        samples = MAX_AUDIO_BUFFER_SIZE;
     }
     
-    if (engineToUse) {
-        engineToUse->play(mixBuffer, samples);
+    m_engineVoice0->play(m_voice0AudioBuffer, samples);
+    m_engineVoice1->play(m_voice1AudioBuffer, samples);
+    m_engineVoice2->play(m_voice2AudioBuffer, samples);
+    
+    // Compter le nombre de voix actives
+    int activeVoices = 0;
+    if (!m_voice0Muted) activeVoices++;
+    if (!m_voice1Muted) activeVoices++;
+    if (!m_voice2Muted) activeVoices++;
+    
+    // Mixer les voix actives
+    if (activeVoices > 0) {
+        for (int i = 0; i < samples; ++i) {
+            int32_t sum = 0;
+            if (!m_voice0Muted) sum += m_voice0AudioBuffer[i];
+            if (!m_voice1Muted) sum += m_voice1AudioBuffer[i];
+            if (!m_voice2Muted) sum += m_voice2AudioBuffer[i];
+            
+            // Diviser par le nombre de voix actives pour normaliser
+            // Cela évite la saturation et maintient le volume correct
+            mixBuffer[i] = static_cast<int16_t>(sum / activeVoices);
+        }
     } else {
+        // Toutes les voix sont mutées
         SDL_memset(stream, 0, len);
     }
     
-    // Capturer les échantillons pour les oscilloscopes depuis les 3 engines d'analyse
-    // Ne capturer que tous les N callbacks pour éviter de surcharger
-    static int frameSkip = 0;
-   // if (++frameSkip < 4) return; // Capturer tous les 4 callbacks
-   // frameSkip = 0;
-    
-    // Capturer OSCILLOSCOPE_SIZE échantillons
-    int samplesToCapture = OSCILLOSCOPE_SIZE;
-    
-    // Buffers temporaires pour chaque voix
-    int16_t voice0Buffer[OSCILLOSCOPE_SIZE];
-    int16_t voice1Buffer[OSCILLOSCOPE_SIZE];
-    int16_t voice2Buffer[OSCILLOSCOPE_SIZE];
-    
-    // Générer les échantillons pour chaque voix isolée
-    m_engineVoice0->play(voice0Buffer, samplesToCapture);
-    m_engineVoice1->play(voice1Buffer, samplesToCapture);
-    m_engineVoice2->play(voice2Buffer, samplesToCapture);
-    
-    // Écrire dans les buffers circulaires
+    // Capturer les échantillons pour les oscilloscopes (utiliser les premiers échantillons)
+    // Si une voix est mutée, on remplit son buffer avec des zéros pour économiser les calculs
+    int samplesToCapture = (samples > OSCILLOSCOPE_SIZE) ? OSCILLOSCOPE_SIZE : samples;
     for (int i = 0; i < samplesToCapture; ++i) {
-        // Normaliser int16_t vers float [-1.0, 1.0]
-        m_voice0Samples[m_writeIndex] = voice0Buffer[i] / 32768.0f;
-        m_voice1Samples[m_writeIndex] = voice1Buffer[i] / 32768.0f;
-        m_voice2Samples[m_writeIndex] = voice2Buffer[i] / 32768.0f;
+        // Normaliser int16_t vers float [-1.0, 1.0] seulement si la voix n'est pas mutée
+        m_voice0Samples[m_writeIndex] = m_voice0Muted ? 0.0f : (m_voice0AudioBuffer[i] / 32768.0f);
+        m_voice1Samples[m_writeIndex] = m_voice1Muted ? 0.0f : (m_voice1AudioBuffer[i] / 32768.0f);
+        m_voice2Samples[m_writeIndex] = m_voice2Muted ? 0.0f : (m_voice2AudioBuffer[i] / 32768.0f);
         
         m_writeIndex++;
         if (m_writeIndex >= OSCILLOSCOPE_SIZE) m_writeIndex = 0;
     }
-
 }
 
 // Fonction supprimée - on capture maintenant directement dans audioCallback
