@@ -13,30 +13,40 @@ option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
 # Dossiers
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
-# ImGui (intégration directe)
-set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui)
-set(IMGUI_FOUND FALSE)
-set(IMGUI_HAS_CMAKE FALSE)
-if(EXISTS "${IMGUI_DIR}/imgui.h" AND EXISTS "${IMGUI_DIR}/CMakeLists.txt")
-    message(STATUS "ImGui found: adding include path and library targets")
-    add_subdirectory(${IMGUI_DIR})
-    set(IMGUI_FOUND TRUE)
-    set(IMGUI_HAS_CMAKE TRUE)
-elseif(EXISTS "${IMGUI_DIR}/imgui.h")
-    message(STATUS "ImGui found: adding include path (no CMakeLists.txt, using direct include)")
-    set(IMGUI_FOUND TRUE)
-    set(IMGUI_HAS_CMAKE FALSE)
-elseif(EXISTS "${IMGUI_DIR}")
-    message(WARNING "third_party/imgui exists but imgui.h not found.")
-    message(FATAL_ERROR "ImGui submodule is incomplete. Please run: git submodule update --init --recursive")
-else()
-    message(WARNING "third_party/imgui not found. If you want ImGui, run: git submodule update --init --recursive")
-    message(FATAL_ERROR "ImGui submodule is required. Please run: git submodule update --init --recursive")
-endif()
-
-# SDL2 pour l'audio
+# SDL2 pour l'audio (doit être trouvé AVANT ImGui)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL2 REQUIRED sdl2)
+
+# ImGui (architecture propre : toujours créer une lib statique)
+set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui)
+
+if(NOT EXISTS "${IMGUI_DIR}/imgui.h")
+    message(FATAL_ERROR "ImGui submodule missing. Run: git submodule update --init --recursive")
+endif()
+
+message(STATUS "ImGui found: creating static library")
+
+# Créer une lib imgui statique avec tous les fichiers nécessaires
+add_library(imgui STATIC
+    ${IMGUI_DIR}/imgui.cpp
+    ${IMGUI_DIR}/imgui_draw.cpp
+    ${IMGUI_DIR}/imgui_tables.cpp
+    ${IMGUI_DIR}/imgui_widgets.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_sdlrenderer2.cpp
+)
+
+# Include directories pour ImGui (core + backends + SDL2)
+target_include_directories(imgui PUBLIC
+    ${IMGUI_DIR}
+    ${IMGUI_DIR}/backends
+    ${SDL2_INCLUDE_DIRS}
+)
+
+# Linker SDL2 pour ImGui
+target_link_libraries(imgui PUBLIC
+    ${SDL2_LIBRARIES}
+)
 
 # SDL2_image pour charger des images (PNG, JPEG, etc.)
 find_library(SDL2_IMAGE_LIB SDL2_image PATHS /usr/lib/x86_64-linux-gnu)
@@ -65,24 +75,12 @@ if(NOT SIDPLAYFP_INCLUDE_DIR)
 endif()
 
 
-# Sources
+# Sources (ImGui est maintenant une lib séparée, plus besoin de l'inclure ici)
 set(SOURCES
     src/main.cpp
     src/SidPlayer.cpp
     src/Config.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_sdlrenderer2.cpp
 )
-
-# Ajouter les fichiers ImGui si pas de CMakeLists.txt (compilation directe)
-if(IMGUI_FOUND AND NOT IMGUI_HAS_CMAKE)
-    list(APPEND SOURCES
-        ${IMGUI_DIR}/imgui.cpp
-        ${IMGUI_DIR}/imgui_draw.cpp
-        ${IMGUI_DIR}/imgui_tables.cpp
-        ${IMGUI_DIR}/imgui_widgets.cpp
-    )
-endif()
 
 set(HEADERS
     include/SidPlayer.h
@@ -101,22 +99,15 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 if(SDL2_IMAGE_FOUND)
     target_include_directories(${PROJECT_NAME} PRIVATE ${SDL2_IMAGE_INCLUDE_DIRS})
 endif()
-
-# Ajouter les include directories pour ImGui (toujours nécessaire)
-if(IMGUI_FOUND)
-    target_include_directories(${PROJECT_NAME} PRIVATE "${IMGUI_DIR}")
-endif()
+# ImGui include directories sont héritées via target_link_libraries(imgui)
 
 # Libraries
 target_link_libraries(${PROJECT_NAME} PRIVATE
+    imgui
     ${SDL2_LIBRARIES}
     ${SIDPLAYFP_LIB}
 )
 
-# Linker avec imgui seulement si le target existe (quand CMakeLists.txt est présent)
-if(IMGUI_HAS_CMAKE AND TARGET imgui)
-    target_link_libraries(${PROJECT_NAME} PRIVATE imgui)
-endif()
 if(SDL2_IMAGE_FOUND)
     target_link_libraries(${PROJECT_NAME} PRIVATE ${SDL2_IMAGE_LIBRARIES})
 endif()
