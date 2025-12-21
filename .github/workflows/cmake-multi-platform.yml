@@ -10,10 +10,6 @@ on:
 
 jobs:
   build:
-    outputs:
-      version: ${{ steps.get_version.outputs.version }}
-      tag: ${{ steps.get_version.outputs.tag }}
-      is_release: ${{ steps.get_version.outputs.is_release }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -346,24 +342,33 @@ jobs:
 
   release:
     needs: build
-    if: needs.build.outputs.is_release == 'true'
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
+      - name: Get version from tag
+        id: get_version
+        run: |
+          VERSION="${{ github.ref_name }}"
+          # Remove 'v' prefix if present
+          VERSION=${VERSION#v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
       - name: Download Linux artifact
         uses: actions/download-artifact@v4
         with:
-          name: imSidPlayer-linux-${{ needs.build.outputs.version }}
+          name: imSidPlayer-linux-${{ steps.get_version.outputs.version }}
           path: release-artifacts/
       
       - name: Download Windows artifact
         uses: actions/download-artifact@v4
         with:
-          name: imSidPlayer-windows-${{ needs.build.outputs.version }}
+          name: imSidPlayer-windows-${{ steps.get_version.outputs.version }}
           path: release-artifacts/
       
       - name: Prepare release files
         run: |
-          VERSION="${{ needs.build.outputs.version }}"
+          VERSION="${{ steps.get_version.outputs.version }}"
           cd release-artifacts
           
           # Find and rename Linux binary
@@ -387,22 +392,22 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ needs.build.outputs.tag }}
-          name: Release ${{ needs.build.outputs.tag }}
+          tag_name: ${{ steps.get_version.outputs.tag }}
+          name: Release ${{ steps.get_version.outputs.tag }}
           body: |
-            ## imSid Player ${{ needs.build.outputs.version }}
+            ## imSid Player ${{ steps.get_version.outputs.version }}
             
             ### Downloads
             
-            - **Linux**: `imSidPlayer-${{ needs.build.outputs.version }}-linux`
-            - **Windows**: `imSidPlayer-${{ needs.build.outputs.version }}-windows.zip`
+            - **Linux**: `imSidPlayer-${{ steps.get_version.outputs.version }}-linux`
+            - **Windows**: `imSidPlayer-${{ steps.get_version.outputs.version }}-windows.zip`
             
             ### Installation
             
             **Linux:**
             ```bash
-            chmod +x imSidPlayer-${{ needs.build.outputs.version }}-linux
-            ./imSidPlayer-${{ needs.build.outputs.version }}-linux
+            chmod +x imSidPlayer-${{ steps.get_version.outputs.version }}-linux
+            ./imSidPlayer-${{ steps.get_version.outputs.version }}-linux
             ```
             
             **Windows:**
@@ -412,8 +417,8 @@ jobs:
             
             See commit history for details.
           files: |
-            release-artifacts/imSidPlayer-${{ needs.build.outputs.version }}-linux
-            release-artifacts/imSidPlayer-${{ needs.build.outputs.version }}-windows.zip
+            release-artifacts/imSidPlayer-${{ steps.get_version.outputs.version }}-linux
+            release-artifacts/imSidPlayer-${{ steps.get_version.outputs.version }}-windows.zip
           draft: false
           prerelease: false
         env:
