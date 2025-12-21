@@ -3,6 +3,7 @@
 #include <sstream>
 #include <algorithm>
 #include <cctype>
+#include <functional>
 
 Config& Config::getInstance() {
     static Config instance;
@@ -15,29 +16,126 @@ bool Config::load(const std::string& filename) {
         return false;
     }
     
+    // Lire toutes les lignes dans un vecteur pour permettre la navigation
+    std::vector<std::string> lines;
     std::string line;
-    std::vector<PlaylistItem> currentPlaylistStack;
-    int currentIndent = 0;
-    
     while (std::getline(file, line)) {
+        lines.push_back(line);
+    }
+    file.close();
+    
+    size_t lineIndex = 0;
+    int playlistBaseIndent = -1;
+    bool inPlaylist = false;
+    
+    // Fonction récursive pour parser un item de playlist et ses enfants
+    std::function<PlaylistItem(size_t&, int)> parsePlaylistItem = [&](size_t& idx, int expectedIndent) -> PlaylistItem {
+        PlaylistItem item;
+        
+        if (idx >= lines.size()) {
+            return item;
+        }
+        
+        // Lire la ligne "item:"
+        std::string itemLine = lines[idx];
+        int indent = 0;
+        size_t pos = 0;
+        while (pos < itemLine.length() && itemLine[pos] == '\t') {
+            indent++;
+            pos++;
+        }
+        
+        if (indent != expectedIndent) {
+            return item; // Mauvais niveau d'indentation
+        }
+        
+        std::string content = itemLine.substr(pos);
+        size_t colonPos = content.find(':');
+        if (colonPos == std::string::npos || content.substr(0, colonPos) != "item") {
+            return item;
+        }
+        
+        item.name = content.substr(colonPos + 1);
+        // Supprimer les espaces
+        item.name.erase(0, item.name.find_first_not_of(" \t"));
+        item.name.erase(item.name.find_last_not_of(" \t") + 1);
+        
+        idx++;
+        
+        // Lire les propriétés (path, folder) et les enfants
+        while (idx < lines.size()) {
+            std::string propLine = lines[idx];
+            if (propLine.empty() || propLine[0] == '#') {
+                idx++;
+                continue;
+            }
+            
+            int propIndent = 0;
+            size_t propPos = 0;
+            while (propPos < propLine.length() && propLine[propPos] == '\t') {
+                propIndent++;
+                propPos++;
+            }
+            
+            // Si on revient au même niveau ou moins, on a fini cet item
+            if (propIndent <= indent) {
+                break;
+            }
+            
+            std::string propContent = propLine.substr(propPos);
+            size_t propColonPos = propContent.find(':');
+            if (propColonPos == std::string::npos) {
+                idx++;
+                continue;
+            }
+            
+            std::string propKey = propContent.substr(0, propColonPos);
+            std::string propValue = propContent.substr(propColonPos + 1);
+            propKey.erase(0, propKey.find_first_not_of(" \t"));
+            propKey.erase(propKey.find_last_not_of(" \t") + 1);
+            propValue.erase(0, propValue.find_first_not_of(" \t"));
+            propValue.erase(propValue.find_last_not_of(" \t") + 1);
+            
+            if (propKey == "path") {
+                item.path = propValue;
+            } else if (propKey == "folder") {
+                item.isFolder = (propValue == "true" || propValue == "1");
+            } else if (propKey == "item" && propIndent == indent + 1) {
+                // C'est un enfant, parser récursivement
+                item.children.push_back(parsePlaylistItem(idx, indent + 1));
+                continue; // Ne pas incrémenter idx car parsePlaylistItem l'a déjà fait
+            }
+            
+            idx++;
+        }
+        
+        return item;
+    };
+    
+    // Parser le fichier ligne par ligne
+    while (lineIndex < lines.size()) {
+        std::string currentLine = lines[lineIndex];
+        
         // Ignorer les lignes vides et les commentaires
-        if (line.empty() || line[0] == '#') {
+        if (currentLine.empty() || currentLine[0] == '#') {
+            lineIndex++;
             continue;
         }
         
-        // Compter l'indentation (tabs)
+        // Compter l'indentation
         int indent = 0;
         size_t pos = 0;
-        while (pos < line.length() && line[pos] == '\t') {
+        while (pos < currentLine.length() && currentLine[pos] == '\t') {
             indent++;
             pos++;
         }
         
         // Extraire la clé et la valeur
-        std::string content = line.substr(pos);
+        std::string content = currentLine.substr(pos);
         size_t colonPos = content.find(':');
         
         if (colonPos == std::string::npos) {
+            lineIndex++;
             continue;
         }
         
@@ -78,73 +176,45 @@ bool Config::load(const std::string& filename) {
         } else if (key == "playlist") {
             // Le début de la playlist
             m_playlist.clear();
-            currentPlaylistStack.clear();
-            currentIndent = indent;
-        } else if (indent > currentIndent) {
-            // Item de playlist avec indentation
-            if (key == "item") {
-                PlaylistItem item;
-                item.name = value;
-                item.path = ""; // Par défaut
-                item.isFolder = false; // Par défaut
+            inPlaylist = true;
+            playlistBaseIndent = indent;
+            lineIndex++;
+            // Parser récursivement tous les items de la playlist
+            while (lineIndex < lines.size()) {
+                std::string nextLine = lines[lineIndex];
+                if (nextLine.empty() || nextLine[0] == '#') {
+                    lineIndex++;
+                    continue;
+                }
                 
-                // Chercher les propriétés suivantes (path, folder)
-                std::string nextLine;
-                std::streampos pos = file.tellg();
-                while (std::getline(file, nextLine)) {
-                    if (nextLine.empty() || nextLine[0] == '#') {
-                        pos = file.tellg();
-                        continue;
-                    }
-                    
-                    int nextIndent = 0;
-                    size_t nextPos = 0;
-                    while (nextPos < nextLine.length() && nextLine[nextPos] == '\t') {
-                        nextIndent++;
-                        nextPos++;
-                    }
-                    
-                    // Si on revient au même niveau ou moins, on a fini cet item
-                    if (nextIndent <= indent) {
-                        file.seekg(pos);
-                        break;
-                    }
-                    
-                    // Si c'est un item enfant (niveau suivant), on l'ignore ici (sera géré récursivement)
-                    if (nextIndent > indent + 1) {
-                        pos = file.tellg();
-                        continue;
-                    }
-                    
+                int nextIndent = 0;
+                size_t nextPos = 0;
+                while (nextPos < nextLine.length() && nextLine[nextPos] == '\t') {
+                    nextIndent++;
+                    nextPos++;
+                }
+                
+                // Si on revient au niveau de base ou moins, on a fini la playlist
+                if (nextIndent <= playlistBaseIndent) {
+                    break;
+                }
+                
+                // Si c'est un item au premier niveau de la playlist
+                if (nextIndent == playlistBaseIndent + 1) {
                     std::string nextContent = nextLine.substr(nextPos);
-                    size_t nextColonPos = nextContent.find(':');
-                    if (nextColonPos == std::string::npos) {
-                        pos = file.tellg();
-                        continue;
+                    if (nextContent.find("item:") == 0) {
+                        m_playlist.push_back(parsePlaylistItem(lineIndex, playlistBaseIndent + 1));
+                        continue; // parsePlaylistItem a déjà incrémenté lineIndex
                     }
-                    
-                    std::string nextKey = nextContent.substr(0, nextColonPos);
-                    std::string nextValue = nextContent.substr(nextColonPos + 1);
-                    nextKey.erase(0, nextKey.find_first_not_of(" \t"));
-                    nextKey.erase(nextKey.find_last_not_of(" \t") + 1);
-                    nextValue.erase(0, nextValue.find_first_not_of(" \t"));
-                    nextValue.erase(nextValue.find_last_not_of(" \t") + 1);
-                    
-                    if (nextKey == "path") {
-                        item.path = nextValue;
-                    } else if (nextKey == "folder") {
-                        item.isFolder = (nextValue == "true" || nextValue == "1");
-                    }
-                    
-                    pos = file.tellg();
                 }
                 
-                // Ajouter l'item au bon niveau (premier niveau après "playlist:")
-                if (indent == currentIndent + 1) {
-                    m_playlist.push_back(item);
-                }
+                lineIndex++;
             }
+            inPlaylist = false;
+            continue;
         }
+        
+        lineIndex++;
     }
     
     return true;

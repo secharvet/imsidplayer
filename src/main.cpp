@@ -357,7 +357,13 @@ int main(int argc, char* argv[]) {
                     };
                     
                     if (fs::is_directory(path)) {
-                        // C'est un dossier : ajouter récursivement tous les .sid
+                        // C'est un dossier : créer d'abord un nœud pour le dossier racine
+                        auto rootFolderNode = std::make_unique<PlaylistNode>(
+                            path.filename().string(), "", true);
+                        rootFolderNode->parent = playlistRoot.get();
+                        PlaylistNode* rootFolderPtr = rootFolderNode.get();
+                        
+                        // Fonction récursive pour ajouter le contenu du dossier
                         std::function<void(const fs::path&, PlaylistNode*)> addDirectory = 
                             [&](const fs::path& dir, PlaylistNode* parent) {
                                 try {
@@ -387,7 +393,12 @@ int main(int argc, char* argv[]) {
                                     std::cerr << "Erreur lecture dossier: " << e.what() << std::endl;
                                 }
                             };
-                        addDirectory(path, playlistRoot.get());
+                        
+                        // Parcourir récursivement le contenu du dossier
+                        addDirectory(path, rootFolderPtr);
+                        
+                        // Ajouter le nœud racine à la playlist
+                        playlistRoot->children.push_back(std::move(rootFolderNode));
                         sortNode(playlistRoot.get());
                         std::cout << "Dossier ajouté à la playlist: " << path.filename().string() << std::endl;
                     } else if (fs::is_regular_file(path)) {
@@ -619,15 +630,21 @@ int main(int argc, char* argv[]) {
                         ImGui::TextColored(ImVec4(0.7f, 0.5f, 0.5f, 1.0f), "SDL2_image non disponible");
 #endif
                     } else {
-                        ImGui::Text("Image actuelle:");
-                        ImGui::SameLine();
+                        ImGui::Text("Current image:");
                         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), 
                             "%d/%d - %s", 
                             currentBackgroundIndex + 1, 
                             (int)backgroundImages.size(),
                             backgroundImages[currentBackgroundIndex].filename.c_str());
+                        
+                        ImGui::Spacing();
+                        
+                        // Boutons de navigation
+                        if (ImGui::Button("<", ImVec2(50, 0))) {
+                            currentBackgroundIndex = (currentBackgroundIndex - 1 + backgroundImages.size()) % backgroundImages.size();
+                        }
                         ImGui::SameLine();
-                        if (ImGui::Button(">", ImVec2(30, 0))) {
+                        if (ImGui::Button(">", ImVec2(50, 0))) {
                             currentBackgroundIndex = (currentBackgroundIndex + 1) % backgroundImages.size();
                         }
                         
