@@ -373,42 +373,74 @@ jobs:
         with:
           name: imSidPlayer-linux-${{ steps.get_version.outputs.version }}
           path: release-artifacts/
+          if-no-files-found: warn
       
       - name: Download Windows artifact
         uses: actions/download-artifact@v4
         with:
           name: imSidPlayer-windows-${{ steps.get_version.outputs.version }}
           path: release-artifacts/
+          if-no-files-found: warn
+      
+      - name: Debug downloaded artifacts
+        run: |
+          echo "=== Listing release-artifacts structure ==="
+          find release-artifacts -type f -o -type d | head -20 || true
+          echo ""
+          echo "=== Contents of release-artifacts ==="
+          ls -laR release-artifacts/ || true
       
       - name: Prepare release files
         run: |
           VERSION="${{ steps.get_version.outputs.version }}"
           mkdir -p release-files
           
+          echo "=== Searching for Linux binary ==="
           # Find and copy Linux binary
           if [ -f "release-artifacts/linux/imSidPlayer-$VERSION-linux" ]; then
+            echo "Found: release-artifacts/linux/imSidPlayer-$VERSION-linux"
             cp "release-artifacts/linux/imSidPlayer-$VERSION-linux" "release-files/imSidPlayer-$VERSION-linux"
           elif [ -f "release-artifacts/linux/imSidPlayer" ]; then
+            echo "Found: release-artifacts/linux/imSidPlayer"
             cp "release-artifacts/linux/imSidPlayer" "release-files/imSidPlayer-$VERSION-linux"
+          else
+            echo "Linux binary not found, searching..."
+            find release-artifacts -name "*imSidPlayer*" -type f || true
           fi
           
+          echo ""
+          echo "=== Searching for Windows zip ==="
           # Find Windows zip (could be in artifacts/ or directly in release-artifacts/)
           if [ -f "release-artifacts/imSidPlayer-$VERSION-windows.zip" ]; then
+            echo "Found: release-artifacts/imSidPlayer-$VERSION-windows.zip"
             cp "release-artifacts/imSidPlayer-$VERSION-windows.zip" "release-files/imSidPlayer-$VERSION-windows.zip"
           elif [ -f "release-artifacts/artifacts/imSidPlayer-$VERSION-windows.zip" ]; then
+            echo "Found: release-artifacts/artifacts/imSidPlayer-$VERSION-windows.zip"
             cp "release-artifacts/artifacts/imSidPlayer-$VERSION-windows.zip" "release-files/imSidPlayer-$VERSION-windows.zip"
           elif [ -d "release-artifacts/windows" ]; then
+            echo "Found: release-artifacts/windows directory, creating zip"
             cd release-artifacts/windows
             zip -r "../../release-files/imSidPlayer-$VERSION-windows.zip" . -x "*.zip"
             cd ../..
           elif [ -d "release-artifacts/artifacts/windows" ]; then
+            echo "Found: release-artifacts/artifacts/windows directory, creating zip"
             cd release-artifacts/artifacts/windows
             zip -r "../../../release-files/imSidPlayer-$VERSION-windows.zip" . -x "*.zip"
             cd ../../..
+          else
+            echo "Windows zip not found, searching..."
+            find release-artifacts -name "*.zip" -o -name "*windows*" -type f -o -type d | head -10 || true
           fi
           
+          echo ""
           echo "=== Release files prepared ==="
-          ls -lh release-files/
+          ls -lh release-files/ || echo "No files in release-files/"
+          
+          # Verify files exist before proceeding
+          if [ ! -f "release-files/imSidPlayer-$VERSION-linux" ] && [ ! -f "release-files/imSidPlayer-$VERSION-windows.zip" ]; then
+            echo "ERROR: No release files found!"
+            exit 1
+          fi
       
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -440,10 +472,11 @@ jobs:
             
             See commit history for details.
           files: |
-            release-files/imSidPlayer-${{ steps.get_version.outputs.version }}-linux
-            release-files/imSidPlayer-${{ steps.get_version.outputs.version }}-windows.zip
+            release-files/*
           draft: false
-          prerelease: false
+          prerelease: true
+          make_latest: false
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     
