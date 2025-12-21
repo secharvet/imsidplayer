@@ -40,12 +40,20 @@ jobs:
     
     - name: Install Windows dependencies
       if: runner.os == 'Windows'
+      shell: powershell
       run: |
-        choco install cmake -y
-        # SDL2 and other dependencies would need to be installed via vcpkg or manually
+        # Install SDL2
+        Invoke-WebRequest -Uri "https://www.libsdl.org/release/SDL2-devel-2.32.8-VC.zip" -OutFile "SDL2-devel.zip"
+        Expand-Archive -Path SDL2-devel.zip -DestinationPath .
+        $sdl2Path = (Resolve-Path "SDL2-*").Path
+        echo "SDL2_DIR=$sdl2Path" >> $env:GITHUB_ENV
+        echo "CMAKE_PREFIX_PATH=$sdl2Path" >> $env:GITHUB_ENV
     
     - name: Configure CMake
       run: cmake -B ${{ github.workspace }}/build -S ${{ github.workspace }}
+      env:
+        SDL2_DIR: ${{ env.SDL2_DIR }}
+        CMAKE_PREFIX_PATH: ${{ env.CMAKE_PREFIX_PATH }}
     
     - name: Build
       run: cmake --build ${{ github.workspace }}/build --config Release
