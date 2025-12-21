@@ -5,6 +5,8 @@
 #include <cstring>
 #include <cstdlib>
 #include <algorithm>
+#include <thread>
+#include <chrono>
 
 SidPlayer::SidPlayer() 
     : m_playing(false)
@@ -14,6 +16,9 @@ SidPlayer::SidPlayer()
     , m_voice0Muted(false)  // Par défaut, toutes les voix sont actives (non mutées)
     , m_voice1Muted(false)
     , m_voice2Muted(false)
+    , m_audioCallbackActive(false)
+    , m_stopping(false)
+    , m_fadeInCounter(FADE_IN_DURATION) // Initialisé à la durée max pour désactiver le fade au démarrage
 {
     // Initialiser les buffers à zéro
     for (int i = 0; i < OSCILLOSCOPE_SIZE; ++i) {
@@ -83,14 +88,28 @@ SidPlayer::SidPlayer()
 
 SidPlayer::~SidPlayer() {
     stop();
+    
+    // Attendre que le callback audio soit complètement terminé
+    // Le callback vérifie m_stopping et m_audioCallbackActive
+    int maxWait = 100; // Maximum 100ms d'attente
+    int waited = 0;
+    while (m_audioCallbackActive.load() && waited < maxWait) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        waited++;
+    }
+    
     if (m_audioDevice > 0) {
         SDL_CloseAudioDevice(m_audioDevice);
+        m_audioDevice = 0;
     }
     SDL_Quit();
 }
 
 bool SidPlayer::loadFile(const std::string& filepath) {
     stop();
+    
+    // Drainer le buffer audio pour éviter les clics lors du changement de fichier
+    drainAudioBuffer();
     
     // Fermer l'ancien device audio s'il existe
     if (m_audioDevice > 0) {
@@ -223,6 +242,12 @@ void SidPlayer::play() {
         SDL_PauseAudioDevice(m_audioDevice, 0);
         m_paused = false;
     } else {
+        // Si on était en train de jouer, arrêter et drainer le buffer pour éviter les clics
+        if (m_playing) {
+            SDL_PauseAudioDevice(m_audioDevice, 1);
+            drainAudioBuffer();
+        }
+        
         // Réinitialiser la lecture depuis le début pour tous les moteurs
         m_engineVoice0->load(m_tune.get());
         m_engineVoice1->load(m_tune.get());
@@ -238,6 +263,26 @@ void SidPlayer::play() {
         // Engine 2 : voix 2 seule
         m_engineVoice2->mute(0, 0, false); // Muter voix 0
         m_engineVoice2->mute(0, 1, false); // Muter voix 1
+        // 1. Reset explicite des moteurs (si disponible dans ta version de libsidplayfp)
+        m_engineVoice0->stop(); // Parfois stop() réinitialise les niveaux
+        
+        // 2. IMPORTANT : Vide les buffers internes avant de laisser SDL lire
+        // On génère quelques millisecondes de "vide" pour stabiliser le filtre ReSID
+        int16_t dummy[512];
+        m_engineVoice0->play(dummy, 512);
+        m_engineVoice1->play(dummy, 512);
+        m_engineVoice2->play(dummy, 512);
+
+        // 3. Remet tes oscillos à 0 pour éviter la ligne plate au début
+        for (int i = 0; i < OSCILLOSCOPE_SIZE; ++i) {
+            m_voice0Samples[i] = 0.0f;
+            m_voice1Samples[i] = 0.0f;
+            m_voice2Samples[i] = 0.0f;
+        }
+        m_writeIndex = 0;
+        
+        // 4. Réinitialiser le compteur de fade-in pour déclencher le fondu au démarrage
+        m_fadeInCounter = 0;
         
         SDL_PauseAudioDevice(m_audioDevice, 0);
     }
@@ -252,14 +297,27 @@ void SidPlayer::pause() {
 }
 
 void SidPlayer::stop() {
-    SDL_PauseAudioDevice(m_audioDevice, 1);
+    if (m_audioDevice == 0) return;
+    
+    // Marquer qu'on est en train d'arrêter
+    m_stopping = true;
     m_playing = false;
     m_paused = false;
+    
+    // Arrêter les engines
     if (m_engineVoice0) {
         m_engineVoice0->stop();
         m_engineVoice1->stop();
         m_engineVoice2->stop();
     }
+    
+    // Pauser l'audio device
+    SDL_PauseAudioDevice(m_audioDevice, 1);
+    
+    // Drainer le buffer audio pour éviter les clics
+    drainAudioBuffer();
+    
+    m_stopping = false;
 }
 
 void SidPlayer::setVoiceMute(int voice, bool muted) {
@@ -306,8 +364,12 @@ bool SidPlayer::isVoiceMuted(int voice) const {
 }
 
 void SidPlayer::audioCallback(void* userdata, Uint8* stream, int len) {
-    if (!m_playing || m_paused) {
+    m_audioCallbackActive = true;
+    
+    // Si on est en train d'arrêter, remplir avec du silence et sortir
+    if (m_stopping || !m_playing || m_paused) {
         SDL_memset(stream, 0, len);
+        m_audioCallbackActive = false;
         return;
     }
     
@@ -319,6 +381,23 @@ void SidPlayer::audioCallback(void* userdata, Uint8* stream, int len) {
     m_engineVoice0->play(m_voice0AudioBuffer, samples);
     m_engineVoice1->play(m_voice1AudioBuffer, samples);
     m_engineVoice2->play(m_voice2AudioBuffer, samples);
+    
+    // --- APPLICATION DU FADE-IN ---
+    // Applique un fondu progressif sur les premiers échantillons pour éviter les glitches
+    if (m_fadeInCounter < FADE_IN_DURATION) {
+        for (int i = 0; i < samples; ++i) {
+            if (m_fadeInCounter < FADE_IN_DURATION) {
+                float gain = static_cast<float>(m_fadeInCounter) / FADE_IN_DURATION;
+                m_voice0AudioBuffer[i] = static_cast<int16_t>(m_voice0AudioBuffer[i] * gain);
+                m_voice1AudioBuffer[i] = static_cast<int16_t>(m_voice1AudioBuffer[i] * gain);
+                m_voice2AudioBuffer[i] = static_cast<int16_t>(m_voice2AudioBuffer[i] * gain);
+                m_fadeInCounter++;
+            } else {
+                break; // Fade terminé
+            }
+        }
+    }
+    // ------------------------------
     
     // Si une voix est mutée, remplir son buffer avec des zéros (le mute() sur les engines ne fonctionne pas toujours pendant le play)
     if (m_voice0Muted) {
@@ -364,11 +443,39 @@ void SidPlayer::audioCallback(void* userdata, Uint8* stream, int len) {
         m_writeIndex++;
         if (m_writeIndex >= OSCILLOSCOPE_SIZE) m_writeIndex = 0;
     }
+    
+    m_audioCallbackActive = false;
 }
 
 // Fonction supprimée - on capture maintenant directement dans audioCallback
 
 // Fonction supprimée - accès direct via getVoiceBuffer() maintenant
+
+void SidPlayer::drainAudioBuffer() {
+    if (m_audioDevice == 0) return;
+    
+    // Attendre que le buffer audio soit vidé
+    // SDL garde environ 2-3 buffers en avance, donc on attend quelques millisecondes
+    // Temps = (taille_buffer * nombre_buffers) / fréquence_échantillonnage
+    // Avec BUFFER_SIZE=256 et SAMPLE_RATE=44100, un buffer = ~5.8ms
+    // On attend environ 3 buffers = ~17ms
+    int bufferTimeMs = (BUFFER_SIZE * 1000) / SAMPLE_RATE;
+    int waitTimeMs = bufferTimeMs * 3; // Attendre 3 buffers
+    
+    std::this_thread::sleep_for(std::chrono::milliseconds(waitTimeMs));
+}
+
+void SidPlayer::fadeOut(int samples) {
+    // TODO: Implémentation future du fade-out
+    // Pour l'instant, le drainAudioBuffer() suffit pour éviter les clics majeurs
+    (void)samples; // Éviter le warning unused parameter
+}
+
+void SidPlayer::fadeIn(int samples) {
+    // TODO: Implémentation future du fade-in
+    // Nécessiterait un compteur dans audioCallback pour appliquer le fade progressif
+    (void)samples; // Éviter le warning unused parameter
+}
 
 void SidPlayer::audioCallbackWrapper(void* userdata, Uint8* stream, int len) {
     SidPlayer* player = static_cast<SidPlayer*>(userdata);

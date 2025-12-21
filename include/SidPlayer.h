@@ -3,6 +3,9 @@
 
 #include <string>
 #include <memory>
+#include <atomic>
+#include <thread>
+#include <chrono>
 #include <sidplayfp/sidplayfp.h>
 #include <sidplayfp/SidTune.h>
 #include <sidplayfp/SidConfig.h>
@@ -42,6 +45,9 @@ private:
     static void audioCallbackWrapper(void* userdata, Uint8* stream, int len);
     void applyVoiceMuting(); // Fonction utilitaire pour appliquer le mute sur l'engine audio
     void applyAnalysisEngineMuting(); // Fonction utilitaire pour appliquer le mute sur les engines d'analyse
+    void drainAudioBuffer(); // Draine le buffer audio pour éviter les clics
+    void fadeOut(int samples); // Fade-out rapide pour éviter les clics
+    void fadeIn(int samples); // Fade-in rapide au démarrage
 
     // 3 moteurs SID en parallèle pour l'analyse (mixage manuel pour l'audio) :
     // Engine #1 → analyse voix 1 (voix 2+3 mutées)
@@ -66,6 +72,10 @@ private:
     bool m_playing;
     bool m_paused;
     
+    // Synchronisation pour l'arrêt propre
+    std::atomic<bool> m_audioCallbackActive;
+    std::atomic<bool> m_stopping;
+    
     // État du mute pour chaque voix
     bool m_voice0Muted;
     bool m_voice1Muted;
@@ -76,6 +86,10 @@ private:
     float m_voice1Samples[OSCILLOSCOPE_SIZE];
     float m_voice2Samples[OSCILLOSCOPE_SIZE];
     int m_writeIndex; // Index d'écriture circulaire
+    
+    // Fade-in pour éviter les glitches au démarrage
+    int m_fadeInCounter; // Compteur d'échantillons pour le fondu à l'ouverture
+    static const int FADE_IN_DURATION = 2000; // Environ 45ms à 44.1kHz
     
     // Buffers statiques pour le mixage audio (évite new/delete dans le callback)
     // Taille suffisante pour gérer les callbacks audio (BUFFER_SIZE = 256, mais on prend une marge)
