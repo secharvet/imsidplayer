@@ -606,6 +606,126 @@ int main(int argc, char* argv[]) {
             if (ImGui::BeginTabBar("MainTabs")) {
                 // Onglet Player
                 if (ImGui::BeginTabItem("Player")) {
+                    // Oscilloscopes par voix avec radio buttons pour mute (en premier, tout en haut)
+                    if (!player.getCurrentFile().empty()) {
+                        ImGui::Text("Oscilloscopes by voice:");
+                        ImGui::Spacing();
+                        
+                        // Accès direct aux buffers (pas de copies!)
+                        const float* voice0 = player.getVoiceBuffer(0);
+                        const float* voice1 = player.getVoiceBuffer(1);
+                        const float* voice2 = player.getVoiceBuffer(2);
+                        
+                        // Utiliser ImGui::PlotLines qui est optimisé en interne
+                        float plotHeight = 120.0f;
+                        float plotWidth = ImGui::GetContentRegionAvail().x / 3.0f - 5.0f;
+                        
+                        // État des voix (true = active, false = mutée) pour les checkboxes
+                        bool voice0Active = player.isVoiceMuted(0);
+                        bool voice1Active = player.isVoiceMuted(1);
+                        bool voice2Active = player.isVoiceMuted(2);
+                        
+                        // Sauvegarder l'état avant pour détecter les changements
+                        bool prev0 = voice0Active;
+                        bool prev1 = voice1Active;
+                        bool prev2 = voice2Active;
+                        
+                        // Voix 0 (Rouge) - Utiliser PushID pour éviter les conflits d'ID
+                        ImGui::PushID("voice0");
+                        ImVec2 plotPos0 = ImGui::GetCursorScreenPos();
+                        
+                        // Positionner la checkbox en haut à droite de l'oscilloscope (plus petit, plus proche du bord)
+                        ImGui::SetCursorScreenPos(ImVec2(plotPos0.x + plotWidth - 20.0f, plotPos0.y + 3.0f));
+                        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2.0f, 2.0f));
+                        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(2.0f, 2.0f));
+                        ImGui::Checkbox("##mute", &voice0Active);
+                        ImGui::PopStyleVar(2);
+                        
+                        // Revenir à la position de départ pour l'oscilloscope
+                        ImGui::SetCursorScreenPos(plotPos0);
+                        
+                        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
+                        ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
+                        ImGui::PlotLines("##plot", voice0, SidPlayer::OSCILLOSCOPE_SIZE, 0, nullptr, -1.0f, 1.0f, 
+                                        ImVec2(plotWidth, plotHeight));
+                        ImGui::PopItemFlag();
+                        ImGui::PopStyleColor();
+                        // Afficher "0" à l'intérieur en haut à gauche
+                        ImGui::GetWindowDrawList()->AddText(ImVec2(plotPos0.x + 5.0f, plotPos0.y + 5.0f), 
+                                                           IM_COL32(255, 255, 255, 255), "0");
+                        ImGui::PopID();
+                        
+                        ImGui::SameLine();
+                        
+                        // Voix 1 (Vert) - Utiliser PushID pour éviter les conflits d'ID
+                        ImGui::PushID("voice1");
+                        ImVec2 plotPos1 = ImGui::GetCursorScreenPos();
+                        
+                        // Positionner la checkbox en haut à droite de l'oscilloscope (plus petit, plus proche du bord)
+                        ImGui::SetCursorScreenPos(ImVec2(plotPos1.x + plotWidth - 20.0f, plotPos1.y + 3.0f));
+                        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2.0f, 2.0f));
+                        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(2.0f, 2.0f));
+                        ImGui::Checkbox("##mute", &voice1Active);
+                        ImGui::PopStyleVar(2);
+                        
+                        // Revenir à la position de départ pour l'oscilloscope
+                        ImGui::SetCursorScreenPos(plotPos1);
+                        
+                        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.3f, 1.0f, 0.3f, 1.0f));
+                        ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
+                        ImGui::PlotLines("##plot", voice1, SidPlayer::OSCILLOSCOPE_SIZE, 0, nullptr, -1.0f, 1.0f, 
+                                        ImVec2(plotWidth, plotHeight));
+                        ImGui::PopItemFlag();
+                        ImGui::PopStyleColor();
+                        // Afficher "1" à l'intérieur en haut à gauche
+                        ImGui::GetWindowDrawList()->AddText(ImVec2(plotPos1.x + 5.0f, plotPos1.y + 5.0f), 
+                                                           IM_COL32(255, 255, 255, 255), "1");
+                        ImGui::PopID();
+                        
+                        ImGui::SameLine();
+                        
+                        // Voix 2 (Bleu) - Utiliser PushID pour éviter les conflits d'ID
+                        ImGui::PushID("voice2");
+                        ImVec2 plotPos2 = ImGui::GetCursorScreenPos();
+                        
+                        // Positionner la checkbox en haut à droite de l'oscilloscope (plus petit, plus proche du bord)
+                        ImGui::SetCursorScreenPos(ImVec2(plotPos2.x + plotWidth - 20.0f, plotPos2.y + 3.0f));
+                        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2.0f, 2.0f));
+                        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(2.0f, 2.0f));
+                        ImGui::Checkbox("##mute", &voice2Active);
+                        ImGui::PopStyleVar(2);
+                        
+                        // Revenir à la position de départ pour l'oscilloscope
+                        ImGui::SetCursorScreenPos(plotPos2);
+                        
+                        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.3f, 0.3f, 1.0f, 1.0f));
+                        ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
+                        ImGui::PlotLines("##plot", voice2, SidPlayer::OSCILLOSCOPE_SIZE, 0, nullptr, -1.0f, 1.0f, 
+                                        ImVec2(plotWidth, plotHeight));
+                        ImGui::PopItemFlag();
+                        ImGui::PopStyleColor();
+                       
+                        // Afficher "2" à l'intérieur en haut à gauche
+                        ImGui::GetWindowDrawList()->AddText(ImVec2(plotPos2.x + 5.0f, plotPos2.y + 5.0f), 
+                                                           IM_COL32(255, 255, 255, 255), "2");
+                        ImGui::PopID();
+                        
+                        // Détecter les changements et appeler setVoiceMute
+                        if (voice0Active != prev0) {
+                            player.setVoiceMute(0, voice0Active);
+                        }
+                        if (voice1Active != prev1) {
+                            player.setVoiceMute(1, voice1Active);
+                        }
+                        if (voice2Active != prev2) {
+                            player.setVoiceMute(2, voice2Active);
+                        }
+                        
+                        ImGui::Spacing();
+                        ImGui::Separator();
+                        ImGui::Spacing();
+                    }
+                    
                     // Section informations
                     ImGui::Text("Current file:");
                     if (!player.getCurrentFile().empty()) {
@@ -671,107 +791,26 @@ int main(int argc, char* argv[]) {
                 ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Stopped");
             }
             
-            ImGui::Spacing();
-            ImGui::Separator();
-            
-            ImGui::Spacing();
-            ImGui::Separator();
-            
-            // Voice controls (inverted logic: checkbox = voice active)
+            // Contrôle du mode de rendu (Master vs Mixage manuel)
             if (!player.getCurrentFile().empty()) {
-                ImGui::Text("Voices:");
+                ImGui::Text("Audio Engine:");
                 ImGui::Spacing();
                 
-                // Inverser la logique : checkbox cochée = voix active (non mutée)
-                bool voice0Active = !player.isVoiceMuted(0);
-                bool voice1Active = !player.isVoiceMuted(1);
-                bool voice2Active = !player.isVoiceMuted(2);
+                int engineMode = player.isUsingMasterEngine() ? 1 : 0;
+                int prevEngineMode = engineMode;
                 
-                // Sauvegarder l'état avant le checkbox pour détecter le changement
-                bool prev0 = voice0Active;
-                bool prev1 = voice1Active;
-                bool prev2 = voice2Active;
-                
-                ImGui::Checkbox("Voice 1", &voice0Active);
+                ImGui::RadioButton("Master Engine (Native)", &engineMode, 1);
                 ImGui::SameLine();
-                ImGui::Checkbox("Voice 2", &voice1Active);
-                ImGui::SameLine();
-                ImGui::Checkbox("Voice 3", &voice2Active);
+                ImGui::RadioButton("Mixed (3 voices)", &engineMode, 0);
                 
-                // Détecter les changements et appeler setVoiceMute
-                if (voice0Active != prev0) {
-                    player.setVoiceMute(0, !voice0Active);
+                if (engineMode != prevEngineMode) {
+                    player.setUseMasterEngine(engineMode == 1);
                 }
-                if (voice1Active != prev1) {
-                    player.setVoiceMute(1, !voice1Active);
-                }
-                if (voice2Active != prev2) {
-                    player.setVoiceMute(2, !voice2Active);
-                }
+                
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::Spacing();
             }
-
-            ImGui::Spacing();
-            ImGui::Separator();
-            
-                    // Oscilloscopes par voix (approche bas niveau optimisée)
-                    if (!player.getCurrentFile().empty()) {
-                        ImGui::Text("Oscilloscopes by voice:");
-                        ImGui::Spacing();
-                        
-                        // Accès direct aux buffers (pas de copies!)
-                        const float* voice0 = player.getVoiceBuffer(0);
-                        const float* voice1 = player.getVoiceBuffer(1);
-                        const float* voice2 = player.getVoiceBuffer(2);
-                        
-                        // Utiliser ImGui::PlotLines qui est optimisé en interne
-                        float plotHeight = 120.0f;
-                        float plotWidth = ImGui::GetContentRegionAvail().x / 3.0f - 5.0f;
-                        
-                        // Voix 0 (Rouge)
-                        ImVec2 plotPos0 = ImGui::GetCursorScreenPos();
-                        
-                        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
-                        ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
-                        ImGui::PlotLines("##voice0", voice0, SidPlayer::OSCILLOSCOPE_SIZE, 0, nullptr, -1.0f, 1.0f, 
-                                        ImVec2(plotWidth, plotHeight));
-                        ImGui::PopItemFlag();
-                        ImGui::PopStyleColor();
-                        // Afficher "0" à l'intérieur en haut à gauche
-                        ImGui::GetWindowDrawList()->AddText(ImVec2(plotPos0.x + 5.0f, plotPos0.y + 5.0f), 
-                                                           IM_COL32(255, 255, 255, 255), "0");
-                        
-                        ImGui::SameLine();
-                        
-                        // Voix 1 (Vert)
-                        ImVec2 plotPos1 = ImGui::GetCursorScreenPos();
-                        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.3f, 1.0f, 0.3f, 1.0f));
-                        ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
-                        ImGui::PlotLines("##voice1", voice1, SidPlayer::OSCILLOSCOPE_SIZE, 0, nullptr, -1.0f, 1.0f, 
-                                        ImVec2(plotWidth, plotHeight));
-                        ImGui::PopItemFlag();
- 
-                        ImGui::PopStyleColor();
-                        // Afficher "1" à l'intérieur en haut à gauche
-                        ImGui::GetWindowDrawList()->AddText(ImVec2(plotPos1.x + 5.0f, plotPos1.y + 5.0f), 
-                                                           IM_COL32(255, 255, 255, 255), "1");
-                        
-                        ImGui::SameLine();
-                        
-                        // Voix 2 (Bleu)
-                        ImVec2 plotPos2 = ImGui::GetCursorScreenPos();
-                        
-                        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.3f, 0.3f, 1.0f, 1.0f));
-                        ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
-                       
-                        ImGui::PlotLines("##voice2", voice2, SidPlayer::OSCILLOSCOPE_SIZE, 0, nullptr, -1.0f, 1.0f, 
-                                        ImVec2(plotWidth, plotHeight));
-                        ImGui::PopItemFlag();
-                        ImGui::PopStyleColor();
-                       
-                        // Afficher "2" à l'intérieur en haut à gauche
-                        ImGui::GetWindowDrawList()->AddText(ImVec2(plotPos2.x + 5.0f, plotPos2.y + 5.0f), 
-                                                           IM_COL32(255, 255, 255, 255), "2");
-                    }
                     
                     ImGui::EndTabItem();
                 }
