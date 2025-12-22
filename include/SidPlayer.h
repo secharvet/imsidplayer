@@ -32,6 +32,10 @@ public:
     void setVoiceMute(int voice, bool muted);
     bool isVoiceMuted(int voice) const;
     
+    // Contrôle du moteur master vs mixage manuel
+    void setUseMasterEngine(bool useMaster);
+    bool isUsingMasterEngine() const { return m_useMasterEngine; }
+    
     // Pour les oscilloscopes - accès direct aux buffers (pas de copies!)
     static const int OSCILLOSCOPE_SIZE = 256;
     const float* getVoiceBuffer(int voice) const { 
@@ -59,11 +63,15 @@ private:
     std::unique_ptr<sidplayfp> m_engineVoice1;      // Engine #2
     std::unique_ptr<sidplayfp> m_engineVoice2;      // Engine #3
     
+    // Moteur master : joue les 3 voix nativement (pour comparaison de fidélité)
+    std::unique_ptr<sidplayfp> m_engineMaster;      // Engine Master
+    
     std::unique_ptr<SidTune> m_tune;
     // Un builder par moteur (nécessaire pour que chaque moteur fonctionne indépendamment)
     std::unique_ptr<ReSIDfpBuilder> m_builderVoice0;
     std::unique_ptr<ReSIDfpBuilder> m_builderVoice1;
     std::unique_ptr<ReSIDfpBuilder> m_builderVoice2;
+    std::unique_ptr<ReSIDfpBuilder> m_builderMaster;
     
     SDL_AudioDeviceID m_audioDevice;
     SDL_AudioSpec m_audioSpec;
@@ -99,6 +107,10 @@ private:
     int16_t m_voice0AudioBuffer[MAX_AUDIO_BUFFER_SIZE];
     int16_t m_voice1AudioBuffer[MAX_AUDIO_BUFFER_SIZE];
     int16_t m_voice2AudioBuffer[MAX_AUDIO_BUFFER_SIZE];
+    int16_t m_masterAudioBuffer[MAX_AUDIO_BUFFER_SIZE]; // Buffer pour le moteur master
+    
+    // Flag pour basculer entre master et mixage manuel
+    bool m_useMasterEngine;
     
     static const int SAMPLE_RATE = 44100;
     static const int BUFFER_SIZE = 256;

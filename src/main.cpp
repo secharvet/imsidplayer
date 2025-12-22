@@ -643,13 +643,40 @@ int main(int argc, char* argv[]) {
                         
                         // Revenir à la position de départ pour l'oscilloscope
                         ImGui::SetCursorScreenPos(plotPos0);
-                        
-                        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
+                        ImVec4 bgColor = ImVec4(0.1f, 0.1f, 0.1f, voice0Active ? 0.1f : 0.3f); // Noir/Gris foncé par défaut
+                        // 2. Appliquer le style pour le fond et les lignes
+                        ImGui::PushStyleColor(ImGuiCol_FrameBg, bgColor);
+                        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.3f, 0.3f, 0.3f, voice0Active ? 0.3f : 1.0f));
+                        // Bouton invisible pour capturer les clics (avant le PlotLines désactivé)
+                        if (ImGui::InvisibleButton("##clickable0", ImVec2(plotWidth, plotHeight))) {
+                            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                            // Clic détecté : inverser l'état de la checkbox
+                            voice0Active = !voice0Active;
+                        }
+                        if (ImGui::IsItemHovered()) {
+                            // EFFET 1 : Changer le curseur
+                            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                            // EFFET 2 : Dessiner un rectangle blanc léger par-dessus
+                            ImDrawList* drawList = ImGui::GetWindowDrawList();
+                            ImVec2 mMin = ImGui::GetItemRectMin();
+                            ImVec2 mMax = ImGui::GetItemRectMax();
+                            
+                            // Un rectangle blanc très transparent (alpha = 30 sur 255)
+                            drawList->AddRectFilled(mMin, mMax, IM_COL32(0, 0, 0, 60),5.0f); 
+                            // Un contour plus brillant
+                            drawList->AddRect(mMin, mMax, IM_COL32(255, 255, 255, 30),5.0f);
+                        }
+                        // Réafficher l'oscilloscope par-dessus (désactivé pour l'affichage uniquement)
+                        ImGui::SetCursorScreenPos(plotPos0);
+                        //ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
                         ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
                         ImGui::PlotLines("##plot", voice0, SidPlayer::OSCILLOSCOPE_SIZE, 0, nullptr, -1.0f, 1.0f, 
                                         ImVec2(plotWidth, plotHeight));
                         ImGui::PopItemFlag();
-                        ImGui::PopStyleColor();
+                        ImGui::PopStyleColor(2);
+                        
+
+                        
                         // Afficher "0" à l'intérieur en haut à gauche
                         ImGui::GetWindowDrawList()->AddText(ImVec2(plotPos0.x + 5.0f, plotPos0.y + 5.0f), 
                                                            IM_COL32(255, 255, 255, 255), "0");
@@ -670,13 +697,47 @@ int main(int argc, char* argv[]) {
                         
                         // Revenir à la position de départ pour l'oscilloscope
                         ImGui::SetCursorScreenPos(plotPos1);
-                        
-                        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.3f, 1.0f, 0.3f, 1.0f));
+                        // 1. Définir les couleurs de fond (Normal et Survol)
+                        ImVec4 bgColor1 = ImVec4(0.1f, 0.1f, 0.1f, voice1Active ? 0.1f : 0.3f); // Noir/Gris foncé par défaut
+                        // 2. Appliquer le style pour le fond et les lignes
+                        ImGui::PushStyleColor(ImGuiCol_FrameBg, bgColor);
+                        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.3f, 1.0f, 0.3f, voice1Active ? 0.3f : 1.0f));
+
+                        // 3. Définir l'arrondi des cadres globalement pour ce widget
+
+                        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 10.0f);
+                        // Bouton invisible pour capturer les clics (avant le PlotLines désactivé)
+                        if (ImGui::InvisibleButton("##clickable1", ImVec2(plotWidth, plotHeight))) {
+                            
+                            // Clic détecté : inverser l'état de la checkbox
+                            voice1Active = !voice1Active;
+                        }
+                        if (ImGui::IsItemHovered()) {
+                            // EFFET 1 : Changer le curseur
+                            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                            // EFFET 2 : Dessiner un rectangle blanc léger par-dessus
+                            ImDrawList* drawList = ImGui::GetWindowDrawList();
+                            ImVec2 mMin = ImGui::GetItemRectMin();
+                            ImVec2 mMax = ImGui::GetItemRectMax();
+                            
+                            // Un rectangle blanc très transparent (alpha = 30 sur 255)
+                            drawList->AddRectFilled(mMin, mMax, IM_COL32(0, 0, 0, 60),5.0f); 
+                            // Un contour plus brillant
+                            drawList->AddRect(mMin, mMax, IM_COL32(255, 255, 255, 30),5.0f);
+                        }
+                        // Réafficher l'oscilloscope par-dessus (désactivé pour l'affichage uniquement)
+                        ImGui::SetCursorScreenPos(plotPos1);
+                        //ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.3f, 1.0f, 0.3f, 1.0f));
                         ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
                         ImGui::PlotLines("##plot", voice1, SidPlayer::OSCILLOSCOPE_SIZE, 0, nullptr, -1.0f, 1.0f, 
                                         ImVec2(plotWidth, plotHeight));
                         ImGui::PopItemFlag();
-                        ImGui::PopStyleColor();
+                        //ImGui::PopStyleColor();
+                        // Nettoyage des styles
+                        ImGui::PopStyleVar();
+                        ImGui::PopStyleColor(2);
+
+                        
                         // Afficher "1" à l'intérieur en haut à gauche
                         ImGui::GetWindowDrawList()->AddText(ImVec2(plotPos1.x + 5.0f, plotPos1.y + 5.0f), 
                                                            IM_COL32(255, 255, 255, 255), "1");
@@ -697,13 +758,40 @@ int main(int argc, char* argv[]) {
                         
                         // Revenir à la position de départ pour l'oscilloscope
                         ImGui::SetCursorScreenPos(plotPos2);
+                        ImVec4 bgColor2 = ImVec4(0.1f, 0.1f, 0.1f, voice1Active ? 0.1f : 0.3f); // Noir/Gris foncé par défaut
+                        // 2. Appliquer le style pour le fond et les lignes
+                        ImGui::PushStyleColor(ImGuiCol_FrameBg, bgColor2);
+                        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.3f, 0.3f, 1.0f, voice2Active ? 0.3f : 1.0f));
+                        // Bouton invisible pour capturer les clics (avant le PlotLines désactivé)
+                        if (ImGui::InvisibleButton("##clickable2", ImVec2(plotWidth, plotHeight))) {
+                            // Clic détecté : inverser l'état de la checkbox
+                            voice2Active = !voice2Active;
+                            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                        }
+
+
+                        if (ImGui::IsItemHovered()) {
+                            // EFFET 1 : Changer le curseur
+                            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
                         
-                        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.3f, 0.3f, 1.0f, 1.0f));
+                            // EFFET 2 : Dessiner un rectangle blanc léger par-dessus
+                            ImDrawList* drawList = ImGui::GetWindowDrawList();
+                            ImVec2 mMin = ImGui::GetItemRectMin();
+                            ImVec2 mMax = ImGui::GetItemRectMax();
+                            
+                            // Un rectangle blanc très transparent (alpha = 30 sur 255)
+                            drawList->AddRectFilled(mMin, mMax, IM_COL32(0, 0, 0, 60),5.0f); 
+                            // Un contour plus brillant
+                            drawList->AddRect(mMin, mMax, IM_COL32(255, 255, 255, 30),5.0f);
+                        }
+                        // Réafficher l'oscilloscope par-dessus (désactivé pour l'affichage uniquement)
+                        ImGui::SetCursorScreenPos(plotPos2);
+                        //ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.3f, 0.3f, 1.0f, 1.0f));
                         ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
                         ImGui::PlotLines("##plot", voice2, SidPlayer::OSCILLOSCOPE_SIZE, 0, nullptr, -1.0f, 1.0f, 
                                         ImVec2(plotWidth, plotHeight));
                         ImGui::PopItemFlag();
-                        ImGui::PopStyleColor();
+                        ImGui::PopStyleColor(2);
                        
                         // Afficher "2" à l'intérieur en haut à gauche
                         ImGui::GetWindowDrawList()->AddText(ImVec2(plotPos2.x + 5.0f, plotPos2.y + 5.0f), 
@@ -956,7 +1044,7 @@ int main(int argc, char* argv[]) {
                 } else {
                     // Afficher un fichier avec indentation réduite
                     // Ajouter de l'indentation pour les fichiers dans des dossiers
-                    float indentAmount = depth * 10.0f; // 10 pixels par niveau (réduit)
+                    float indentAmount = depth * 5.0f; // 5 pixels par niveau (réduit)
                     if (depth > 0) {
                         ImGui::Indent(indentAmount);
                     }
