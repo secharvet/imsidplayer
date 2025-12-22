@@ -614,6 +614,7 @@ int main(int argc, char* argv[]) {
                             fs::path(player.getCurrentFile()).filename().string().c_str());
                         ImGui::Separator();
                         ImGui::TextWrapped("Information: %s", player.getTuneInfo().c_str());
+                        ImGui::Text("SID Model: %s", player.getSidModel().c_str());
                     } else {
                         ImGui::SameLine();
                         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No file loaded");

@@ -19,6 +19,7 @@ SidPlayer::SidPlayer()
     , m_audioCallbackActive(false)
     , m_stopping(false)
     , m_fadeInCounter(FADE_IN_DURATION) // Initialisé à la durée max pour désactiver le fade au démarrage
+    , m_currentSidModel(SidConfig::MOS6581) // Par défaut : modèle 6581
 {
     // Initialiser les buffers à zéro
     for (int i = 0; i < OSCILLOSCOPE_SIZE; ++i) {
@@ -129,6 +130,17 @@ bool SidPlayer::loadFile(const std::string& filepath) {
     // Sélectionner la première sous-chanson (les chansons commencent à 1)
     m_tune->selectSong(1);
     
+    // Détecter le modèle SID depuis les métadonnées du fichier
+    const SidTuneInfo* tuneInfo = m_tune->getInfo();
+    SidConfig::sid_model_t sidModel = SidConfig::MOS6581; // Par défaut : modèle "Old" (C64 Fat)
+    
+    if (tuneInfo && tuneInfo->sidModel(0) == SidTuneInfo::SIDMODEL_8580) {
+        sidModel = SidConfig::MOS8580; // Modèle "New" (C64 Slim)
+    }
+    
+    // Stocker le modèle détecté pour l'affichage
+    m_currentSidModel = sidModel;
+    
     // Charger le tune dans les 3 moteurs
     if (!m_engineVoice0->load(m_tune.get())) {
         std::cerr << "Erreur: Impossible de charger la chanson dans le moteur voix 0" << std::endl;
@@ -176,10 +188,12 @@ bool SidPlayer::loadFile(const std::string& filepath) {
     
     m_audioSpec = obtained;
     
-    // Mettre à jour la fréquence d'échantillonnage dans la config pour tous les moteurs
+    // Mettre à jour la fréquence d'échantillonnage et le modèle SID dans la config pour tous les moteurs
     // Chaque moteur doit utiliser sa propre config avec son propre builder
     SidConfig cfgVoice0 = m_engineVoice0->config();
     cfgVoice0.frequency = obtained.freq;
+    cfgVoice0.defaultSidModel = sidModel; // Appliquer le modèle détecté depuis le fichier
+    cfgVoice0.forceSidModel = true; // Forcer l'utilisation du modèle détecté
     cfgVoice0.sidEmulation = m_builderVoice0.get(); // Réassigner le builder
     if (!m_engineVoice0->config(cfgVoice0)) {
         std::cerr << "Erreur de configuration engine voix 0: " << m_engineVoice0->error() << std::endl;
@@ -191,6 +205,8 @@ bool SidPlayer::loadFile(const std::string& filepath) {
     
     SidConfig cfgVoice1 = m_engineVoice1->config();
     cfgVoice1.frequency = obtained.freq;
+    cfgVoice1.defaultSidModel = sidModel; // Appliquer le modèle détecté depuis le fichier
+    cfgVoice1.forceSidModel = true; // Forcer l'utilisation du modèle détecté
     cfgVoice1.sidEmulation = m_builderVoice1.get(); // Réassigner le builder
     if (!m_engineVoice1->config(cfgVoice1)) {
         std::cerr << "Erreur de configuration engine voix 1: " << m_engineVoice1->error() << std::endl;
@@ -202,6 +218,8 @@ bool SidPlayer::loadFile(const std::string& filepath) {
     
     SidConfig cfgVoice2 = m_engineVoice2->config();
     cfgVoice2.frequency = obtained.freq;
+    cfgVoice2.defaultSidModel = sidModel; // Appliquer le modèle détecté depuis le fichier
+    cfgVoice2.forceSidModel = true; // Forcer l'utilisation du modèle détecté
     cfgVoice2.sidEmulation = m_builderVoice2.get(); // Réassigner le builder
     if (!m_engineVoice2->config(cfgVoice2)) {
         std::cerr << "Erreur de configuration engine voix 2: " << m_engineVoice2->error() << std::endl;
@@ -211,9 +229,9 @@ bool SidPlayer::loadFile(const std::string& filepath) {
         return false;
     }
     
-    // Récupérer les infos de la chanson
+    // Récupérer les infos de la chanson (réutiliser tuneInfo déjà déclaré)
     m_currentFile = filepath;
-    const SidTuneInfo* tuneInfo = m_tune->getInfo();
+    // tuneInfo est déjà déclaré plus haut pour la détection du modèle SID
     if (tuneInfo && tuneInfo->numberOfInfoStrings() > 0) {
         m_tuneInfo = "";
         for (unsigned int i = 0; i < tuneInfo->numberOfInfoStrings(); ++i) {
@@ -475,6 +493,14 @@ void SidPlayer::fadeIn(int samples) {
     // TODO: Implémentation future du fade-in
     // Nécessiterait un compteur dans audioCallback pour appliquer le fade progressif
     (void)samples; // Éviter le warning unused parameter
+}
+
+std::string SidPlayer::getSidModel() const {
+    if (m_currentSidModel == SidConfig::MOS8580) {
+        return "8580 (New SID)";
+    } else {
+        return "6581 (Old SID)";
+    }
 }
 
 void SidPlayer::audioCallbackWrapper(void* userdata, Uint8* stream, int len) {

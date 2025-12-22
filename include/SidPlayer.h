@@ -26,6 +26,7 @@ public:
     
     std::string getCurrentFile() const { return m_currentFile; }
     std::string getTuneInfo() const { return m_tuneInfo; }
+    std::string getSidModel() const; // Retourne le modèle SID détecté (6581 ou 8580)
     
     // Contrôle du mute des voix
     void setVoiceMute(int voice, bool muted);
@@ -69,6 +70,7 @@ private:
     
     std::string m_currentFile;
     std::string m_tuneInfo;
+    SidConfig::sid_model_t m_currentSidModel; // Modèle SID actuellement utilisé
     bool m_playing;
     bool m_paused;
     
