@@ -61,7 +61,7 @@ SidPlayer::SidPlayer()
     SidConfig cfg;
     cfg.frequency = SAMPLE_RATE;
     cfg.playback = SidConfig::MONO;
-    cfg.samplingMethod = SidConfig::INTERPOLATE;
+    cfg.samplingMethod = SidConfig::RESAMPLE_INTERPOLATE;
     
     // Configurer Engine #1 (analyse voix 0)
     // mute(sid, voice, enable) : enable=true unmute (active), enable=false mute (désactive)
@@ -437,10 +437,17 @@ void SidPlayer::audioCallback(void* userdata, Uint8* stream, int len) {
     // Mixer les 3 voix manuellement (addition et division par le nombre de voix actives)
     if (activeVoices > 0) {
         for (int i = 0; i < samples; ++i) {
+            // Simple addition sans division par le nombre de voix
             int32_t sum = static_cast<int32_t>(m_voice0AudioBuffer[i]) + 
-                          static_cast<int32_t>(m_voice1AudioBuffer[i]) + 
-                          static_cast<int32_t>(m_voice2AudioBuffer[i]);
-            mixBuffer[i] = static_cast<int16_t>(sum / activeVoices);
+            static_cast<int32_t>(m_voice1AudioBuffer[i]) + 
+            static_cast<int32_t>(m_voice2AudioBuffer[i]);
+
+            // On applique un gain fixe ou on limite (clamp) pour éviter le craquement
+            // On ne divise plus par activeVoices !
+            if (sum > 32767) sum = 32767;
+            if (sum < -32768) sum = -32768;
+
+            mixBuffer[i] = static_cast<int16_t>(sum);
         }
     } else {
         // Toutes les voix sont mutées, silence complet
