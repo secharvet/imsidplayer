@@ -200,6 +200,18 @@ jobs:
         VERSION="${{ steps.get_version.outputs.version }}"
         cp build/bin/imSidPlayer artifacts/linux/
         strip artifacts/linux/imSidPlayer || true
+        
+        # Copy FontAwesome fonts directory
+        if [ -d "fonts" ]; then
+          cp -r fonts artifacts/linux/
+          echo "Fonts directory copied to Linux artifacts"
+        elif [ -d "build/bin/fonts" ]; then
+          cp -r build/bin/fonts artifacts/linux/
+          echo "Fonts directory copied from build/bin to Linux artifacts"
+        else
+          echo "Warning: fonts directory not found"
+        fi
+        
         # Always create versioned file for releases
         if [ "${{ steps.get_version.outputs.is_release }}" = "true" ]; then
           cp artifacts/linux/imSidPlayer "artifacts/linux/imSidPlayer-${VERSION}-linux"
@@ -208,6 +220,10 @@ jobs:
         fi
         echo "Linux executable prepared"
         ls -lh artifacts/linux/
+        if [ -d "artifacts/linux/fonts" ]; then
+          echo "Fonts in artifacts:"
+          ls -lh artifacts/linux/fonts/
+        fi
     
     - name: Prepare Windows artifacts
       if: runner.os == 'Windows'
@@ -319,11 +335,32 @@ jobs:
           done
         fi
         
+        # Copy FontAwesome fonts directory
+        if [ -d "fonts" ]; then
+          cp -r fonts artifacts/windows/
+          echo "Fonts directory copied to Windows artifacts"
+        elif [ -d "build/bin/fonts" ]; then
+          cp -r build/bin/fonts artifacts/windows/
+          echo "Fonts directory copied from build/bin to Windows artifacts"
+        elif [ -d "build/fonts" ]; then
+          cp -r build/fonts artifacts/windows/
+          echo "Fonts directory copied from build to Windows artifacts"
+        else
+          echo "Warning: fonts directory not found"
+        fi
+        
         echo "=== Windows artifacts prepared ==="
         ls -lh artifacts/windows/
         echo ""
         echo "=== DLL count ==="
         ls -1 artifacts/windows/*.dll 2>/dev/null | wc -l || echo "0"
+        echo ""
+        echo "=== Fonts in artifacts ==="
+        if [ -d "artifacts/windows/fonts" ]; then
+          ls -lh artifacts/windows/fonts/
+        else
+          echo "Warning: fonts directory not found in Windows artifacts"
+        fi
         
         # Create versioned archive for releases
         if [ "${{ steps.get_version.outputs.is_release }}" = "true" ]; then
@@ -332,6 +369,11 @@ jobs:
           zip -r "../imSidPlayer-${VERSION}-windows.zip" . -x "*.zip"
           cd ../..
           echo "Created: imSidPlayer-${VERSION}-windows.zip"
+          # Verify fonts are in the zip
+          if command -v unzip &> /dev/null; then
+            echo "=== Verifying fonts in zip ==="
+            unzip -l "../imSidPlayer-${VERSION}-windows.zip" | grep -i "fonts\|fa-solid" || echo "Warning: fonts not found in zip"
+          fi
         fi
     
     - name: Upload Linux artifacts

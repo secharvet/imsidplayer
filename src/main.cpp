@@ -17,6 +17,7 @@
 #endif
 #include "SidPlayer.h"
 #include "Config.h"
+#include "IconsFontAwesome6.h"
 
 // ImGui
 #include "imgui.h"
@@ -27,7 +28,9 @@
 // SDL2_image pour charger des images (PNG, JPEG, etc.)
 #if __has_include(<SDL2/SDL_image.h>)
 #include <SDL2/SDL_image.h>
+#ifndef HAS_SDL2_IMAGE
 #define HAS_SDL2_IMAGE
+#endif
 #endif
 
 
@@ -127,8 +130,45 @@ int main(int argc, char* argv[]) {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
 
     // Charger une police plus grande
-    float fontSize = 18.0f;
+    float fontSize = 24.0f;
     io.Fonts->AddFontDefault();
+    
+    // Charger FontAwesome avec MergeMode pour fusionner avec la police par défaut
+    static const ImWchar icons_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
+    ImFontConfig icons_config;
+    icons_config.MergeMode = true;  // IMPORTANT : Fusionner avec la police précédente
+    icons_config.PixelSnapH = true; // Pour que les icônes soient nettes
+    icons_config.GlyphOffset = ImVec2(0,6.0f); // Ajustement vertical si nécessaire
+    
+    // Chercher la police FontAwesome dans plusieurs emplacements possibles
+    std::vector<fs::path> fontPaths = {
+        fs::current_path() / "fonts" / "fa-solid-900.ttf",           // Depuis le répertoire courant
+        fs::current_path().parent_path() / "fonts" / "fa-solid-900.ttf", // Depuis le parent (si dans build/)
+        fs::current_path() / "fa-solid-900.ttf",                     // Directement dans le répertoire courant
+        fs::current_path().parent_path() / "fa-solid-900.ttf"        // Directement dans le parent
+    };
+    
+    fs::path fontPath;
+    bool fontFound = false;
+    for (const auto& path : fontPaths) {
+        if (fs::exists(path)) {
+            fontPath = path;
+            fontFound = true;
+            break;
+        }
+    }
+    
+    if (fontFound) {
+        io.Fonts->AddFontFromFileTTF(fontPath.string().c_str(), fontSize, &icons_config, icons_ranges);
+        std::cout << "FontAwesome chargé depuis: " << fontPath << std::endl;
+    } else {
+        std::cerr << "Attention: FontAwesome non trouvé, les icônes ne seront pas disponibles" << std::endl;
+        std::cerr << "  Recherché dans:" << std::endl;
+        for (const auto& path : fontPaths) {
+            std::cerr << "    - " << path << std::endl;
+        }
+    }
+    
     io.FontGlobalScale = 1.2f; // Augmenter la taille globale de la police
 
     // Style ImGui
@@ -842,18 +882,18 @@ int main(int argc, char* argv[]) {
             float buttonWidth = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) / 2.0f;
             
             if (player.isPlaying() && !player.isPaused()) {
-                if (ImGui::Button("|| Pause", ImVec2(buttonWidth, 0))) {
+                if (ImGui::Button(ICON_FA_PAUSE "", ImVec2(buttonWidth, 0))) {
                     player.pause();
                 }
             } else {
-                if (ImGui::Button("> Play", ImVec2(buttonWidth, 0))) {
+                if (ImGui::Button(ICON_FA_PLAY "", ImVec2(buttonWidth, 0))) {
                     player.play();
                 }
             }
             
             ImGui::SameLine();
             
-            if (ImGui::Button("[] Stop", ImVec2(buttonWidth, 0))) {
+            if (ImGui::Button(ICON_FA_STOP "", ImVec2(buttonWidth, 0))) {
                 player.stop();
             }
 
@@ -941,18 +981,18 @@ int main(int argc, char* argv[]) {
                         ImGui::Spacing();
                         
                         // Boutons de navigation
-                        if (ImGui::Button("<", ImVec2(50, 0))) {
+                        if (ImGui::Button(ICON_FA_CHEVRON_LEFT, ImVec2(50, 0))) {
                             currentBackgroundIndex = (currentBackgroundIndex - 1 + backgroundImages.size()) % backgroundImages.size();
                         }
                         ImGui::SameLine();
-                        if (ImGui::Button(">", ImVec2(50, 0))) {
+                        if (ImGui::Button(ICON_FA_CHEVRON_RIGHT, ImVec2(50, 0))) {
                             currentBackgroundIndex = (currentBackgroundIndex + 1) % backgroundImages.size();
                         }
                         
                         ImGui::Spacing();
                         
                         // Bouton Afficher/Masquer
-                        if (ImGui::Button(showBackground ? "Hide" : "Show", ImVec2(120, 0))) {
+                        if (ImGui::Button(showBackground ? ICON_FA_EYE_SLASH " Hide" : ICON_FA_EYE " Show", ImVec2(120, 0))) {
                             showBackground = !showBackground;
                         }
                         
@@ -1003,7 +1043,7 @@ int main(int argc, char* argv[]) {
             ImGui::Separator();
             
             // Clear playlist button
-            if (ImGui::Button("Clear", ImVec2(-1, 0))) {
+            if (ImGui::Button(ICON_FA_TRASH "", ImVec2(-1, 0))) {
                 playlistRoot->children.clear();
                 currentPlaylistNode = nullptr;
             }
@@ -1100,7 +1140,7 @@ int main(int argc, char* argv[]) {
             // Boutons Précédent et Suivant sur la même ligne
             float navButtonWidth = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) / 2.0f;
             
-            if (ImGui::Button("<< Previous", ImVec2(navButtonWidth, 0))) {
+            if (ImGui::Button(ICON_FA_BACKWARD_STEP "", ImVec2(navButtonWidth, 0))) {
                 if (!allFiles.empty() && currentPlaylistNode) {
                     auto it = std::find(allFiles.begin(), allFiles.end(), currentPlaylistNode);
                     if (it != allFiles.end()) {
@@ -1122,7 +1162,7 @@ int main(int argc, char* argv[]) {
                 }
             }
             ImGui::SameLine();
-            if (ImGui::Button(">> Next", ImVec2(navButtonWidth, 0))) {
+            if (ImGui::Button(ICON_FA_FORWARD_STEP "", ImVec2(navButtonWidth, 0))) {
                 if (!allFiles.empty() && currentPlaylistNode) {
                     auto it = std::find(allFiles.begin(), allFiles.end(), currentPlaylistNode);
                     if (it != allFiles.end()) {
@@ -1168,21 +1208,21 @@ int main(int argc, char* argv[]) {
             }
             
             ImGui::SameLine();
-            if (ImGui::Button("Actualiser")) {
+            if (ImGui::Button(ICON_FA_ARROW_ROTATE_RIGHT " Actualiser")) {
                 updateDirectoryList();
             }
             
             ImGui::Separator();
             
             // Boutons de navigation
-            if (ImGui::Button("< Previous")) {
+            if (ImGui::Button(ICON_FA_CHEVRON_LEFT " Previous")) {
                 if (currentDirectory.has_parent_path() && currentDirectory != currentDirectory.root_path()) {
                     currentDirectory = currentDirectory.parent_path();
                     updateDirectoryList();
                 }
             }
             ImGui::SameLine();
-            if (ImGui::Button("Accueil")) {
+            if (ImGui::Button(ICON_FA_HOUSE " Accueil")) {
 #ifdef _WIN32
                 const char* home = getenv("USERPROFILE");
                 if (!home) home = getenv("APPDATA");
@@ -1194,7 +1234,7 @@ int main(int argc, char* argv[]) {
                 updateDirectoryList();
             }
             ImGui::SameLine();
-            if (ImGui::Button("Racine")) {
+            if (ImGui::Button(ICON_FA_FOLDER " Racine")) {
                 currentDirectory = currentDirectory.root_path();
                 updateDirectoryList();
             }
@@ -1256,7 +1296,7 @@ int main(int argc, char* argv[]) {
             ImGui::Spacing();
             
             // Boutons d'action
-            if (ImGui::Button("Load", ImVec2(150, 0))) {
+            if (ImGui::Button(ICON_FA_FOLDER_OPEN " Load", ImVec2(150, 0))) {
                 if (!selectedFilePath.empty() && fs::exists(selectedFilePath)) {
                     if (player.loadFile(selectedFilePath)) {
                         showFileDialog = false;
@@ -1265,7 +1305,7 @@ int main(int argc, char* argv[]) {
                 }
             }
             ImGui::SameLine();
-            if (ImGui::Button("Cancel", ImVec2(150, 0))) {
+            if (ImGui::Button(ICON_FA_XMARK " Cancel", ImVec2(150, 0))) {
                 showFileDialog = false;
                 selectedFilePath = "";
             }

@@ -283,3 +283,8 @@ target_link_directories(${PROJECT_NAME} PRIVATE
     ${SDL2_LIBRARY_DIRS}
 )
 
+# Copier les fichiers FontAwesome (police et header) dans le répertoire de build
+# La police doit être accessible depuis l'exécutable (dans bin/)
+file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/fonts DESTINATION ${CMAKE_BINARY_DIR}/bin)
+file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/fonts DESTINATION ${CMAKE_BINARY_DIR})
+
