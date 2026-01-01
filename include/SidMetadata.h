@@ -1,0 +1,67 @@
+#ifndef SID_METADATA_H
+#define SID_METADATA_H
+
+#include <string>
+#include <vector>
+#include <filesystem>
+#include <cstdint>
+#include <sidplayfp/SidTune.h>
+#include <sidplayfp/SidTuneInfo.h>
+#include <glaze/glaze.hpp>
+
+namespace fs = std::filesystem;
+
+// Structure pour stocker les métadonnées d'un fichier SID
+struct SidMetadata {
+    std::string filepath;           // Chemin complet du fichier
+    std::string filename;           // Nom du fichier
+    std::string title;              // Titre de la chanson
+    std::string author;             // Auteur/compositeur
+    std::string released;           // Date de sortie
+    std::string sidModel;           // Modèle SID (6581 ou 8580)
+    int numberOfSongs;              // Nombre de sous-chansons
+    int defaultSong;                // Chanson par défaut
+    int clockSpeed;                 // Vitesse d'horloge (PAL/NTSC)
+    std::vector<std::string> infoStrings; // Autres informations
+    uint32_t metadataHash;          // Hash 32-bit basé sur métadonnées (title+author+released+sidModel+clockSpeed)
+    int64_t fileSize;               // Taille du fichier
+    int64_t lastModified;           // Date de modification (timestamp)
+    
+    // Constructeur par défaut
+    SidMetadata() : numberOfSongs(0), defaultSong(1), clockSpeed(0), metadataHash(0), fileSize(0), lastModified(0) {}
+    
+    // Extraire les métadonnées depuis un SidTune
+    static SidMetadata fromSidTune(const std::string& filepath, SidTune* tune);
+    
+    // Vérifier si le fichier a changé depuis l'indexation
+    bool isFileChanged() const;
+    
+    // Générer un hash 32-bit basé sur les métadonnées (rapide)
+    static uint32_t generateMetadataHash(const std::string& title, const std::string& author, 
+                                         const std::string& released, const std::string& sidModel, 
+                                         int clockSpeed);
+};
+
+// Spécialisation Glaze pour la sérialisation JSON
+template <>
+struct glz::meta<SidMetadata> {
+    using T = SidMetadata;
+    static constexpr auto value = glz::object(
+        "filepath", &T::filepath,
+        "filename", &T::filename,
+        "title", &T::title,
+        "author", &T::author,
+        "released", &T::released,
+        "sidModel", &T::sidModel,
+        "numberOfSongs", &T::numberOfSongs,
+        "defaultSong", &T::defaultSong,
+        "clockSpeed", &T::clockSpeed,
+        "infoStrings", &T::infoStrings,
+        "metadataHash", &T::metadataHash,
+        "fileSize", &T::fileSize,
+        "lastModified", &T::lastModified
+    );
+};
+
+#endif // SID_METADATA_H
+

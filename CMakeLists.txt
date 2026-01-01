@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
 project(imSidPlayer VERSION 1.0.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Générer compile_commands.json pour le LSP
@@ -222,17 +222,43 @@ else()
     endif()
 endif()
 
+# Glaze (header-only JSON library)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/glaze/CMakeLists.txt")
+    add_subdirectory(third_party/glaze)
+    # Glaze crée une cible glaze::glaze
+else()
+    message(WARNING "Glaze not found. Run: git clone https://github.com/stephenberry/glaze.git third_party/glaze")
+endif()
+
 
 # Sources (ImGui est maintenant une lib séparée, plus besoin de l'inclure ici)
 set(SOURCES
     src/main.cpp
     src/SidPlayer.cpp
     src/Config.cpp
+    src/Utils.cpp
+    src/BackgroundManager.cpp
+    src/PlaylistManager.cpp
+    src/FileBrowser.cpp
+    src/UIManager.cpp
+    src/Application.cpp
+    src/SidMetadata.cpp
+    src/DatabaseManager.cpp
+    src/FilterWidget.cpp
 )
 
 set(HEADERS
     include/SidPlayer.h
     include/Config.h
+    include/Utils.h
+    include/BackgroundManager.h
+    include/PlaylistManager.h
+    include/FileBrowser.h
+    include/UIManager.h
+    include/Application.h
+    include/SidMetadata.h
+    include/DatabaseManager.h
+    include/FilterWidget.h
 )
 
 # Exécutable
@@ -260,6 +286,11 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     ${SDL2_LIBRARIES}
     ${SIDPLAYFP_LIB}
 )
+
+# Glaze (header-only, link interface)
+if(TARGET glaze::glaze)
+    target_link_libraries(${PROJECT_NAME} PRIVATE glaze::glaze)
+endif()
 
 if(SDL2_IMAGE_FOUND)
     target_link_libraries(${PROJECT_NAME} PRIVATE ${SDL2_IMAGE_LIBRARIES})

@@ -22,20 +22,13 @@ To run it:
 
 Source code is public and reproducible via GitHub Actions. Enjoy! 🎵
 
-### 🍎 macOS Version
-
-**macOS support is coming soon!** If you're a macOS user and would like to help test the application, your feedback would be greatly appreciated! 🚀
-
-Please open an issue or contact me if you're interested in beta testing.
-
 ## Features
 
-- ✅ SID file (.sid) playback with play/pause/stop controls
-- ✅ 3 parallel SID engines for individual voice analysis and control
-- ✅ Real-time oscilloscopes for each voice (3 channels)
-- ✅ Hierarchical playlist with drag & drop support
-- ✅ Customizable background images (PNG, JPG) with transparency
-- ✅ Automatic configuration saving (playlist, window state, background, voice states)
+- 🎵 **SID Playback** - High-quality playback with automatic SID model detection (6581/8580)
+- 🎛️ **Voice Analysis** - 3 parallel engines with individual voice control and real-time oscilloscopes
+- 📚 **Smart Library** - Automatic metadata indexing with fuzzy search and filters (author, year)
+- 🎨 **Customizable UI** - Drag & drop background images, hierarchical playlist management
+- 💾 **Auto-Save** - Configuration, playlist, and preferences automatically saved
 
 ## Quick Start
 
@@ -60,6 +53,7 @@ make -j$(nproc)
 Configuration files are stored in `~/.imsidplayer/`:
 - `config.txt` - Application settings
 - `background/` - Background images directory
+- `database.json` - SID metadata library
 
 You can drag & drop images anywhere in the application to add them to the background library.
 
@@ -78,6 +72,7 @@ The player uses 3 parallel SID engines for voice isolation:
 - **SDL2** - Window and audio
 - **SDL2_image** - Image loading
 - **sidplayfp** - SID file playback
+- **Glaze** - JSON serialization for metadata database
 
 ## License
 
