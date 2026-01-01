@@ -1,6 +1,7 @@
 #include "UIManager.h"
 #include "FilterWidget.h"
 #include "IconsFontAwesome6.h"
+#include "Logger.h"
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
 #include "imgui_impl_sdlrenderer2.h"
@@ -19,13 +20,14 @@
 
 namespace fs = std::filesystem;
 
-UIManager::UIManager(SidPlayer& player, PlaylistManager& playlist, BackgroundManager& background, FileBrowser& fileBrowser, DatabaseManager& database)
-    : m_player(player), m_playlist(playlist), m_background(background), m_fileBrowser(fileBrowser), m_database(database),
+UIManager::UIManager(SidPlayer& player, PlaylistManager& playlist, BackgroundManager& background, FileBrowser& fileBrowser, DatabaseManager& database, HistoryManager& history)
+    : m_player(player), m_playlist(playlist), m_background(background), m_fileBrowser(fileBrowser), m_database(database), m_history(history),
       m_window(nullptr), m_renderer(nullptr), m_showFileDialog(false), m_isConfigTabActive(false), m_indexRequested(false),
       m_selectedSearchResult(-1), m_searchListFocused(false),
       m_databaseOperationInProgress(false), m_databaseOperationProgress(0.0f),
       m_filtersNeedUpdate(true), m_authorFilterWidget("Author", 200.0f), m_yearFilterWidget("Year", 150.0f),
-      m_firstFilteredMatch(nullptr), m_filtersActive(false), m_shouldScrollToFirstMatch(false) {
+      m_firstFilteredMatch(nullptr), m_filtersActive(false), m_shouldScrollToFirstMatch(false),
+      m_cachedCurrentIndex(-1), m_navigationCacheValid(false) {
 }
 
 bool UIManager::initialize(SDL_Window* window, SDL_Renderer* renderer) {
@@ -70,9 +72,9 @@ bool UIManager::initialize(SDL_Window* window, SDL_Renderer* renderer) {
     
     if (fontFound) {
         io.Fonts->AddFontFromFileTTF(fontPath.string().c_str(), fontSize, &icons_config, icons_ranges);
-        std::cout << "FontAwesome chargé depuis: " << fontPath << std::endl;
+        LOG_INFO("FontAwesome chargé depuis: {}", fontPath.string());
     } else {
-        std::cerr << "Attention: FontAwesome non trouvé, les icônes ne seront pas disponibles" << std::endl;
+        LOG_WARNING("FontAwesome non trouvé, les icônes ne seront pas disponibles");
     }
     
     io.FontGlobalScale = 1.2f;
@@ -112,24 +114,48 @@ bool UIManager::initialize(SDL_Window* window, SDL_Renderer* renderer) {
 }
 
 void UIManager::render() {
+    auto frameStart = std::chrono::high_resolution_clock::now();
+    
     // Réinitialiser isConfigTabActive au début de chaque frame
     m_isConfigTabActive = false;
     
     // Démarrer le frame ImGui
+    auto t0 = std::chrono::high_resolution_clock::now();
     ImGui_ImplSDLRenderer2_NewFrame();
     ImGui_ImplSDL2_NewFrame();
     ImGui::NewFrame();
+    auto t1 = std::chrono::high_resolution_clock::now();
+    auto newFrameTime = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
     
+    // Render main panel
+    auto t2 = std::chrono::high_resolution_clock::now();
     renderMainPanel();
-    renderPlaylistPanel();
-    renderFileBrowser();
+    auto t3 = std::chrono::high_resolution_clock::now();
+    auto mainPanelTime = std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count();
     
-    // Rendu
+    // Render playlist panel
+    auto t4 = std::chrono::high_resolution_clock::now();
+    renderPlaylistPanel();
+    auto t5 = std::chrono::high_resolution_clock::now();
+    auto playlistPanelTime = std::chrono::duration_cast<std::chrono::microseconds>(t5 - t4).count();
+    
+    // Render file browser
+    auto t6 = std::chrono::high_resolution_clock::now();
+    renderFileBrowser();
+    auto t7 = std::chrono::high_resolution_clock::now();
+    auto fileBrowserTime = std::chrono::duration_cast<std::chrono::microseconds>(t7 - t6).count();
+    
+    // Rendu ImGui
+    auto t8 = std::chrono::high_resolution_clock::now();
     ImGui::Render();
+    auto t9 = std::chrono::high_resolution_clock::now();
+    auto imguiRenderTime = std::chrono::duration_cast<std::chrono::microseconds>(t9 - t8).count();
+    
     ImGuiIO& io = ImGui::GetIO();
     SDL_RenderSetScale(m_renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
     
     // Effacer le renderer
+    auto t10 = std::chrono::high_resolution_clock::now();
     ImVec4 clearColor = ImGui::GetStyle().Colors[ImGuiCol_WindowBg];
     SDL_SetRenderDrawColor(m_renderer, 
         (Uint8)(clearColor.x * 255), 
@@ -137,12 +163,47 @@ void UIManager::render() {
         (Uint8)(clearColor.z * 255), 
         (Uint8)(clearColor.w * 255));
     SDL_RenderClear(m_renderer);
+    auto t11 = std::chrono::high_resolution_clock::now();
+    auto clearTime = std::chrono::duration_cast<std::chrono::microseconds>(t11 - t10).count();
     
     // Afficher l'image de fond
+    auto t12 = std::chrono::high_resolution_clock::now();
     renderBackground();
+    auto t13 = std::chrono::high_resolution_clock::now();
+    auto backgroundTime = std::chrono::duration_cast<std::chrono::microseconds>(t13 - t12).count();
     
+    // Render ImGui draw data
+    auto t14 = std::chrono::high_resolution_clock::now();
     ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), m_renderer);
+    auto t15 = std::chrono::high_resolution_clock::now();
+    auto renderDrawDataTime = std::chrono::duration_cast<std::chrono::microseconds>(t15 - t14).count();
+    
+    // Present
+    auto t16 = std::chrono::high_resolution_clock::now();
     SDL_RenderPresent(m_renderer);
+    auto t17 = std::chrono::high_resolution_clock::now();
+    auto presentTime = std::chrono::duration_cast<std::chrono::microseconds>(t17 - t16).count();
+    
+    auto frameEnd = std::chrono::high_resolution_clock::now();
+    auto totalFrameTime = std::chrono::duration_cast<std::chrono::microseconds>(frameEnd - frameStart).count();
+    
+    // Afficher les timings toutes les 60 frames (environ 1 seconde à 60 FPS)
+    static int frameCount = 0;
+    frameCount++;
+    if (frameCount % 60 == 0) {
+        LOG_DEBUG("=== RENDER TIMINGS (frame {}) ===", frameCount);
+        LOG_DEBUG("NewFrame:        {:6.2f} us ({:.2f}%)", newFrameTime / 1000.0, (newFrameTime * 100.0) / totalFrameTime);
+        LOG_DEBUG("MainPanel:       {:6.2f} us ({:.2f}%)", mainPanelTime / 1000.0, (mainPanelTime * 100.0) / totalFrameTime);
+        LOG_DEBUG("PlaylistPanel:   {:6.2f} us ({:.2f}%)", playlistPanelTime / 1000.0, (playlistPanelTime * 100.0) / totalFrameTime);
+        LOG_DEBUG("FileBrowser:     {:6.2f} us ({:.2f}%)", fileBrowserTime / 1000.0, (fileBrowserTime * 100.0) / totalFrameTime);
+        LOG_DEBUG("ImGui::Render:   {:6.2f} us ({:.2f}%)", imguiRenderTime / 1000.0, (imguiRenderTime * 100.0) / totalFrameTime);
+        LOG_DEBUG("Clear:           {:6.2f} us ({:.2f}%)", clearTime / 1000.0, (clearTime * 100.0) / totalFrameTime);
+        LOG_DEBUG("Background:      {:6.2f} us ({:.2f}%)", backgroundTime / 1000.0, (backgroundTime * 100.0) / totalFrameTime);
+        LOG_DEBUG("RenderDrawData:  {:6.2f} us ({:.2f}%)", renderDrawDataTime / 1000.0, (renderDrawDataTime * 100.0) / totalFrameTime);
+        LOG_DEBUG("Present:         {:6.2f} us ({:.2f}%)", presentTime / 1000.0, (presentTime * 100.0) / totalFrameTime);
+        LOG_DEBUG("TOTAL FRAME:     {:6.2f} us ({:.2f} ms, {:.1f} FPS)", totalFrameTime / 1000.0, totalFrameTime / 1000.0, 1000000.0 / totalFrameTime);
+        LOG_DEBUG("===================================");
+    }
 }
 
 bool UIManager::handleEvent(const SDL_Event& event) {
@@ -193,7 +254,11 @@ void UIManager::renderMainPanel() {
 }
 
 void UIManager::renderPlayerTab() {
+    auto t0 = std::chrono::high_resolution_clock::now();
     renderOscilloscopes();
+    auto t1 = std::chrono::high_resolution_clock::now();
+    static long long oscilloscopesTime = 0;
+    oscilloscopesTime += std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
     
     // Section informations
     ImGui::Text("Current file:");
@@ -212,11 +277,27 @@ void UIManager::renderPlayerTab() {
     ImGui::Separator();
     ImGui::Spacing();
 
+    auto t2 = std::chrono::high_resolution_clock::now();
     renderPlayerControls();
+    auto t3 = std::chrono::high_resolution_clock::now();
+    static long long playerControlsTime = 0;
+    playerControlsTime += std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count();
+    
+    // Afficher les timings accumulés toutes les 60 frames
+    static int frameCount = 0;
+    frameCount++;
+    if (frameCount % 60 == 0) {
+        LOG_DEBUG("[PlayerTab] Oscilloscopes: {:.2f} us/frame avg, PlayerControls: {:.2f} us/frame avg",
+                  oscilloscopesTime / 60.0 / 1000.0, playerControlsTime / 60.0 / 1000.0);
+        oscilloscopesTime = 0;
+        playerControlsTime = 0;
+    }
 }
 
 void UIManager::renderOscilloscopes() {
     if (m_player.getCurrentFile().empty()) return;
+    
+    auto oscStart = std::chrono::high_resolution_clock::now();
     
     ImGui::Text("Oscilloscopes by voice:");
     ImGui::Spacing();
@@ -260,8 +341,12 @@ void UIManager::renderOscilloscopes() {
         drawList->AddRect(mMin, mMax, IM_COL32(255, 255, 255, 30), 5.0f);
     }
     ImGui::SetCursorScreenPos(plotPos0);
+    auto t0 = std::chrono::high_resolution_clock::now();
     ImGui::PlotLines("##plot", voice0, SidPlayer::OSCILLOSCOPE_SIZE, 0, nullptr, -1.0f, 1.0f, 
                     ImVec2(plotWidth, plotHeight));
+    auto t1 = std::chrono::high_resolution_clock::now();
+    static long long plot0Time = 0;
+    plot0Time += std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
     ImGui::PopStyleColor(2);
     ImGui::GetWindowDrawList()->AddText(ImVec2(plotPos0.x + 5.0f, plotPos0.y + 5.0f), 
                                        IM_COL32(255, 255, 255, 255), "0");
@@ -294,8 +379,12 @@ void UIManager::renderOscilloscopes() {
         drawList->AddRect(mMin, mMax, IM_COL32(255, 255, 255, 30), 5.0f);
     }
     ImGui::SetCursorScreenPos(plotPos1);
+    auto t2 = std::chrono::high_resolution_clock::now();
     ImGui::PlotLines("##plot", voice1, SidPlayer::OSCILLOSCOPE_SIZE, 0, nullptr, -1.0f, 1.0f, 
                     ImVec2(plotWidth, plotHeight));
+    auto t3 = std::chrono::high_resolution_clock::now();
+    static long long plot1Time = 0;
+    plot1Time += std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count();
     ImGui::PopStyleVar();
     ImGui::PopStyleColor(2);
     ImGui::GetWindowDrawList()->AddText(ImVec2(plotPos1.x + 5.0f, plotPos1.y + 5.0f), 
@@ -328,8 +417,12 @@ void UIManager::renderOscilloscopes() {
         drawList->AddRect(mMin, mMax, IM_COL32(255, 255, 255, 30), 5.0f);
     }
     ImGui::SetCursorScreenPos(plotPos2);
+    auto t4 = std::chrono::high_resolution_clock::now();
     ImGui::PlotLines("##plot", voice2, SidPlayer::OSCILLOSCOPE_SIZE, 0, nullptr, -1.0f, 1.0f, 
                     ImVec2(plotWidth, plotHeight));
+    auto t5 = std::chrono::high_resolution_clock::now();
+    static long long plot2Time = 0;
+    plot2Time += std::chrono::duration_cast<std::chrono::microseconds>(t5 - t4).count();
     ImGui::PopStyleColor(2);
     ImGui::GetWindowDrawList()->AddText(ImVec2(plotPos2.x + 5.0f, plotPos2.y + 5.0f), 
                                        IM_COL32(255, 255, 255, 255), "2");
@@ -342,6 +435,23 @@ void UIManager::renderOscilloscopes() {
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
+    
+    auto oscEnd = std::chrono::high_resolution_clock::now();
+    static long long totalOscTime = 0;
+    totalOscTime += std::chrono::duration_cast<std::chrono::microseconds>(oscEnd - oscStart).count();
+    
+    // Afficher les timings accumulés toutes les 60 frames
+    static int frameCount = 0;
+    frameCount++;
+    if (frameCount % 60 == 0) {
+        LOG_DEBUG("[Oscilloscopes] Total: {:.2f} us/frame avg, Plot0: {:.2f} us, Plot1: {:.2f} us, Plot2: {:.2f} us",
+                  totalOscTime / 60.0 / 1000.0, plot0Time / 60.0 / 1000.0, 
+                  plot1Time / 60.0 / 1000.0, plot2Time / 60.0 / 1000.0);
+        totalOscTime = 0;
+        plot0Time = 0;
+        plot1Time = 0;
+        plot2Time = 0;
+    }
 }
 
 void UIManager::renderPlayerControls() {
@@ -408,6 +518,28 @@ void UIManager::renderPlayerControls() {
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::Spacing();
+        
+        // Widget de notation par étoiles
+        if (!m_player.getCurrentFile().empty()) {
+            const SidMetadata* metadata = m_database.getMetadata(m_player.getCurrentFile());
+            if (metadata) {
+                int currentRating = m_history.getRating(metadata->metadataHash);
+                int prevRating = currentRating;
+                
+                ImGui::Text("Rating:");
+                if (renderStarRating("##trackRating", &currentRating, 5)) {
+                    // Le rating a changé, sauvegarder
+                    if (currentRating != prevRating) {
+                        m_history.updateRating(metadata->metadataHash, currentRating);
+                        LOG_INFO("Rating mis à jour: {} étoiles pour {}", currentRating, metadata->title);
+                    }
+                }
+                
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::Spacing();
+            }
+        }
     }
 }
 
@@ -490,150 +622,22 @@ void UIManager::renderPlaylistPanel() {
         ImGuiWindowFlags_NoMove | 
         ImGuiWindowFlags_NoCollapse);
     
-    ImGui::Text("Drag & drop .sid files or folders here");
-    ImGui::Separator();
-    
-    // Champ de recherche fuzzy
-    ImGui::Text("Search:");
-    ImGui::SameLine();
-    
-    // Griser le champ si une opération de DB est en cours
-    bool dbOperationInProgress = isDatabaseOperationInProgress();
-    if (dbOperationInProgress) {
-        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.5f);
-    }
-    
-    char searchBuffer[256];
-    strncpy(searchBuffer, m_searchQuery.c_str(), sizeof(searchBuffer) - 1);
-    searchBuffer[sizeof(searchBuffer) - 1] = '\0';
-    
-    bool textChanged = ImGui::InputText("##search", searchBuffer, sizeof(searchBuffer), 
-                                        dbOperationInProgress ? ImGuiInputTextFlags_ReadOnly : 0);
-    
-    if (dbOperationInProgress) {
-        ImGui::PopStyleVar();
-        
-        // Afficher un indicateur de progression
-        float progress = getDatabaseOperationProgress();
-        std::string status = getDatabaseOperationStatus();
-        ImGui::SameLine();
-        ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), " %s", status.c_str());
-        if (progress > 0.0f && progress < 1.0f) {
-            ImGui::ProgressBar(progress, ImVec2(0, 0), "");
-        }
-    }
-    
-    // Gérer la navigation clavier : flèche bas depuis le champ de recherche
-    bool downArrowFromSearch = ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_DownArrow);
-    if (downArrowFromSearch && !m_searchListFocused) {
-        if (!m_searchResults.empty()) {
-            m_searchListFocused = true;
-            m_selectedSearchResult = 0; // Forcer le premier élément (index 0)
-        }
-    }
-    
-    if (textChanged) {
-        m_searchQuery = searchBuffer;
-        m_selectedSearchResult = -1;
-        m_searchListFocused = false; // Reset focus sur liste quand on tape
-        // Mettre à jour les résultats de recherche
-        updateSearchResults();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button(ICON_FA_XMARK "##clearsearch")) {
-        m_searchQuery.clear();
-        m_searchResults.clear();
-        m_selectedSearchResult = -1;
-        m_searchListFocused = false;
-    }
-    
-    // Afficher les résultats dans une zone dédiée sous le champ de recherche
-    if (!m_searchQuery.empty() && !m_searchResults.empty()) {
-        ImGui::Spacing();
-        ImGui::BeginChild("##searchResultsList", ImVec2(0, std::min(200.0f, m_searchResults.size() * 25.0f)), true);
-        
-        // Gérer la navigation clavier dans la liste
-        // Ne traiter la flèche bas que si elle n'a pas déjà été traitée dans le champ de recherche
-        if (m_searchListFocused && !downArrowFromSearch) {
-            if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) {
-                if (m_selectedSearchResult > 0) {
-                    m_selectedSearchResult--;
-                } else {
-                    // Retour au champ de recherche
-                    m_searchListFocused = false;
-                    m_selectedSearchResult = -1;
-                }
-            } else if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) {
-                if (m_selectedSearchResult < (int)m_searchResults.size() - 1) {
-                    m_selectedSearchResult++;
-                }
-            } else if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) {
-                if (m_selectedSearchResult >= 0 && m_selectedSearchResult < (int)m_searchResults.size()) {
-                    navigateToFile(m_searchResults[m_selectedSearchResult]->filepath);
-                }
-            }
+    // Onglets Explorer / History
+    if (ImGui::BeginTabBar("PlaylistTabs")) {
+        // Onglet Explorer
+        if (ImGui::BeginTabItem("Explorer")) {
+            renderExplorerTab();
+            ImGui::EndTabItem();
         }
         
-        for (size_t i = 0; i < m_searchResults.size() && i < 25; ++i) {
-            const SidMetadata* metadata = m_searchResults[i];
-            std::string label = metadata->title;
-            if (!metadata->author.empty()) {
-                label += " - " + metadata->author;
-            }
-            if (!metadata->released.empty()) {
-                label += " (" + metadata->released + ")";
-            }
-            
-            bool isSelected = (m_selectedSearchResult == (int)i && m_searchListFocused);
-            
-            // Mettre en évidence le résultat sélectionné
-            if (isSelected) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.8f, 1.0f, 1.0f));
-                ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.2f, 0.4f, 0.6f, 0.5f));
-            }
-            
-            if (ImGui::Selectable(label.c_str(), isSelected)) {
-                // Naviguer vers ce fichier dans l'arbre
-                navigateToFile(metadata->filepath);
-            }
-            
-            if (isSelected) {
-                ImGui::PopStyleColor(2);
-                ImGui::SetScrollHereY(0.5f); // Scroller vers l'élément sélectionné
-            }
+        // Onglet History
+        if (ImGui::BeginTabItem("History")) {
+            renderHistoryTab();
+            ImGui::EndTabItem();
         }
         
-        ImGui::EndChild();
-    } else {
-        m_searchListFocused = false;
+        ImGui::EndTabBar();
     }
-    
-    ImGui::Separator();
-    
-    // Boutons Clear et Index sur la même ligne
-    float buttonWidth = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) / 2.0f;
-    
-    if (ImGui::Button(ICON_FA_TRASH " Clear", ImVec2(buttonWidth, 0))) {
-        m_playlist.clear();
-        m_playlist.setCurrentNode(nullptr);
-    }
-    ImGui::SameLine();
-    if (ImGui::Button(ICON_FA_FOLDER_PLUS " Index", ImVec2(buttonWidth, 0))) {
-        // L'indexation sera gérée par Application
-        m_indexRequested = true;
-    }
-    
-    ImGui::Separator();
-    ImGui::Spacing();
-    
-    // Filtres multicritères
-    renderFilters();
-    
-    ImGui::Separator();
-    ImGui::Spacing();
-    
-    renderPlaylistTree();
-    renderPlaylistNavigation();
     
     ImGui::End();
 }
@@ -708,6 +712,7 @@ void UIManager::renderPlaylistTree() {
                 m_playlist.setCurrentNode(node);
                 if (!node->filepath.empty() && m_player.loadFile(node->filepath)) {
                     m_player.play();
+                    recordHistoryEntry(node->filepath);
                 }
             }
             
@@ -743,7 +748,7 @@ void UIManager::renderPlaylistTree() {
     auto renderTime = std::chrono::duration_cast<std::chrono::milliseconds>(renderEnd - renderStart).count();
     // Log seulement si problème de performance (> 10ms)
     if (renderTime > 10) {
-        printf("[UI] renderPlaylistTree: %ld ms (%zu nœuds rendus)\n", renderTime, nodesRendered);
+        LOG_WARNING("[UI] renderPlaylistTree: {} ms ({} nœuds rendus)", renderTime, nodesRendered);
     }
     
     ImGui::EndChild();
@@ -752,27 +757,94 @@ void UIManager::renderPlaylistTree() {
 void UIManager::renderPlaylistNavigation() {
     ImGui::Spacing();
     
-    auto allFiles = m_playlist.getAllFiles();
+    // Invalider le cache si nécessaire
     PlaylistNode* currentNode = m_playlist.getCurrentNode();
+    if (!m_navigationCacheValid || 
+        (currentNode && (m_cachedCurrentIndex < 0 || 
+                         m_cachedCurrentIndex >= static_cast<int>(m_cachedAllFiles.size()) ||
+                         m_cachedAllFiles[m_cachedCurrentIndex] != currentNode))) {
+        // Reconstruire le cache
+        m_cachedAllFiles.clear();
+        
+        if (m_filtersActive && m_filteredTreeRoot) {
+            // Collecter tous les fichiers de l'arbre filtré
+            std::function<void(PlaylistNode*)> collectFiles = [&](PlaylistNode* node) {
+                if (!node) return;
+                if (!node->isFolder && !node->filepath.empty()) {
+                    m_cachedAllFiles.push_back(node);
+                }
+                for (auto& child : node->children) {
+                    collectFiles(child.get());
+                }
+            };
+            for (auto& child : m_filteredTreeRoot->children) {
+                collectFiles(child.get());
+            }
+        } else {
+            // Utiliser l'arbre original
+            m_cachedAllFiles = m_playlist.getAllFiles();
+        }
+        
+        // Trouver l'index du nœud courant dans la liste
+        m_cachedCurrentIndex = -1;
+        if (currentNode) {
+            for (size_t i = 0; i < m_cachedAllFiles.size(); ++i) {
+                if (m_cachedAllFiles[i] == currentNode || 
+                    (!currentNode->filepath.empty() && 
+                     m_cachedAllFiles[i]->filepath == currentNode->filepath)) {
+                    m_cachedCurrentIndex = static_cast<int>(i);
+                    break;
+                }
+            }
+        }
+        
+        m_navigationCacheValid = true;
+    }
+    
+    // Utiliser le cache
+    const std::vector<PlaylistNode*>& allFiles = m_cachedAllFiles;
+    int currentIndex = m_cachedCurrentIndex;
     
     float navButtonWidth = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) / 2.0f;
     
     if (ImGui::Button(ICON_FA_BACKWARD_STEP "", ImVec2(navButtonWidth, 0))) {
-        PlaylistNode* prev = m_playlist.getPreviousFile();
-        if (prev) {
-            m_playlist.setCurrentNode(prev);
+        if (currentIndex > 0 && currentIndex < static_cast<int>(allFiles.size())) {
+            PlaylistNode* prev = allFiles[currentIndex - 1];
+            // Trouver le nœud correspondant dans l'arbre original (ou filtré) pour setCurrentNode
+            PlaylistNode* targetNode = prev;
+            if (m_filtersActive) {
+                // Si on est dans l'arbre filtré, trouver le nœud correspondant dans l'arbre original
+                // pour que setCurrentNode fonctionne correctement
+                PlaylistNode* originalNode = m_playlist.findNodeByPath(prev->filepath);
+                if (originalNode) {
+                    targetNode = originalNode;
+                }
+            }
+            m_playlist.setCurrentNode(targetNode);
             if (m_player.loadFile(prev->filepath)) {
                 m_player.play();
+                recordHistoryEntry(prev->filepath);
             }
         }
     }
     ImGui::SameLine();
     if (ImGui::Button(ICON_FA_FORWARD_STEP "", ImVec2(navButtonWidth, 0))) {
-        PlaylistNode* next = m_playlist.getNextFile();
-        if (next) {
-            m_playlist.setCurrentNode(next);
+        if (currentIndex >= 0 && currentIndex < static_cast<int>(allFiles.size()) - 1) {
+            PlaylistNode* next = allFiles[currentIndex + 1];
+            // Trouver le nœud correspondant dans l'arbre original (ou filtré) pour setCurrentNode
+            PlaylistNode* targetNode = next;
+            if (m_filtersActive) {
+                // Si on est dans l'arbre filtré, trouver le nœud correspondant dans l'arbre original
+                // pour que setCurrentNode fonctionne correctement
+                PlaylistNode* originalNode = m_playlist.findNodeByPath(next->filepath);
+                if (originalNode) {
+                    targetNode = originalNode;
+                }
+            }
+            m_playlist.setCurrentNode(targetNode);
             if (m_player.loadFile(next->filepath)) {
                 m_player.play();
+                recordHistoryEntry(next->filepath);
             }
         }
     }
@@ -785,6 +857,8 @@ void UIManager::renderFileBrowser() {
     
     if (!m_selectedFilePath.empty() && fs::exists(m_selectedFilePath)) {
         if (m_player.loadFile(m_selectedFilePath)) {
+            m_player.play();
+            recordHistoryEntry(m_selectedFilePath);
             m_showFileDialog = false;
             m_selectedFilePath = "";
         }
@@ -833,6 +907,7 @@ void UIManager::navigateToFile(const std::string& filepath) {
             // Charger et jouer le fichier
             if (m_player.loadFile(filepath)) {
                 m_player.play();
+                recordHistoryEntry(filepath);
             }
             
             // Effacer la recherche
@@ -854,6 +929,17 @@ void UIManager::setDatabaseOperationInProgress(bool inProgress, const std::strin
     m_databaseOperationInProgress = inProgress;
     m_databaseOperationStatus = status;
     m_databaseOperationProgress = progress;
+}
+
+void UIManager::recordHistoryEntry(const std::string& filepath) {
+    if (filepath.empty()) return;
+    
+    // Récupérer les métadonnées du fichier
+    const SidMetadata* metadata = m_database.getMetadata(filepath);
+    if (!metadata) return; // Pas de métadonnées = pas d'historique
+    
+    // Enregistrer dans l'historique
+    m_history.addEntry(metadata->title, metadata->author, metadata->metadataHash);
 }
 
 void UIManager::rebuildFilepathToHashCache() {
@@ -880,8 +966,7 @@ void UIManager::rebuildFilepathToHashCache() {
     
     // Log seulement si ça prend du temps (> 100ms) ou si beaucoup de fichiers
     if (totalTime > 100 || cached > 1000) {
-        printf("[UI] rebuildFilepathToHashCache(): %ld ms (%zu fichiers mis en cache)\n",
-               totalTime, cached);
+        LOG_INFO("[UI] rebuildFilepathToHashCache(): {} ms ({} fichiers mis en cache)", totalTime, cached);
     }
     
     // Marquer que les filtres doivent être mis à jour
@@ -1012,7 +1097,16 @@ bool UIManager::matchesFilters(PlaylistNode* node) const {
     return true;
 }
 
+void UIManager::invalidateNavigationCache() {
+    m_navigationCacheValid = false;
+    m_cachedAllFiles.clear();
+    m_cachedCurrentIndex = -1;
+}
+
 void UIManager::rebuildFilteredTree() {
+    // Invalider le cache de navigation car l'arbre filtré change
+    invalidateNavigationCache();
+    
     // Si aucun filtre n'est actif, ne pas créer d'arbre filtré
     if (!m_filtersActive) {
         m_filteredTreeRoot.reset();
@@ -1075,8 +1169,8 @@ void UIManager::rebuildFilteredTree() {
     
     // Debug : afficher le nombre de fichiers filtrés et quelques exemples
     if (m_filtersActive) {
-        printf("[Filter] Arbre filtré créé: %zu fichiers (filtre auteur='%s', année='%s')\n", 
-               filesFiltered, m_filterAuthor.c_str(), m_filterYear.c_str());
+        LOG_DEBUG("[Filter] Arbre filtré créé: {} fichiers (filtre auteur='{}', année='{}')", 
+                  filesFiltered, m_filterAuthor, m_filterYear);
         
         // Afficher les 5 premiers fichiers pour debug
         int debugCount = 0;
@@ -1085,7 +1179,7 @@ void UIManager::rebuildFilteredTree() {
             if (!n->isFolder && !n->filepath.empty()) {
                 const SidMetadata* meta = m_database.getMetadata(n->filepath);
                 if (meta) {
-                    printf("  [%d] %s -> author='%s'\n", debugCount, n->name.c_str(), meta->author.c_str());
+                    LOG_DEBUG("  [{}] {} -> author='{}'", debugCount, n->name, meta->author);
                     debugCount++;
                 }
             }
@@ -1187,5 +1281,393 @@ void UIManager::renderFilters() {
     
     // Note : m_filtersActive est maintenant géré dans les callbacks ci-dessus
     // On ne reconstruit l'arbre filtré que quand on sélectionne un item (pas quand on tape)
+}
+
+void UIManager::renderExplorerTab() {
+    auto tabStart = std::chrono::high_resolution_clock::now();
+    
+    // Champ de recherche fuzzy
+    ImGui::Text("Search:");
+    ImGui::SameLine();
+    
+    // Griser le champ si une opération de DB est en cours
+    bool dbOperationInProgress = isDatabaseOperationInProgress();
+    if (dbOperationInProgress) {
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.5f);
+    }
+    
+    char searchBuffer[256];
+    strncpy(searchBuffer, m_searchQuery.c_str(), sizeof(searchBuffer) - 1);
+    searchBuffer[sizeof(searchBuffer) - 1] = '\0';
+    
+    bool textChanged = ImGui::InputText("##search", searchBuffer, sizeof(searchBuffer), 
+                                        dbOperationInProgress ? ImGuiInputTextFlags_ReadOnly : 0);
+    
+    if (dbOperationInProgress) {
+        ImGui::PopStyleVar();
+        
+        // Afficher un indicateur de progression
+        float progress = getDatabaseOperationProgress();
+        std::string status = getDatabaseOperationStatus();
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), " %s", status.c_str());
+        if (progress > 0.0f && progress < 1.0f) {
+            ImGui::ProgressBar(progress, ImVec2(0, 0), "");
+        }
+    }
+    
+    // Gérer la navigation clavier : flèche bas depuis le champ de recherche
+    bool downArrowFromSearch = ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_DownArrow);
+    if (downArrowFromSearch && !m_searchListFocused) {
+        if (!m_searchResults.empty()) {
+            m_searchListFocused = true;
+            m_selectedSearchResult = 0; // Forcer le premier élément (index 0)
+        }
+    }
+    
+    if (textChanged) {
+        m_searchQuery = searchBuffer;
+        m_selectedSearchResult = -1;
+        m_searchListFocused = false; // Reset focus sur liste quand on tape
+        // Mettre à jour les résultats de recherche
+        updateSearchResults();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(ICON_FA_XMARK "##clearsearch")) {
+        m_searchQuery.clear();
+        m_searchResults.clear();
+        m_selectedSearchResult = -1;
+        m_searchListFocused = false;
+    }
+    
+    // Afficher les résultats dans une zone dédiée sous le champ de recherche
+    if (!m_searchQuery.empty() && !m_searchResults.empty()) {
+        ImGui::Spacing();
+        ImGui::BeginChild("##searchResultsList", ImVec2(0, std::min(200.0f, m_searchResults.size() * 25.0f)), true);
+        
+        // Gérer la navigation clavier dans la liste
+        // Ne traiter la flèche bas que si elle n'a pas déjà été traitée dans le champ de recherche
+        if (m_searchListFocused && !downArrowFromSearch) {
+            if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) {
+                if (m_selectedSearchResult > 0) {
+                    m_selectedSearchResult--;
+                } else {
+                    // Retour au champ de recherche
+                    m_searchListFocused = false;
+                    m_selectedSearchResult = -1;
+                }
+            } else if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) {
+                if (m_selectedSearchResult < (int)m_searchResults.size() - 1) {
+                    m_selectedSearchResult++;
+                }
+            } else if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) {
+                if (m_selectedSearchResult >= 0 && m_selectedSearchResult < (int)m_searchResults.size()) {
+                    navigateToFile(m_searchResults[m_selectedSearchResult]->filepath);
+                }
+            }
+        }
+        
+        for (size_t i = 0; i < m_searchResults.size() && i < 25; ++i) {
+            const SidMetadata* metadata = m_searchResults[i];
+            std::string label = metadata->title;
+            if (!metadata->author.empty()) {
+                label += " - " + metadata->author;
+            }
+            if (!metadata->released.empty()) {
+                label += " (" + metadata->released + ")";
+            }
+            
+            bool isSelected = (m_selectedSearchResult == (int)i && m_searchListFocused);
+            
+            // Mettre en évidence le résultat sélectionné
+            if (isSelected) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.8f, 1.0f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.2f, 0.4f, 0.6f, 0.5f));
+            }
+            
+            if (ImGui::Selectable(label.c_str(), isSelected)) {
+                // Naviguer vers ce fichier dans l'arbre
+                navigateToFile(metadata->filepath);
+            }
+            
+            if (isSelected) {
+                ImGui::PopStyleColor(2);
+                ImGui::SetScrollHereY(0.5f); // Scroller vers l'élément sélectionné
+            }
+        }
+        
+        ImGui::EndChild();
+    } else {
+        m_searchListFocused = false;
+    }
+    
+    ImGui::Separator();
+    
+    // Boutons Clear et Index sur la même ligne
+    float buttonWidth = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) / 2.0f;
+    
+    if (ImGui::Button(ICON_FA_TRASH " Clear", ImVec2(buttonWidth, 0))) {
+        m_playlist.clear();
+        m_playlist.setCurrentNode(nullptr);
+        invalidateNavigationCache();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(ICON_FA_FOLDER_PLUS " Index", ImVec2(buttonWidth, 0))) {
+        // L'indexation sera gérée par Application
+        m_indexRequested = true;
+    }
+    
+    ImGui::Separator();
+    ImGui::Spacing();
+    
+    // Filtres multicritères
+    renderFilters();
+    
+    ImGui::Separator();
+    ImGui::Spacing();
+    
+    // Afficher "Drag & drop" dans le tree view si vide
+    PlaylistNode* root = (m_filtersActive && m_filteredTreeRoot) ? m_filteredTreeRoot.get() : m_playlist.getRoot();
+    bool isEmpty = !root || root->children.empty();
+    
+    if (isEmpty) {
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Drag & drop .sid files or folders here");
+        ImGui::Spacing();
+    }
+    
+    auto t0 = std::chrono::high_resolution_clock::now();
+    renderPlaylistTree();
+    auto t1 = std::chrono::high_resolution_clock::now();
+    static long long treeTime = 0;
+    treeTime += std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+    
+    auto t2 = std::chrono::high_resolution_clock::now();
+    renderPlaylistNavigation();
+    auto t3 = std::chrono::high_resolution_clock::now();
+    static long long navTime = 0;
+    navTime += std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count();
+    
+    auto tabEnd = std::chrono::high_resolution_clock::now();
+    static long long explorerTabTime = 0;
+    explorerTabTime += std::chrono::duration_cast<std::chrono::microseconds>(tabEnd - tabStart).count();
+    
+    // Afficher les timings accumulés toutes les 60 frames
+    static int frameCount = 0;
+    frameCount++;
+    if (frameCount % 60 == 0) {
+        LOG_DEBUG("[ExplorerTab] Total: {:.2f} us/frame avg, Tree: {:.2f} us/frame avg, Nav: {:.2f} us/frame avg",
+                  explorerTabTime / 60.0 / 1000.0, treeTime / 60.0 / 1000.0, navTime / 60.0 / 1000.0);
+        explorerTabTime = 0;
+        treeTime = 0;
+        navTime = 0;
+    }
+}
+
+void UIManager::renderHistoryTab() {
+    const auto& originalEntries = m_history.getEntries();
+    
+    ImGui::Text("History (%zu entries)", originalEntries.size());
+    ImGui::Separator();
+    
+    ImGui::BeginChild("HistoryList", ImVec2(0, 0), true);
+    
+    // Créer une copie pour le tri (on ne peut pas modifier le vecteur const)
+    static std::vector<HistoryEntry> sortedEntries;
+    static bool entriesDirty = true;
+    
+    // Recréer la copie si nécessaire
+    if (entriesDirty || sortedEntries.size() != originalEntries.size()) {
+        sortedEntries = originalEntries;
+        entriesDirty = false;
+    }
+    
+    // Créer un tableau avec colonnes triables et redimensionnables
+    if (ImGui::BeginTable("HistoryTable", 5, 
+                          ImGuiTableFlags_Borders | 
+                          ImGuiTableFlags_RowBg | 
+                          ImGuiTableFlags_ScrollY | 
+                          ImGuiTableFlags_SizingStretchProp |
+                          ImGuiTableFlags_Sortable |
+                          ImGuiTableFlags_SortMulti |
+                          ImGuiTableFlags_Resizable,
+                          ImVec2(0, 0))) {
+        
+        // En-têtes de colonnes avec tri (Date/Heure en dernier, moins important)
+        // Les colonnes sont redimensionnables par défaut (pas besoin de flag spécial)
+        ImGui::TableSetupColumn("Titre", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_PreferSortAscending);
+        ImGui::TableSetupColumn("Auteur", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_PreferSortAscending);
+        ImGui::TableSetupColumn("Plays", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, 60.0f);
+        ImGui::TableSetupColumn("Rating", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, 80.0f);
+        ImGui::TableSetupColumn("Date/Heure", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_DefaultSort, 144.0f);
+        ImGui::TableSetupScrollFreeze(0, 1); // Freeze header row
+        ImGui::TableHeadersRow();
+        
+        // Trier les entrées si nécessaire
+        if (ImGuiTableSortSpecs* sortSpecs = ImGui::TableGetSortSpecs()) {
+            if (sortSpecs->SpecsCount > 0 && sortSpecs->SpecsDirty) {
+                // Recréer la copie avant de trier
+                sortedEntries = originalEntries;
+                
+                std::sort(sortedEntries.begin(), sortedEntries.end(), [&sortSpecs](const HistoryEntry& a, const HistoryEntry& b) {
+                    for (int n = 0; n < sortSpecs->SpecsCount; n++) {
+                        const ImGuiTableColumnSortSpecs* sortSpec = &sortSpecs->Specs[n];
+                        int delta = 0;
+                        
+                        switch (sortSpec->ColumnIndex) {
+                            case 0: // Titre
+                                delta = a.title.compare(b.title);
+                                break;
+                            case 1: // Auteur
+                                delta = a.author.compare(b.author);
+                                break;
+                            case 2: // Plays
+                                delta = (int)a.playCount - (int)b.playCount;
+                                break;
+                            case 3: // Rating
+                                delta = a.rating - b.rating;
+                                break;
+                            case 4: // Date/Heure
+                                delta = a.timestamp.compare(b.timestamp);
+                                break;
+                        }
+                        
+                        if (delta > 0)
+                            return (sortSpec->SortDirection == ImGuiSortDirection_Ascending) ? false : true;
+                        if (delta < 0)
+                            return (sortSpec->SortDirection == ImGuiSortDirection_Ascending) ? true : false;
+                    }
+                    return false;
+                });
+                sortSpecs->SpecsDirty = false;
+            }
+        }
+        
+        // Afficher les entrées
+        for (const auto& entry : sortedEntries) {
+            ImGui::TableNextRow();
+            
+            // Colonne Titre
+            ImGui::TableSetColumnIndex(0);
+            std::string title = entry.title.empty() ? "(Sans titre)" : entry.title;
+            if (ImGui::Selectable(title.c_str(), false, ImGuiSelectableFlags_SpanAllColumns)) {
+                // Trouver le fichier correspondant dans la playlist par metadataHash
+                auto allFiles = m_playlist.getAllFiles();
+                for (PlaylistNode* node : allFiles) {
+                    if (!node || node->filepath.empty()) continue;
+                    
+                    const SidMetadata* metadata = m_database.getMetadata(node->filepath);
+                    if (metadata && metadata->metadataHash == entry.metadataHash) {
+                        // Sélectionner ce nœud
+                        m_playlist.setCurrentNode(node);
+                        m_playlist.setScrollToCurrent(true);
+                        
+                        // Charger et jouer le fichier
+                        if (m_player.loadFile(node->filepath)) {
+                            m_player.play();
+                            recordHistoryEntry(node->filepath);
+                        }
+                        break;
+                    }
+                }
+            }
+            
+            // Colonne Auteur
+            ImGui::TableSetColumnIndex(1);
+            std::string author = entry.author.empty() ? "(Inconnu)" : entry.author;
+            ImGui::Text("%s", author.c_str());
+            
+            // Colonne Nombre de plays
+            ImGui::TableSetColumnIndex(2);
+            ImGui::Text("%u", entry.playCount);
+            
+            // Colonne Rating
+            ImGui::TableSetColumnIndex(3);
+            int rating = entry.rating;
+            // Réduire la taille des étoiles dans l'historique en utilisant PushFont avec taille réduite
+            ImFont* currentFont = ImGui::GetFont();
+            float originalFontSize = ImGui::GetFontSize();
+            float reducedFontSize = originalFontSize * 0.7f; // Réduire à 70%
+            ImGui::PushFont(currentFont, reducedFontSize);
+            // Afficher les étoiles
+            for (int i = 1; i <= 5; i++) {
+                if (i <= rating) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.0f, 1.0f));
+                } else {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 0.5f));
+                }
+                ImGui::Text("%s", ICON_FA_STAR);
+                ImGui::PopStyleColor();
+                if (i < 5) ImGui::SameLine(0.0f, 1.0f);
+            }
+            ImGui::PopFont(); // Restaurer la taille normale
+            
+            // Colonne Date/Heure (en dernier, moins important)
+            ImGui::TableSetColumnIndex(4);
+            // Formater le timestamp pour un affichage plus lisible
+            // Format ISO: "2024-01-15T14:30:45" -> "2024-01-15 14:30"
+            std::string displayTime = entry.timestamp;
+            if (displayTime.length() >= 16) {
+                // Remplacer 'T' par un espace et supprimer les secondes
+                displayTime[10] = ' ';
+                if (displayTime.length() > 16) {
+                    displayTime = displayTime.substr(0, 16);
+                }
+            }
+            ImGui::Text("%s", displayTime.c_str());
+        }
+        
+        ImGui::EndTable();
+    }
+    
+    ImGui::EndChild();
+}
+
+bool UIManager::renderStarRating(const char* label, int* rating, int max_stars) {
+    bool changed = false;
+    ImGui::PushID(label);
+
+    // Taille ajustée : étoiles un peu plus petites, boutons un peu plus grands pour faciliter le clic
+    float starSize = ImGui::GetTextLineHeight() * 0.85f;
+    ImVec2 button_size = ImVec2(starSize * 2.0f, starSize * 1.3f);
+
+    // Désactiver le highlight au survol pour tous les boutons de rating
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.0f, 0.0f, 0.0f, 0.0f)); // Transparent au survol
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.0f, 0.0f, 0.0f, 0.0f)); // Transparent au clic
+
+    for (int i = 1; i <= max_stars; i++) {
+        ImGui::PushID(i); // ID unique pour chaque étoile
+        
+        // Appliquer une couleur aux étoiles
+        if (i <= *rating) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.0f, 1.0f)); // Orange vif pour les étoiles pleines
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 0.5f)); // Gris transparent pour les vides
+        }
+
+        // Espacement entre les étoiles
+        if (i > 1) {
+            ImGui::SameLine(0.0f, 8.0f);
+        }
+
+        // Utiliser Selectable avec un ID unique pour chaque étoile
+        std::string starId = std::string(ICON_FA_STAR) + "##star" + std::to_string(i);
+        
+        if (ImGui::Selectable(starId.c_str(), false, 0, button_size)) {
+            *rating = i;
+            changed = true;
+        }
+        
+        ImGui::PopStyleColor(); // Retirer la couleur de texte après chaque étoile
+        ImGui::PopID(); // Retirer l'ID de l'étoile
+
+        //if (ImGui::IsItemHovered()) {
+        //    ImGui::SetTooltip("Donner %d etoiles", i);
+        //}
+    }
+
+    // Retirer les styles de highlight
+    ImGui::PopStyleColor(2);
+    ImGui::PopID();
+    return changed;
 }
 

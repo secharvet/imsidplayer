@@ -1,6 +1,7 @@
 #include "DatabaseManager.h"
 #include "Utils.h"
 #include "PlaylistManager.h"
+#include "Logger.h"
 #include <sidplayfp/SidTune.h>
 #include <sidplayfp/SidTuneInfo.h>
 #include <fstream>
@@ -19,7 +20,7 @@ DatabaseManager::DatabaseManager() {
 
 bool DatabaseManager::load() {
     if (!fs::exists(m_databasePath)) {
-        std::cout << "Base de données n'existe pas encore, création d'une nouvelle base" << std::endl;
+        LOG_INFO("Base de données n'existe pas encore, création d'une nouvelle base");
         return true; // Pas d'erreur, juste pas de fichier existant
     }
     
@@ -27,7 +28,7 @@ bool DatabaseManager::load() {
         std::string jsonStr;
         std::ifstream file(m_databasePath);
         if (!file) {
-            std::cerr << "Erreur: Impossible d'ouvrir la base de données" << std::endl;
+            LOG_ERROR("Impossible d'ouvrir la base de données");
             return false;
         }
         
@@ -39,7 +40,7 @@ bool DatabaseManager::load() {
         auto error = glz::read_json(m_metadata, jsonStr);
         if (error) {
             std::string errorMsg = glz::format_error(error, jsonStr);
-            std::cerr << "Erreur lors de la lecture de la base de données: " << errorMsg << std::endl;
+            LOG_ERROR("Erreur lors de la lecture de la base de données: {}", errorMsg);
             return false;
         }
         
@@ -53,10 +54,10 @@ bool DatabaseManager::load() {
             }
         }
         
-        std::cout << "Base de données chargée: " << m_metadata.size() << " fichiers indexés" << std::endl;
+        LOG_INFO("Base de données chargée: {} fichiers indexés", m_metadata.size());
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "Erreur lors du chargement de la base de données: " << e.what() << std::endl;
+        LOG_ERROR("Erreur lors du chargement de la base de données: {}", e.what());
         return false;
     }
 }
@@ -65,22 +66,22 @@ bool DatabaseManager::save() {
     try {
         auto result = glz::write_json(m_metadata);
         if (!result) {
-            std::cerr << "Erreur lors de l'écriture de la base de données" << std::endl;
+            LOG_ERROR("Erreur lors de l'écriture de la base de données");
             return false;
         }
         std::string jsonStr = result.value();
         
         std::ofstream file(m_databasePath);
         if (!file) {
-            std::cerr << "Erreur: Impossible d'écrire dans la base de données" << std::endl;
+            LOG_ERROR("Impossible d'écrire dans la base de données");
             return false;
         }
         
         file << jsonStr;
-        std::cout << "Base de données sauvegardée: " << m_metadata.size() << " fichiers" << std::endl;
+        LOG_INFO("Base de données sauvegardée: {} fichiers", m_metadata.size());
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "Erreur lors de la sauvegarde de la base de données: " << e.what() << std::endl;
+        LOG_ERROR("Erreur lors de la sauvegarde de la base de données: {}", e.what());
         return false;
     }
 }
@@ -262,8 +263,8 @@ std::vector<const SidMetadata*> DatabaseManager::search(const std::string& query
         auto endTime = std::chrono::high_resolution_clock::now();
         auto totalTime = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
         if (totalTime > 50) {
-            printf("[SEARCH] query='%s': %ld ms (exact matches: %zu, returned: %zu)\n",
-                   query.c_str(), totalTime, exactMatches, results.size());
+            LOG_DEBUG("[SEARCH] query='{}': {} ms (exact matches: {}, returned: {})",
+                      query, totalTime, exactMatches, results.size());
         }
         return results;
     }
@@ -407,9 +408,9 @@ std::vector<const SidMetadata*> DatabaseManager::search(const std::string& query
     
     // Log seulement si la recherche prend du temps (> 50ms)
     if (totalTime > 50) {
-        printf("[SEARCH] query='%s': %ld ms (DB: %zu, exact: %zu, fuzzy: %s, results: %zu)\n",
-               query.c_str(), totalTime, m_metadata.size(), exactMatches, 
-               useFuzzy ? "yes" : "no", results.size());
+        LOG_DEBUG("[SEARCH] query='{}': {} ms (DB: {}, exact: {}, fuzzy: {}, results: {})",
+                  query, totalTime, m_metadata.size(), exactMatches, 
+                  useFuzzy ? "yes" : "no", results.size());
     }
     
     return results;
@@ -424,7 +425,7 @@ SidMetadata DatabaseManager::extractMetadata(const std::string& filepath) {
         
         return SidMetadata::fromSidTune(filepath, &tune);
     } catch (const std::exception& e) {
-        std::cerr << "Erreur lors de l'extraction des métadonnées de " << filepath << ": " << e.what() << std::endl;
+        LOG_ERROR("Erreur lors de l'extraction des métadonnées de {}: {}", filepath, e.what());
         return SidMetadata();
     }
 }

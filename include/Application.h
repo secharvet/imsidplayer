@@ -8,6 +8,7 @@
 #include "FileBrowser.h"
 #include "UIManager.h"
 #include "DatabaseManager.h"
+#include "HistoryManager.h"
 #include <SDL2/SDL.h>
 #include <string>
 #include <memory>
@@ -54,6 +55,7 @@ private:
     FileBrowser m_fileBrowser;
     std::unique_ptr<UIManager> m_uiManager;
     std::unique_ptr<DatabaseManager> m_database;
+    std::unique_ptr<HistoryManager> m_history;
     
     // Configuration
     std::string m_configPath;

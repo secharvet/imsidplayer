@@ -230,6 +230,14 @@ else()
     message(WARNING "Glaze not found. Run: git clone https://github.com/stephenberry/glaze.git third_party/glaze")
 endif()
 
+# Quill - Bibliothèque de logging asynchrone
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/quill/CMakeLists.txt")
+    add_subdirectory(third_party/quill)
+    # Quill crée une cible quill::quill
+else()
+    message(WARNING "Quill not found. Run: git submodule add https://github.com/odygrd/quill.git third_party/quill")
+endif()
+
 
 # Sources (ImGui est maintenant une lib séparée, plus besoin de l'inclure ici)
 set(SOURCES
@@ -245,6 +253,8 @@ set(SOURCES
     src/SidMetadata.cpp
     src/DatabaseManager.cpp
     src/FilterWidget.cpp
+    src/HistoryManager.cpp
+    src/Logger.cpp
 )
 
 set(HEADERS
@@ -259,6 +269,8 @@ set(HEADERS
     include/SidMetadata.h
     include/DatabaseManager.h
     include/FilterWidget.h
+    include/HistoryManager.h
+    include/Logger.h
 )
 
 # Exécutable
@@ -274,6 +286,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${SDL2_INCLUDE_DIRS}
     ${SIDPLAYFP_INCLUDE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/quill/include
 )
 if(SDL2_IMAGE_FOUND)
     target_include_directories(${PROJECT_NAME} PRIVATE ${SDL2_IMAGE_INCLUDE_DIRS})
@@ -290,6 +303,11 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 # Glaze (header-only, link interface)
 if(TARGET glaze::glaze)
     target_link_libraries(${PROJECT_NAME} PRIVATE glaze::glaze)
+endif()
+
+# Quill (logging library)
+if(TARGET quill::quill)
+    target_link_libraries(${PROJECT_NAME} PRIVATE quill::quill)
 endif()
 
 if(SDL2_IMAGE_FOUND)

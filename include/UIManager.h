@@ -6,6 +6,7 @@
 #include "BackgroundManager.h"
 #include "FileBrowser.h"
 #include "DatabaseManager.h"
+#include "HistoryManager.h"
 #include "FilterWidget.h"
 #include <SDL2/SDL.h>
 #include <string>
@@ -13,7 +14,7 @@
 
 class UIManager {
 public:
-    UIManager(SidPlayer& player, PlaylistManager& playlist, BackgroundManager& background, FileBrowser& fileBrowser, DatabaseManager& database);
+    UIManager(SidPlayer& player, PlaylistManager& playlist, BackgroundManager& background, FileBrowser& fileBrowser, DatabaseManager& database, HistoryManager& history);
     
     // Initialiser ImGui (polices, styles)
     bool initialize(SDL_Window* window, SDL_Renderer* renderer);
@@ -52,6 +53,7 @@ private:
     BackgroundManager& m_background;
     FileBrowser& m_fileBrowser;
     DatabaseManager& m_database;
+    HistoryManager& m_history;
     
     // État des opérations de base de données (mis à jour depuis Application)
     bool m_databaseOperationInProgress;
@@ -85,11 +87,18 @@ private:
     bool m_filtersActive;  // True si au moins un filtre est actif (item sélectionné dans la liste)
     bool m_shouldScrollToFirstMatch;  // Flag pour scroller vers le premier match après reconstruction de l'arbre
     
+    // Cache pour renderPlaylistNavigation() (évite de recalculer à chaque frame)
+    std::vector<PlaylistNode*> m_cachedAllFiles;  // Liste mise en cache des fichiers
+    int m_cachedCurrentIndex;  // Index courant mis en cache (-1 = invalide)
+    bool m_navigationCacheValid;  // Flag indiquant si le cache est valide
+    
     // Méthodes de rendu
     void renderMainPanel();
     void renderPlayerTab();
     void renderConfigTab();
     void renderPlaylistPanel();
+    void renderExplorerTab();  // Onglet Explorer (ancien renderPlaylistPanel)
+    void renderHistoryTab();    // Onglet History
     void renderFileBrowser();
     
     // Composants UI
@@ -98,6 +107,7 @@ private:
     void renderPlaylistTree();
     void renderPlaylistNavigation();
     void renderFilters();  // Afficher les filtres multicritères
+    bool renderStarRating(const char* label, int* rating, int max_stars = 5);  // Widget de notation par étoiles
     
     // Helpers
     void renderBackground();
@@ -106,6 +116,8 @@ private:
     void updateFilterLists();  // Mettre à jour les listes d'auteurs et d'années disponibles
     bool matchesFilters(PlaylistNode* node) const;  // Vérifier si un nœud correspond aux filtres
     void rebuildFilteredTree();  // Reconstruire l'arbre filtré (élaguer les nœuds vides)
+    void recordHistoryEntry(const std::string& filepath);  // Enregistrer une entrée dans l'historique
+    void invalidateNavigationCache();  // Invalider le cache de navigation (appelé quand playlist/filtres changent)
 };
 
 #endif // UI_MANAGER_H

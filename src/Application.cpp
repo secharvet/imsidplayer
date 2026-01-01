@@ -1,6 +1,7 @@
 #include "Application.h"
 #include "Utils.h"
 #include "Config.h"
+#include "Logger.h"
 #include <iostream>
 #include <filesystem>
 #include <algorithm>
@@ -23,6 +24,9 @@ Application::~Application() {
 }
 
 bool Application::initialize() {
+    // Initialiser le système de logging en premier
+    Logger::initialize();
+    
     if (!initSDL()) {
         return false;
     }
@@ -32,7 +36,7 @@ bool Application::initialize() {
     }
     
     if (!initBackground()) {
-        std::cerr << "Warning: Background initialization failed, continuing without backgrounds" << std::endl;
+        LOG_WARNING("Background initialization failed, continuing without backgrounds");
     }
     
     // Initialiser les composants
@@ -56,10 +60,13 @@ bool Application::initialize() {
     // Créer DatabaseManager
     m_database = std::make_unique<DatabaseManager>();
     
+    // Créer HistoryManager (charge automatiquement l'historique au démarrage)
+    m_history = std::make_unique<HistoryManager>();
+    
     // Créer UIManager
-    m_uiManager = std::make_unique<UIManager>(m_player, m_playlist, *m_background, m_fileBrowser, *m_database);
+    m_uiManager = std::make_unique<UIManager>(m_player, m_playlist, *m_background, m_fileBrowser, *m_database, *m_history);
     if (!m_uiManager->initialize(m_window, m_renderer)) {
-        std::cerr << "Erreur: Impossible d'initialiser UIManager" << std::endl;
+        LOG_ERROR("Impossible d'initialiser UIManager");
         return false;
     }
     
@@ -90,14 +97,14 @@ bool Application::initSDL() {
     );
     
     if (!m_window) {
-        std::cerr << "Erreur: Impossible de créer la fenêtre SDL" << std::endl;
+        LOG_ERROR("Impossible de créer la fenêtre SDL");
         SDL_Quit();
         return false;
     }
     
     m_renderer = SDL_CreateRenderer(m_window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!m_renderer) {
-        std::cerr << "Erreur: Impossible de créer le renderer SDL" << std::endl;
+        LOG_ERROR("Impossible de créer le renderer SDL");
         SDL_DestroyWindow(m_window);
         SDL_Quit();
         return false;
@@ -110,7 +117,7 @@ bool Application::initBackground() {
 #ifdef HAS_SDL2_IMAGE
     int imgFlags = IMG_INIT_PNG | IMG_INIT_JPG;
     if (!(IMG_Init(imgFlags) & imgFlags)) {
-        std::cerr << "Erreur SDL_image: " << IMG_GetError() << std::endl;
+        LOG_ERROR("Erreur SDL_image: {}", IMG_GetError());
         return false;
     }
     
@@ -191,7 +198,28 @@ void Application::saveConfig() {
 
 int Application::run() {
     bool running = true;
+    
     while (running) {
+        // Vérifier l'état de la fenêtre
+        Uint32 windowFlags = SDL_GetWindowFlags(m_window);
+        bool isMinimized = (windowFlags & SDL_WINDOW_MINIMIZED) != 0;
+        
+        // Si la fenêtre est minimisée, attendre plus longtemps pour économiser le CPU
+        if (isMinimized) {
+            SDL_Event event;
+            // Utiliser WaitEventTimeout pour ne pas bloquer indéfiniment
+            if (SDL_WaitEventTimeout(&event, 100)) {
+                if (m_uiManager->handleEvent(event)) {
+                    running = false;
+                }
+                if (event.type == SDL_DROPFILE) {
+                    handleDropFile(event.drop.file);
+                }
+            }
+            continue;
+        }
+        
+        // Traiter les événements
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             if (m_uiManager->handleEvent(event)) {
@@ -243,6 +271,10 @@ int Application::run() {
         }
         
         m_uiManager->render();
+        
+        // Pas besoin de limiter le FPS manuellement :
+        // - SDL gère déjà le VSync via SDL_RENDERER_PRESENTVSYNC
+        // - SDL_RenderPresent() attend automatiquement le prochain rafraîchissement vertical
     }
     
     saveConfig();
@@ -266,7 +298,7 @@ void Application::handleDropFile(const char* filepath) {
         if (std::find(imageExtensions.begin(), imageExtensions.end(), ext) != imageExtensions.end()) {
             // C'est une image, l'ajouter au background manager
             if (m_background && m_background->addImageFromFile(filepath)) {
-                std::cout << "Image ajoutée: " << path.filename().string() << std::endl;
+                LOG_INFO("Image ajoutée: {}", path.filename().string());
             }
             SDL_free((void*)filepath);
             return;
@@ -276,7 +308,7 @@ void Application::handleDropFile(const char* filepath) {
     // C'est un fichier ou dossier SID
     if (fs::is_directory(path)) {
         m_playlist.addDirectory(path);
-        std::cout << "Dossier ajouté à la playlist: " << path.filename().string() << std::endl;
+        LOG_INFO("Dossier ajouté à la playlist: {}", path.filename().string());
         // Marquer que les filtres doivent être mis à jour
         if (m_uiManager) {
             m_uiManager->markFiltersNeedUpdate();
@@ -286,7 +318,7 @@ void Application::handleDropFile(const char* filepath) {
         std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
         if (ext == ".sid") {
             m_playlist.addFile(path);
-            std::cout << "Fichier ajouté à la playlist: " << path.filename().string() << std::endl;
+            LOG_INFO("Fichier ajouté à la playlist: {}", path.filename().string());
             // Marquer que les filtres doivent être mis à jour
             if (m_uiManager) {
                 m_uiManager->markFiltersNeedUpdate();
@@ -325,6 +357,9 @@ void Application::shutdown() {
 #endif
     
     SDL_Quit();
+    
+    // Arrêter le logger en dernier
+    Logger::shutdown();
 }
 
 void Application::loadDatabaseAsync() {

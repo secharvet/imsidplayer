@@ -4,7 +4,14 @@
 
 set -e
 
+# Déterminer le type de build (Debug par défaut, Release si --release est passé)
+BUILD_TYPE="Debug"
+if [ "$1" == "--release" ] || [ "$1" == "-r" ]; then
+    BUILD_TYPE="Release"
+fi
+
 echo "=== imSid Player - Script de build ==="
+echo "Mode de build: $BUILD_TYPE"
 echo ""
 
 # Vérifier que CMake est installé
@@ -22,7 +29,7 @@ fi
 cd build
 
 echo "Configuration avec CMake..."
-cmake ..
+cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE
 
 echo ""
 echo "Compilation..."

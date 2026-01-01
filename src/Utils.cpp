@@ -1,5 +1,5 @@
 #include "Utils.h"
-#include <iostream>
+#include "Logger.h"
 #include <cstdlib>
 #include <stdexcept>
 #ifdef _WIN32
@@ -45,7 +45,7 @@ fs::path getConfigDir() {
         try {
             fs::create_directories(configDir);
         } catch (const std::exception& e) {
-            std::cerr << "Impossible de créer le répertoire de configuration: " << e.what() << std::endl;
+            LOG_WARNING("Impossible de créer le répertoire de configuration: {}, utilisation du répertoire courant", e.what());
             return fs::current_path() / ".imsidplayer";
         }
     }
