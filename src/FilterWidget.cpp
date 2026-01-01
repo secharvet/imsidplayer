@@ -1,5 +1,7 @@
 #include "FilterWidget.h"
 #include "IconsFontAwesome6.h"
+#include <algorithm>
+#include <cctype>
 
 FilterWidget::FilterWidget(const std::string& label, float inputWidth)
     : m_label(label), m_inputWidth(inputWidth), m_selectedIndex(-1), m_listFocused(false) {
