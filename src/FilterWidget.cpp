@@ -24,9 +24,22 @@ bool FilterWidget::render(const std::string& currentValue,
     strncpy(buffer, m_query.c_str(), sizeof(buffer) - 1);
     buffer[sizeof(buffer) - 1] = '\0';
     
-    bool textChanged = ImGui::InputTextWithHint(("##" + m_label + "Input").c_str(), 
-                                                 currentValue.empty() ? "All" : currentValue.c_str(), 
-                                                 buffer, sizeof(buffer));
+    // Utiliser le flag EnterReturnsTrue pour détecter quand Entrée est pressée
+    bool enterPressed = ImGui::InputTextWithHint(("##" + m_label + "Input").c_str(), 
+                                                  currentValue.empty() ? "All" : currentValue.c_str(), 
+                                                  buffer, sizeof(buffer),
+                                                  ImGuiInputTextFlags_EnterReturnsTrue);
+    
+    // Si Entrée est pressée et qu'il y a une valeur saisie, appliquer le filtre directement
+    if (enterPressed && strlen(buffer) > 0) {
+        std::string filterValue = buffer;
+        // Appliquer le filtre avec la valeur saisie (même si elle ne correspond pas exactement)
+        onValueChanged(filterValue);
+        m_query = filterValue; // Mettre à jour la requête pour afficher la valeur
+        m_selectedIndex = -1;
+        m_listFocused = false;
+        valueChanged = true;
+    }
     
     // Gérer la navigation clavier : flèche bas depuis le champ de recherche
     bool downArrowFromSearch = ImGui::IsItemActive() && downArrowPressed;
@@ -37,11 +50,15 @@ bool FilterWidget::render(const std::string& currentValue,
         }
     }
     
-    if (textChanged) {
-        m_query = buffer;
-        m_selectedIndex = -1;
-        m_listFocused = false;
-        updateFilteredItems(availableItems);
+    // Détecter les changements de texte (sauf si Entrée a été pressée, déjà géré)
+    if (!enterPressed) {
+        std::string newQuery = buffer;
+        if (newQuery != m_query) {
+            m_query = newQuery;
+            m_selectedIndex = -1;
+            m_listFocused = false;
+            updateFilteredItems(availableItems);
+        }
     }
     
     // Bouton pour supprimer le filtre
@@ -64,10 +81,11 @@ bool FilterWidget::render(const std::string& currentValue,
         // Utiliser toute la largeur disponible (comme la recherche fuzzy)
         float availableWidth = ImGui::GetContentRegionAvail().x;
         // Calculer la hauteur en fonction du nombre d'items, sans limite maximale
-        // (25 pixels par item, avec un minimum de 100px et un maximum raisonnable pour éviter les listes trop grandes)
+        // (25 pixels par item, avec un minimum de 100px pour garantir la cliquabilité et un maximum raisonnable pour éviter les listes trop grandes)
         float calculatedHeight = m_filteredItems.size() * 25.0f;
+        float minHeight = 100.0f; // Hauteur minimale pour garantir la cliquabilité même avec un seul item
         float maxHeight = 600.0f; // Hauteur maximale raisonnable pour éviter les listes trop grandes
-        float listHeight = std::min(calculatedHeight, maxHeight);
+        float listHeight = std::max(minHeight, std::min(calculatedHeight, maxHeight));
         ImGui::BeginChild(("##" + m_label + "FilterList").c_str(), 
                          ImVec2(availableWidth, listHeight), 
                          true);

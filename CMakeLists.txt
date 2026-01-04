@@ -322,7 +322,9 @@ target_compile_options(${PROJECT_NAME} PRIVATE
 # Flags de debug (symboles de debug pour gdb)
 if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR NOT CMAKE_BUILD_TYPE)
     target_compile_options(${PROJECT_NAME} PRIVATE -g -O0)
-    message(STATUS "Build type: Debug - symbols enabled")
+    # Forcer les logs DEBUG en mode Debug
+    target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_DEBUG_LOGS=1)
+    message(STATUS "Build type: Debug - symbols enabled, DEBUG logs enabled")
 else()
     message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 endif()

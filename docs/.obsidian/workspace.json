@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "FILTRAGE_ARBRE_ANALYSE.md",
+                "file": "PERFORMANCE_EXPAND_ALL.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "FILTRAGE_ARBRE_ANALYSE"
+              "title": "PERFORMANCE_EXPAND_ALL"
             }
           }
         ]
@@ -78,7 +78,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 200
+    "width": 302.5
   },
   "right": {
     "id": "6c89dd7ee66d1e0d",
@@ -185,8 +185,20 @@
   },
   "active": "c92a3dfa6d9b6e1c",
   "lastOpenFiles": [
-    "VIRTUAL_SCROLLING_OPTIMIZATION.md",
+    "PERFORMANCE_VIRTUAL_SCROLLING.md",
+    "PERFORMANCE_APRES_OPTIMISATION.md",
+    "PERFORMANCE_EXPAND_ALL.md",
+    "IMGUI_CLIPPER_UPDATE.md",
+    "IMGUI_CLIPPER_FILTRAGE_DYNAMIQUE.md",
+    "IMGUI_TREE_RENDERING_CHAIN.md",
+    "IMGUI_TREE_RENDERING_DIAGRAM.md",
+    "IMGUI_CLIPPING_EXPLANATION.md",
+    "PERFORMANCE_REFERENCE_FINAL.md",
+    "PERFORMANCE_REFERENCE_COMPLETE.md",
+    "PERFORMANCE_REFERENCE.md",
+    "LOGS_ADDITIONNELS.md",
     "FILTRAGE_ARBRE_ANALYSE.md",
+    "VIRTUAL_SCROLLING_OPTIMIZATION.md",
     "TREE_NODES_RENDERING.md",
     "COMPUTER_SCIENCE_BEST_PRACTICES.md",
     "INDEX_BASED_FILTERING_EVALUATION.md",

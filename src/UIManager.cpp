@@ -26,7 +26,9 @@ UIManager::UIManager(SidPlayer& player, PlaylistManager& playlist, BackgroundMan
       m_selectedSearchResult(-1), m_searchListFocused(false),
       m_databaseOperationInProgress(false), m_databaseOperationProgress(0.0f),
       m_filtersNeedUpdate(true), m_authorFilterWidget("Author", 200.0f), m_yearFilterWidget("Year", 150.0f),
-      m_firstFilteredMatch(nullptr), m_filtersActive(false), m_shouldScrollToFirstMatch(false),
+      m_filtersActive(false),
+      m_flatListValid(false),        // Virtual Scrolling : liste plate invalide au départ
+      m_visibleIndicesValid(false),  // Virtual Scrolling : liste d'indices invalide au départ
       m_cachedCurrentIndex(-1), m_navigationCacheValid(false) {
 }
 
@@ -44,6 +46,10 @@ bool UIManager::initialize(SDL_Window* window, SDL_Renderer* renderer) {
     // Charger une police plus grande
     float fontSize = 24.0f;
     io.Fonts->AddFontDefault();
+    
+    // Initialiser la police bold à nullptr (pour l'instant, on utilisera juste la couleur pour distinguer les dossiers)
+    // TODO: Charger une police bold depuis un fichier si nécessaire
+    m_boldFont = nullptr;
     
     // Charger FontAwesome avec MergeMode pour fusionner avec la police par défaut
     static const ImWchar icons_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
@@ -187,10 +193,10 @@ void UIManager::render() {
     auto frameEnd = std::chrono::high_resolution_clock::now();
     auto totalFrameTime = std::chrono::duration_cast<std::chrono::microseconds>(frameEnd - frameStart).count();
     
-    // Afficher les timings toutes les 60 frames (environ 1 seconde à 60 FPS)
+    // Afficher les timings toutes les 10 frames (pour capture de référence)
     static int frameCount = 0;
     frameCount++;
-    if (frameCount % 60 == 0) {
+    if (frameCount % 10 == 0) {
         LOG_DEBUG("=== RENDER TIMINGS (frame {}) ===", frameCount);
         LOG_DEBUG("NewFrame:        {:6.2f} us ({:.2f}%)", newFrameTime / 1000.0, (newFrameTime * 100.0) / totalFrameTime);
         LOG_DEBUG("MainPanel:       {:6.2f} us ({:.2f}%)", mainPanelTime / 1000.0, (mainPanelTime * 100.0) / totalFrameTime);
@@ -648,100 +654,238 @@ void UIManager::renderPlaylistTree() {
     
     ImGui::BeginChild("PlaylistTree", ImVec2(0, -60), true);
     
-    // Utiliser l'arbre filtré si des filtres sont actifs, sinon l'arbre original
-    PlaylistNode* root = (m_filtersActive && m_filteredTreeRoot) ? m_filteredTreeRoot.get() : m_playlist.getRoot();
+    // Utiliser UNIQUEMENT l'arbre original (filtrage dynamique au rendu)
+    PlaylistNode* root = m_playlist.getRoot();
     PlaylistNode* currentNode = m_playlist.getCurrentNode();
     bool shouldScroll = m_playlist.shouldScrollToCurrent();
     
-    size_t nodesRendered = 0;
-    // Note: On ne compte plus totalNodes à chaque frame car c'est inutile
-    // Le vrai problème n'est pas là - renderNode ne parcourt que les nœuds visibles
+    // VIRTUAL SCROLLING : Construire la liste plate si nécessaire
+    if (!m_flatListValid) {
+        buildFlatList();
+        // Invalider aussi la liste d'indices car la structure a changé
+        m_visibleIndicesValid = false;
+    }
     
-    std::function<bool(PlaylistNode*)> isParentOfCurrent = [&](PlaylistNode* node) -> bool {
-        if (!node || !currentNode) return false;
-        
-        // Vérifier que currentNode est valide (pas dans l'arbre filtré supprimé)
-        // En remontant depuis currentNode, on doit pouvoir atteindre la racine de l'arbre actuel
+    // FILTRAGE DYNAMIQUE : Construire la liste des indices visibles si nécessaire
+    if (m_filtersActive && !m_visibleIndicesValid) {
+        buildVisibleIndices();
+    } else if (!m_filtersActive) {
+        // Si pas de filtres, invalider la liste d'indices pour économiser la mémoire
+        m_visibleIndicesValid = false;
+        m_visibleIndices.clear();
+    }
+    
+    // Si on doit scroller vers le nœud courant, ouvrir tous ses parents
+    bool parentsOpened = false;
+    if (shouldScroll && currentNode && !currentNode->filepath.empty()) {
+        // Ouvrir tous les parents du nœud courant
         PlaylistNode* parent = currentNode->parent;
-        if (!parent) return false; // currentNode n'a pas de parent, donc node ne peut pas être son parent
-        
-        while (parent) {
-            if (parent == node) return true;
-            // Vérifier que parent->parent existe avant d'y accéder
-            if (!parent->parent) break;
+        while (parent && parent != root) {
+            if (m_openNodes.find(parent) == m_openNodes.end() || !m_openNodes[parent]) {
+                m_openNodes[parent] = true;
+                parentsOpened = true;
+            }
             parent = parent->parent;
         }
-        return false;
-    };
-    
-    std::function<void(PlaylistNode*, int)> renderNode = [&](PlaylistNode* node, int depth) {
-        if (!node) return;
-        
-        nodesRendered++;
-        ImGui::PushID(node);
-        
-        bool isCurrent = (currentNode == node && !node->filepath.empty());
-        bool isSelected = (currentNode == node);
-        bool shouldOpen = isParentOfCurrent(node) || (m_filtersActive && node->isFolder); // Toujours ouvrir si filtres actifs
-        
-        // Vérifier si c'est le premier match à scroller
-        bool isFirstMatch = (m_filtersActive && m_firstFilteredMatch == node);
-        
-        if (node->isFolder) {
-            ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow;
-            if (isSelected) flags |= ImGuiTreeNodeFlags_Selected;
-            if (shouldOpen || m_filtersActive) flags |= ImGuiTreeNodeFlags_DefaultOpen; // Toujours ouvrir si filtres actifs
-            
-            bool nodeOpen = ImGui::TreeNodeEx(node->name.c_str(), flags);
-            
-            if (nodeOpen) {
-                for (auto& child : node->children) {
-                    renderNode(child.get(), depth + 1);
-                }
-                ImGui::TreePop();
-            }
-        } else {
-            float indentAmount = depth * 5.0f;
-            if (depth > 0) {
-                ImGui::Indent(indentAmount);
-            }
-            
-            // Mettre en évidence le fichier courant ou le premier match
-            if (isCurrent || isFirstMatch) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.8f, 1.0f, 1.0f)); // Bleu pour le fichier courant ou premier match
-            }
-            
-            if (ImGui::Selectable(node->name.c_str(), isSelected)) {
-                m_playlist.setCurrentNode(node);
-                if (!node->filepath.empty() && m_player.loadFile(node->filepath)) {
-                    m_player.play();
-                    recordHistoryEntry(node->filepath);
-                }
-            }
-            
-            // Scroller vers le fichier courant ou le premier match
-            if ((isCurrent && shouldScroll) || (isFirstMatch && m_shouldScrollToFirstMatch)) {
-                ImGui::SetScrollHereY(0.5f);
-                if (isFirstMatch) {
-                    m_shouldScrollToFirstMatch = false;  // Ne scroller qu'une fois
-                }
-            }
-            
-            if (isCurrent || isFirstMatch) {
-                ImGui::PopStyleColor();
-            }
-            
-            if (depth > 0) {
-                ImGui::Unindent(indentAmount);
+        // Si on a ouvert des parents, reconstruire la liste plate
+        if (parentsOpened) {
+            invalidateFlatList();
+            buildFlatList();
+            if (m_filtersActive) {
+                invalidateVisibleIndices();
+                buildVisibleIndices();
             }
         }
-        
-        ImGui::PopID();
-    };
-    
-    for (auto& child : root->children) {
-        renderNode(child.get(), 0);
     }
+    
+    size_t nodesRendered = 0;
+    
+    // Calculer la hauteur d'un élément (pour le clipper)
+    float itemHeight = ImGui::GetTextLineHeightWithSpacing();
+    
+    // Utiliser ImGuiListClipper pour le virtual scrolling
+    // Utiliser la liste d'indices si filtres actifs, sinon la liste complète
+    size_t listSize = m_filtersActive ? m_visibleIndices.size() : m_flatList.size();
+    
+    // Trouver l'index du nœud courant dans la liste pour le scroll (après reconstruction si nécessaire)
+    int currentIndex = -1;
+    if (shouldScroll && currentNode && !currentNode->filepath.empty()) {
+        if (m_filtersActive) {
+            // Chercher dans m_visibleIndices
+            for (size_t i = 0; i < m_visibleIndices.size(); i++) {
+                size_t realIndex = m_visibleIndices[i];
+                if (realIndex < m_flatList.size() && m_flatList[realIndex].node == currentNode) {
+                    currentIndex = static_cast<int>(i);
+                    break;
+                }
+            }
+        } else {
+            // Chercher directement dans m_flatList
+            for (size_t i = 0; i < m_flatList.size(); i++) {
+                if (m_flatList[i].node == currentNode) {
+                    currentIndex = static_cast<int>(i);
+                    break;
+                }
+            }
+        }
+    }
+    
+    ImGuiListClipper clipper;
+    clipper.Begin(static_cast<int>(listSize), itemHeight);
+    
+    // Si on doit scroller vers le nœud courant, forcer son inclusion dans la plage visible
+    if (shouldScroll && currentIndex >= 0) {
+        clipper.IncludeItemByIndex(currentIndex);
+    }
+    
+    while (clipper.Step()) {
+        for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
+            if (i < 0 || i >= static_cast<int>(listSize)) continue;
+            
+            // Récupérer l'index réel dans m_flatList
+            size_t realIndex = m_filtersActive ? m_visibleIndices[i] : i;
+            if (realIndex >= m_flatList.size()) continue;
+            
+            const FlatNode& flatNode = m_flatList[realIndex];
+            PlaylistNode* node = flatNode.node;
+            if (!node) continue;
+            
+            nodesRendered++;
+            ImGui::PushID(node);
+            
+            bool isCurrent = (currentNode == node && !node->filepath.empty());
+            bool isSelected = (currentNode == node);
+            
+            // Indentation basée sur la profondeur
+            // Appliquer l'indentation manuellement avec SetCursorPosX pour les dossiers et les feuilles
+            float indentAmount = flatNode.depth * 15.0f;
+            if (flatNode.depth > 0) {
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + indentAmount);
+            }
+            
+            if (node->isFolder) {
+                
+                // Récupérer l'état d'ouverture précédent
+                bool wasOpen = m_openNodes.find(node) != m_openNodes.end() && m_openNodes[node];
+                
+                // Forcer l'ouverture/fermeture si nécessaire (SetNextItemOpen fonctionne même si le TreeNode a déjà été créé)
+                ImGui::SetNextItemOpen(wasOpen, ImGuiCond_Always);
+                
+                // Style pour les dossiers : couleur brillante et police bold
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.95f, 0.6f, 1.0f)); // Jaune brillant pour les dossiers
+                if (m_boldFont) {
+                    ImGui::PushFont(m_boldFont);
+                }
+                
+                ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow;
+                if (isSelected) flags |= ImGuiTreeNodeFlags_Selected;
+                
+                // Réduire l'espacement entre la flèche et le texte en réduisant FramePadding.x
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2.0f, ImGui::GetStyle().FramePadding.y)); // Réduire seulement le padding horizontal
+                bool nodeOpen = ImGui::TreeNodeEx(node->name.c_str(), flags);
+                ImGui::PopStyleVar();
+                
+                if (m_boldFont) {
+                    ImGui::PopFont();
+                }
+                ImGui::PopStyleColor();
+                
+                // Sauvegarder l'état d'ouverture et invalider si changement
+                if (nodeOpen != wasOpen) {
+                    m_openNodes[node] = nodeOpen;
+                    invalidateFlatList();  // La structure change, reconstruire la liste
+                }
+                
+                if (nodeOpen) {
+                    ImGui::TreePop();
+                }
+            } else {
+                // Mettre en évidence le fichier courant
+                if (isCurrent) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.8f, 1.0f, 1.0f)); // Bleu pour le fichier courant
+                }
+                
+                // Créer un label avec le nom et potentiellement les étoiles
+                std::string label = node->name;
+                
+                // Récupérer le rating si disponible
+                const SidMetadata* metadata = m_database.getMetadata(node->filepath);
+                int fileRating = 0;
+                if (metadata && metadata->metadataHash != 0) {
+                    fileRating = m_history.getRating(metadata->metadataHash);
+                }
+                
+                if (ImGui::Selectable(label.c_str(), isSelected)) {
+                    m_playlist.setCurrentNode(node);
+                    if (!node->filepath.empty() && m_player.loadFile(node->filepath)) {
+                        m_player.play();
+                        recordHistoryEntry(node->filepath);
+                    }
+                }
+                
+                // Afficher les étoiles à côté du nom si le fichier a un rating
+                if (fileRating > 0) {
+                    ImGui::SameLine();
+                    
+                    float startY = ImGui::GetCursorPosY();
+                    float textLineHeight = ImGui::GetTextLineHeight();
+                    float normalLineHeightSpacing = ImGui::GetTextLineHeightWithSpacing();
+                
+                    // 1. Début du groupe pour encapsuler les étoiles
+                    ImGui::BeginGroup();
+                    
+                    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(1.0f, 0.0f));
+                    ImGui::SetWindowFontScale(0.6f);
+                    
+                    float smallFontHeight = ImGui::GetTextLineHeight(); 
+                    float offsetY = (textLineHeight - smallFontHeight) * 0.5f; 
+                
+                    for (int i = 1; i <= 5; i++) {
+
+                        
+                        if (i > 1) ImGui::SameLine(0.0f, 1.0f);
+                            // On utilise SetCursorPosY (relatif) plutôt que ScreenPos pour éviter les conflits de boundaries
+                        ImGui::SetCursorPosY(startY + offsetY);
+                        if (i <= fileRating) {
+                            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.0f, 1.0f));
+                        } else {
+                            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 0.3f));
+                        }
+                        
+                        ImGui::Text(ICON_FA_STAR);
+                        ImGui::PopStyleColor();
+                    }
+                
+                    ImGui::SetWindowFontScale(1.0f);
+                    ImGui::PopStyleVar(); // Pop ItemSpacing des étoiles
+                    ImGui::EndGroup();
+                
+                    // 2. SATISFAIRE L'ASSERTION SANS ESPACE :
+                    // On force le curseur à la position de la ligne suivante
+                    ImGui::SetCursorPosY(startY + normalLineHeightSpacing);
+                    
+                    // On utilise un Dummy(0,0) avec un ItemSpacing à zéro pour que ImGui valide la taille
+                    // de la fenêtre sans ajouter de pixels de marge supplémentaires.
+                    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
+                    ImGui::Dummy(ImVec2(0.0f, 0.0f));
+                    ImGui::PopStyleVar();
+                }
+                
+                // Scroller vers le fichier courant
+                if (isCurrent && shouldScroll) {
+                    ImGui::SetScrollHereY(0.5f);
+                }
+                
+                if (isCurrent) {
+                    ImGui::PopStyleColor();
+                }
+            }
+            
+            ImGui::PopID();
+        }
+    }
+    
+    clipper.End();
     
     if (shouldScroll) {
         m_playlist.setScrollToCurrent(false);
@@ -750,11 +894,11 @@ void UIManager::renderPlaylistTree() {
     auto renderEnd = std::chrono::high_resolution_clock::now();
     auto renderTime = std::chrono::duration_cast<std::chrono::milliseconds>(renderEnd - renderStart).count();
     
-    // Log pour mesurer le problème
+    // Log pour mesurer le problème (toujours en DEBUG pour capture de référence)
+    LOG_DEBUG("[UI] renderPlaylistTree: {} ms ({} nœuds rendus, {} dans liste plate, {} visibles, filtrage: {}, virtual scrolling: activé)", 
+              renderTime, nodesRendered, m_flatList.size(), m_filtersActive ? m_visibleIndices.size() : m_flatList.size(), m_filtersActive ? "dynamique" : "désactivé");
     if (renderTime > 10) {
-        LOG_WARNING("[UI] renderPlaylistTree: {} ms ({} nœuds rendus)", renderTime, nodesRendered);
-    } else {
-        LOG_DEBUG("[UI] renderPlaylistTree: {} ms ({} nœuds rendus)", renderTime, nodesRendered);
+        LOG_WARNING("[UI] renderPlaylistTree: {} ms ({} nœuds rendus) - PERFORMANCE CRITIQUE", renderTime, nodesRendered);
     }
     
     ImGui::EndChild();
@@ -769,26 +913,36 @@ void UIManager::renderPlaylistNavigation() {
         (currentNode && (m_cachedCurrentIndex < 0 || 
                          m_cachedCurrentIndex >= static_cast<int>(m_cachedAllFiles.size()) ||
                          m_cachedAllFiles[m_cachedCurrentIndex] != currentNode))) {
-        // Reconstruire le cache
+        // Reconstruire le cache (avec filtrage dynamique, utiliser uniquement l'arbre original)
         m_cachedAllFiles.clear();
         
-        if (m_filtersActive && m_filteredTreeRoot) {
-            // Collecter tous les fichiers de l'arbre filtré
-            std::function<void(PlaylistNode*)> collectFiles = [&](PlaylistNode* node) {
-                if (!node) return;
-                if (!node->isFolder && !node->filepath.empty()) {
+        // Collecter tous les fichiers de l'arbre original (filtrage dynamique au rendu)
+        std::function<void(PlaylistNode*)> collectFiles = [&](PlaylistNode* node) {
+            if (!node) return;
+            
+            // Filtrer dynamiquement : ne collecter que les fichiers qui matchent
+            if (!node->isFolder && !node->filepath.empty()) {
+                if (!m_filtersActive || matchesFilters(node)) {
                     m_cachedAllFiles.push_back(node);
                 }
-                for (auto& child : node->children) {
-                    collectFiles(child.get());
+            }
+            
+            // Parcourir les enfants (seulement si dossier ouvert ou pas de filtres)
+            if (node->isFolder) {
+                bool shouldTraverse = !m_filtersActive || hasVisibleChildren(node);
+                if (shouldTraverse) {
+                    for (auto& child : node->children) {
+                        collectFiles(child.get());
+                    }
                 }
-            };
-            for (auto& child : m_filteredTreeRoot->children) {
+            }
+        };
+        
+        PlaylistNode* root = m_playlist.getRoot();
+        if (root) {
+            for (auto& child : root->children) {
                 collectFiles(child.get());
             }
-        } else {
-            // Utiliser l'arbre original
-            m_cachedAllFiles = m_playlist.getAllFiles();
         }
         
         // Trouver l'index du nœud courant dans la liste
@@ -1028,10 +1182,7 @@ void UIManager::updateFilterLists() {
     m_authorFilterWidget.initialize(m_availableAuthors);
     m_yearFilterWidget.initialize(m_availableYears);
     
-    // Reconstruire l'arbre filtré si des filtres sont actifs
-    if (m_filtersActive) {
-        rebuildFilteredTree();
-    }
+    // Avec filtrage dynamique, pas besoin de reconstruire l'arbre
 }
 
 bool UIManager::matchesFilters(PlaylistNode* node) const {
@@ -1059,11 +1210,16 @@ bool UIManager::matchesFilters(PlaylistNode* node) const {
         return false;
     }
     
-    // Vérifier le filtre auteur (comparaison exacte, sensible à la casse)
+    // Vérifier le filtre auteur (comparaison partielle, insensible à la casse)
     if (!m_filterAuthor.empty()) {
-        // Comparaison exacte : l'auteur doit être exactement égal au filtre
+        // Comparaison partielle : l'auteur doit contenir le filtre (insensible à la casse)
         // IMPORTANT : on compare uniquement le champ author, pas le title ni le filename
-        if (metadata->author != m_filterAuthor) {
+        std::string authorLower = metadata->author;
+        std::string filterLower = m_filterAuthor;
+        std::transform(authorLower.begin(), authorLower.end(), authorLower.begin(), ::tolower);
+        std::transform(filterLower.begin(), filterLower.end(), filterLower.begin(), ::tolower);
+        
+        if (authorLower.find(filterLower) == std::string::npos) {
             return false;
         }
     }
@@ -1094,8 +1250,9 @@ bool UIManager::matchesFilters(PlaylistNode* node) const {
             }
         }
         
-        // Comparer l'année extraite avec le filtre
-        if (yearFromReleased != m_filterYear) {
+        // Comparaison partielle de l'année : l'année extraite doit contenir le filtre
+        // Cela permet de filtrer avec "198" pour trouver "1985", "1986", etc.
+        if (yearFromReleased.find(m_filterYear) == std::string::npos) {
             return false;
         }
     }
@@ -1103,102 +1260,201 @@ bool UIManager::matchesFilters(PlaylistNode* node) const {
     return true;
 }
 
+bool UIManager::hasVisibleChildren(PlaylistNode* node) const {
+    if (!node || !node->isFolder) return false;
+    if (!m_filtersActive) return true;  // Si pas de filtres, tous les dossiers sont visibles
+    
+    // Parcourir récursivement pour trouver un enfant visible
+    std::function<bool(PlaylistNode*)> hasVisible = [&](PlaylistNode* n) -> bool {
+        if (!n) return false;
+        
+        if (n->isFolder) {
+            // Pour un dossier : vérifier récursivement ses enfants
+            for (auto& child : n->children) {
+                if (hasVisible(child.get())) {
+                    return true;
+                }
+            }
+        } else {
+            // Pour un fichier : vérifier directement le filtre
+            return matchesFilters(n);
+        }
+        
+        return false;
+    };
+    
+    for (auto& child : node->children) {
+        if (hasVisible(child.get())) {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+void UIManager::expandAllNodes() {
+    PlaylistNode* root = m_playlist.getRoot();
+    if (!root) return;
+    
+    // Parcourir récursivement TOUS les nœuds de l'arbre (pas seulement ceux visibles)
+    // pour ouvrir tous les dossiers, même si la racine est repliée
+    std::function<void(PlaylistNode*)> expand = [&](PlaylistNode* node) {
+        if (!node) return;
+        
+        if (node->isFolder) {
+            m_openNodes[node] = true;
+            // Continuer récursivement avec tous les enfants (même si le parent n'est pas encore ouvert)
+            for (auto& child : node->children) {
+                expand(child.get());
+            }
+        }
+    };
+    
+    // Ouvrir tous les enfants de la racine (même si la racine est "repliée")
+    for (auto& child : root->children) {
+        expand(child.get());
+    }
+    
+    // Invalider et reconstruire immédiatement pour que le changement soit visible
+    invalidateFlatList();
+    buildFlatList();  // Reconstruire immédiatement
+    if (m_filtersActive) {
+        invalidateVisibleIndices();
+        buildVisibleIndices();  // Reconstruire aussi les indices si filtres actifs
+    }
+}
+
+void UIManager::collapseAllNodes() {
+    PlaylistNode* root = m_playlist.getRoot();
+    if (!root) return;
+    
+    // Parcourir récursivement TOUS les nœuds de l'arbre pour les marquer explicitement comme fermés
+    // Cela garantit que même les nœuds non visibles sont marqués comme fermés
+    std::function<void(PlaylistNode*)> collapse = [&](PlaylistNode* node) {
+        if (!node) return;
+        
+        if (node->isFolder) {
+            m_openNodes[node] = false;  // Marquer explicitement comme fermé
+            // Continuer récursivement avec tous les enfants
+            for (auto& child : node->children) {
+                collapse(child.get());
+            }
+        }
+    };
+    
+    // Fermer tous les enfants de la racine
+    for (auto& child : root->children) {
+        collapse(child.get());
+    }
+    
+    // Invalider et reconstruire immédiatement pour que le changement soit visible
+    invalidateFlatList();
+    buildFlatList();  // Reconstruire immédiatement
+    if (m_filtersActive) {
+        invalidateVisibleIndices();
+        buildVisibleIndices();  // Reconstruire aussi les indices si filtres actifs
+    }
+}
+
+void UIManager::buildFlatList() {
+    if (m_flatListValid) return;
+    
+    m_flatList.clear();
+    PlaylistNode* root = m_playlist.getRoot();
+    if (!root) {
+        m_flatListValid = true;
+        return;
+    }
+    
+    // Parcourir récursivement l'arbre et construire la liste plate
+    // Seulement les nœuds dont tous les parents sont ouverts
+    std::function<void(PlaylistNode*, int)> flatten = [&](PlaylistNode* node, int depth) {
+        if (!node) return;
+        
+        // Vérifier si tous les parents sont ouverts (sauf la racine qui est toujours visible)
+        bool isVisible = true;
+        PlaylistNode* parent = node->parent;
+        while (parent && parent != root) {
+            if (m_openNodes.find(parent) == m_openNodes.end() || !m_openNodes[parent]) {
+                isVisible = false;
+                break;
+            }
+            parent = parent->parent;
+        }
+        
+        // Ajouter seulement si visible
+        if (isVisible) {
+            FlatNode flatNode;
+            flatNode.node = node;
+            flatNode.depth = depth;
+            flatNode.index = m_flatList.size();
+            m_flatList.push_back(flatNode);
+            
+            // Si c'est un dossier ouvert, continuer avec les enfants
+            if (node->isFolder) {
+                bool isOpen = m_openNodes.find(node) != m_openNodes.end() && m_openNodes[node];
+                if (isOpen) {
+                    for (auto& child : node->children) {
+                        flatten(child.get(), depth + 1);
+                    }
+                }
+            }
+        }
+    };
+    
+    // Parcourir les enfants de la racine (toujours visibles)
+    for (auto& child : root->children) {
+        flatten(child.get(), 0);
+    }
+    
+    m_flatListValid = true;
+}
+
+void UIManager::buildVisibleIndices() {
+    if (m_visibleIndicesValid) return;
+    if (!m_flatListValid) {
+        buildFlatList();
+    }
+    
+    m_visibleIndices.clear();
+    
+    // Filtrer la liste plate : ne garder que les indices des nœuds visibles
+    for (size_t i = 0; i < m_flatList.size(); i++) {
+        const FlatNode& flatNode = m_flatList[i];
+        PlaylistNode* node = flatNode.node;
+        if (!node) continue;
+        
+        bool shouldShow = true;
+        if (node->isFolder) {
+            // Pour un dossier : vérifier s'il a des enfants visibles
+            shouldShow = hasVisibleChildren(node);
+        } else {
+            // Pour un fichier : vérifier directement le filtre
+            shouldShow = matchesFilters(node);
+        }
+        
+        if (shouldShow) {
+            m_visibleIndices.push_back(i);
+        }
+    }
+    
+    m_visibleIndicesValid = true;
+}
+
+void UIManager::invalidateFlatList() {
+    m_flatListValid = false;
+    invalidateVisibleIndices();  // Invalider aussi la liste d'indices
+}
+
+void UIManager::invalidateVisibleIndices() {
+    m_visibleIndicesValid = false;
+}
+
 void UIManager::invalidateNavigationCache() {
     m_navigationCacheValid = false;
     m_cachedAllFiles.clear();
     m_cachedCurrentIndex = -1;
 }
-
-void UIManager::rebuildFilteredTree() {
-    // Invalider le cache de navigation car l'arbre filtré change
-    invalidateNavigationCache();
-    
-    // Si aucun filtre n'est actif, ne pas créer d'arbre filtré
-    if (!m_filtersActive) {
-        m_filteredTreeRoot.reset();
-        m_firstFilteredMatch = nullptr;
-        m_shouldScrollToFirstMatch = false;
-        return;
-    }
-    
-    // Créer la fonction de filtre qui vérifie UNIQUEMENT les fichiers (pas les dossiers)
-    // IMPORTANT : on filtre uniquement sur le champ author des métadonnées, pas sur le title ni le filename
-    auto filterFunc = [this](PlaylistNode* node) -> bool {
-        // Les dossiers passent toujours (on filtre seulement les fichiers)
-        if (node->isFolder) {
-            return true;
-        }
-        
-        // Pour les fichiers, utiliser matchesFilters qui vérifie les métadonnées
-        return matchesFilters(node);
-    };
-    
-    // Créer l'arbre filtré depuis la racine originale
-    PlaylistNode* originalRoot = m_playlist.getRoot();
-    if (!originalRoot) {
-        m_filteredTreeRoot.reset();
-        m_firstFilteredMatch = nullptr;
-        m_shouldScrollToFirstMatch = false;
-        return;
-    }
-    
-    // Créer un nœud racine pour l'arbre filtré
-    m_filteredTreeRoot = std::make_unique<PlaylistNode>("Playlist", "", true);
-    
-    // Filtrer chaque enfant de la racine
-    size_t filesFiltered = 0;
-    for (auto& child : originalRoot->children) {
-        auto filteredChild = m_playlist.createFilteredTree(child.get(), filterFunc);
-        if (filteredChild) {
-            filteredChild->parent = m_filteredTreeRoot.get();
-            m_filteredTreeRoot->children.push_back(std::move(filteredChild));
-        }
-    }
-    
-    // Compter les fichiers dans l'arbre filtré pour debug
-    std::function<void(PlaylistNode*)> countFiles = [&](PlaylistNode* n) {
-        if (!n) return;
-        if (!n->isFolder && !n->filepath.empty()) {
-            filesFiltered++;
-        }
-        for (auto& c : n->children) {
-            countFiles(c.get());
-        }
-    };
-    for (auto& child : m_filteredTreeRoot->children) {
-        countFiles(child.get());
-    }
-    
-    // Trouver le premier match pour le scroll (doit être un fichier qui matche)
-    m_firstFilteredMatch = m_playlist.findFirstMatchingNode(m_filteredTreeRoot.get(), filterFunc);
-    m_shouldScrollToFirstMatch = (m_firstFilteredMatch != nullptr);
-    
-    // Debug : afficher le nombre de fichiers filtrés et quelques exemples
-    if (m_filtersActive) {
-        LOG_DEBUG("[Filter] Arbre filtré créé: {} fichiers (filtre auteur='{}', année='{}')", 
-                  filesFiltered, m_filterAuthor, m_filterYear);
-        
-        // Afficher les 5 premiers fichiers pour debug
-        int debugCount = 0;
-        std::function<void(PlaylistNode*)> debugFiles = [&](PlaylistNode* n) {
-            if (!n || debugCount >= 5) return;
-            if (!n->isFolder && !n->filepath.empty()) {
-                const SidMetadata* meta = m_database.getMetadata(n->filepath);
-                if (meta) {
-                    LOG_DEBUG("  [{}] {} -> author='{}'", debugCount, n->name, meta->author);
-                    debugCount++;
-                }
-            }
-            for (auto& c : n->children) {
-                debugFiles(c.get());
-            }
-        };
-        for (auto& child : m_filteredTreeRoot->children) {
-            debugFiles(child.get());
-        }
-    }
-}
-
 
 void UIManager::renderFilters() {
     // Mettre à jour les listes si nécessaire
@@ -1219,33 +1475,9 @@ void UIManager::renderFilters() {
     bool authorChanged = m_authorFilterWidget.render(m_filterAuthor, m_availableAuthors, 
         [this](const std::string& value) {
             m_filterAuthor = value;
-            // Mode 2 : Quand on sélectionne un item, activer le filtre et construire l'arbre filtré
-            if (!value.empty()) {
-                m_filtersActive = !m_filterAuthor.empty() || !m_filterYear.empty();
-                rebuildFilteredTree();
-            } else {
-                // Si on efface le filtre, désactiver et revenir à l'arbre original
-                m_filtersActive = !m_filterAuthor.empty() || !m_filterYear.empty();
-                if (!m_filtersActive) {
-                    // IMPORTANT : Réinitialiser currentNode car il pointe vers l'arbre filtré qui va être supprimé
-                    PlaylistNode* oldCurrentNode = m_playlist.getCurrentNode();
-                    if (oldCurrentNode && !oldCurrentNode->filepath.empty()) {
-                        // Chercher le nœud correspondant dans l'arbre original par filepath
-                        PlaylistNode* originalNode = m_playlist.findNodeByPath(oldCurrentNode->filepath);
-                        if (originalNode) {
-                            m_playlist.setCurrentNode(originalNode);
-                        } else {
-                            // Si on ne trouve pas, réinitialiser à nullptr
-                            m_playlist.setCurrentNode(nullptr);
-                        }
-                    }
-                    
-                    m_filteredTreeRoot.reset();
-                    m_firstFilteredMatch = nullptr;
-                } else {
-                    rebuildFilteredTree();
-                }
-            }
+            // Mode 2 : Quand on sélectionne un item, activer le filtre (filtrage dynamique)
+            m_filtersActive = !m_filterAuthor.empty() || !m_filterYear.empty();
+            // Invalider la liste filtrée pour qu'elle soit reconstruite avec les nouveaux filtres
         },
         downArrowPressed);
     
@@ -1254,34 +1486,9 @@ void UIManager::renderFilters() {
     bool yearChanged = m_yearFilterWidget.render(m_filterYear, m_availableYears,
         [this](const std::string& value) {
             m_filterYear = value;
-            // Mode 2 : Quand on sélectionne un item, activer le filtre et construire l'arbre filtré
-            if (!value.empty()) {
-                m_filtersActive = !m_filterAuthor.empty() || !m_filterYear.empty();
-                rebuildFilteredTree();
-            } else {
-                // Si on efface le filtre, désactiver et revenir à l'arbre original
-                m_filtersActive = !m_filterAuthor.empty() || !m_filterYear.empty();
-                if (!m_filtersActive) {
-                    // IMPORTANT : Réinitialiser currentNode car il pointe vers l'arbre filtré qui va être supprimé
-                    // Trouver le nœud correspondant dans l'arbre original
-                    PlaylistNode* oldCurrentNode = m_playlist.getCurrentNode();
-                    if (oldCurrentNode && !oldCurrentNode->filepath.empty()) {
-                        // Chercher le nœud correspondant dans l'arbre original par filepath
-                        PlaylistNode* originalNode = m_playlist.findNodeByPath(oldCurrentNode->filepath);
-                        if (originalNode) {
-                            m_playlist.setCurrentNode(originalNode);
-                        } else {
-                            // Si on ne trouve pas, réinitialiser à nullptr
-                            m_playlist.setCurrentNode(nullptr);
-                        }
-                    }
-                    
-                    m_filteredTreeRoot.reset();
-                    m_firstFilteredMatch = nullptr;
-                } else {
-                    rebuildFilteredTree();
-                }
-            }
+            // Mode 2 : Quand on sélectionne un item, activer le filtre (filtrage dynamique)
+            m_filtersActive = !m_filterAuthor.empty() || !m_filterYear.empty();
+            // Invalider la liste filtrée pour qu'elle soit reconstruite avec les nouveaux filtres
         },
         downArrowPressed);
     
@@ -1416,6 +1623,7 @@ void UIManager::renderExplorerTab() {
         m_playlist.clear();
         m_playlist.setCurrentNode(nullptr);
         invalidateNavigationCache();
+        invalidateFlatList();  // Invalider la liste plate car la playlist change
     }
     ImGui::SameLine();
     if (ImGui::Button(ICON_FA_FOLDER_PLUS " Index", ImVec2(buttonWidth, 0))) {
@@ -1432,8 +1640,62 @@ void UIManager::renderExplorerTab() {
     ImGui::Separator();
     ImGui::Spacing();
     
+    // Bouton Expand/Collapse tous les nœuds
+    PlaylistNode* root = m_playlist.getRoot();
+    bool allExpanded = true;
+    if (root && !root->children.empty()) {
+        // Vérifier si tous les dossiers sont ouverts (en utilisant la liste plate si disponible)
+        if (m_flatListValid) {
+            // Utiliser la liste plate pour vérifier plus efficacement
+            for (const FlatNode& flatNode : m_flatList) {
+                PlaylistNode* node = flatNode.node;
+                if (node && node->isFolder) {
+                    if (m_openNodes.find(node) == m_openNodes.end() || !m_openNodes[node]) {
+                        allExpanded = false;
+                        break;
+                    }
+                }
+            }
+        } else {
+            // Fallback : vérifier récursivement
+            std::function<void(PlaylistNode*)> checkExpanded = [&](PlaylistNode* node) {
+                if (!node || !allExpanded) return;
+                if (node->isFolder) {
+                    if (m_openNodes.find(node) == m_openNodes.end() || !m_openNodes[node]) {
+                        allExpanded = false;
+                        return;
+                    }
+                    for (auto& child : node->children) {
+                        checkExpanded(child.get());
+                    }
+                }
+            };
+            for (auto& child : root->children) {
+                checkExpanded(child.get());
+                if (!allExpanded) break;
+            }
+        }
+    }
+    
+    if (ImGui::Button(allExpanded ? ICON_FA_ANGLE_UP " Collapse All" : ICON_FA_ANGLE_DOWN " Expand All", ImVec2(-1, 0))) {
+        if (allExpanded) {
+            collapseAllNodes();
+        } else {
+            expandAllNodes();
+        }
+        // Les fonctions expandAllNodes/collapseAllNodes reconstruisent déjà les listes immédiatement
+        // Forcer la reconstruction immédiate pour que le changement soit visible
+        if (!m_flatListValid) {
+            buildFlatList();
+        }
+        if (m_filtersActive && !m_visibleIndicesValid) {
+            buildVisibleIndices();
+        }
+    }
+    
+    ImGui::Spacing();
+    
     // Afficher "Drag & drop" dans le tree view si vide
-    PlaylistNode* root = (m_filtersActive && m_filteredTreeRoot) ? m_filteredTreeRoot.get() : m_playlist.getRoot();
     bool isEmpty = !root || root->children.empty();
     
     if (isEmpty) {
@@ -1457,12 +1719,12 @@ void UIManager::renderExplorerTab() {
     static long long explorerTabTime = 0;
     explorerTabTime += std::chrono::duration_cast<std::chrono::microseconds>(tabEnd - tabStart).count();
     
-    // Afficher les timings accumulés toutes les 60 frames
+    // Afficher les timings accumulés toutes les 10 frames (pour capture de référence)
     static int frameCount = 0;
     frameCount++;
-    if (frameCount % 60 == 0) {
-        LOG_DEBUG("[ExplorerTab] Total: {:.2f} us/frame avg, Tree: {:.2f} us/frame avg, Nav: {:.2f} us/frame avg",
-                  explorerTabTime / 60.0 / 1000.0, treeTime / 60.0 / 1000.0, navTime / 60.0 / 1000.0);
+    if (frameCount % 10 == 0) {
+        LOG_DEBUG("[ExplorerTab] Timings (frame {}): Tree={:.2f} ms/frame avg, Nav={:.2f} ms/frame avg, Total={:.2f} ms/frame avg",
+                  frameCount, treeTime / 10.0 / 1000.0, navTime / 10.0 / 1000.0, explorerTabTime / 10.0 / 1000.0);
         explorerTabTime = 0;
         treeTime = 0;
         navTime = 0;
@@ -1659,7 +1921,14 @@ bool UIManager::renderStarRating(const char* label, int* rating, int max_stars) 
         std::string starId = std::string(ICON_FA_STAR) + "##star" + std::to_string(i);
         
         if (ImGui::Selectable(starId.c_str(), false, 0, button_size)) {
+            // Clic gauche : définir le rating
             *rating = i;
+            changed = true;
+        }
+        
+        // Clic droit sur une étoile : effacer le rating
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+            *rating = 0;
             changed = true;
         }
         

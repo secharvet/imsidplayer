@@ -56,16 +56,22 @@ void Logger::initialize(const std::string& logFilePath) {
         quill::ClockSourceType::System);
     
     // Configurer le niveau de log selon le mode de build
-    #ifdef NDEBUG
+    #ifdef ENABLE_DEBUG_LOGS
+        s_defaultLogger->set_log_level(quill::LogLevel::Debug);
+        QUILL_LOG_INFO(s_defaultLogger, "Niveau de log: DEBUG (ENABLE_DEBUG_LOGS défini)");
+    #elif defined(NDEBUG)
         s_defaultLogger->set_log_level(quill::LogLevel::Info);
+        QUILL_LOG_INFO(s_defaultLogger, "Niveau de log: INFO (NDEBUG défini)");
     #else
         s_defaultLogger->set_log_level(quill::LogLevel::Debug);
+        QUILL_LOG_INFO(s_defaultLogger, "Niveau de log: DEBUG (par défaut)");
     #endif
     
     s_initialized = true;
     
     // Utiliser directement le logger pour le premier message
     QUILL_LOG_INFO(s_defaultLogger, "Logger initialisé - Fichier: {}", filePath);
+    QUILL_LOG_DEBUG(s_defaultLogger, "Test log DEBUG - Si vous voyez ce message, le niveau DEBUG est actif");
 }
 
 void Logger::shutdown() {

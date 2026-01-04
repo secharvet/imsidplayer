@@ -62,6 +62,7 @@ private:
     
     SDL_Window* m_window;
     SDL_Renderer* m_renderer;
+    ImFont* m_boldFont;  // Police bold pour les dossiers
     
     // Variables UI
     bool m_showFileDialog;
@@ -82,10 +83,19 @@ private:
     bool m_filtersNeedUpdate;  // Flag pour mettre à jour les listes de filtres
     FilterWidget m_authorFilterWidget;  // Widget de filtre pour les auteurs
     FilterWidget m_yearFilterWidget;    // Widget de filtre pour les années
-    std::unique_ptr<PlaylistNode> m_filteredTreeRoot;  // Copie filtrée de l'arbre (élaguée)
-    PlaylistNode* m_firstFilteredMatch;  // Premier nœud qui correspond aux filtres (pour scroll)
     bool m_filtersActive;  // True si au moins un filtre est actif (item sélectionné dans la liste)
-    bool m_shouldScrollToFirstMatch;  // Flag pour scroller vers le premier match après reconstruction de l'arbre
+    std::unordered_map<PlaylistNode*, bool> m_openNodes;  // État d'ouverture des nœuds (pour filtrage dynamique)
+    
+    // Virtual Scrolling : Liste plate des nœuds visibles
+    struct FlatNode {
+        PlaylistNode* node;  // Pointeur vers le nœud original
+        int depth;           // Profondeur dans l'arbre (pour l'indentation)
+        size_t index;        // Index dans la liste plate
+    };
+    std::vector<FlatNode> m_flatList;      // Liste plate de TOUS les nœuds visibles (structure)
+    std::vector<size_t> m_visibleIndices;  // Liste des indices visibles (pour filtrage dynamique)
+    bool m_flatListValid;                  // Flag indiquant si la liste plate est valide
+    bool m_visibleIndicesValid;            // Flag indiquant si la liste d'indices est valide
     
     // Cache pour renderPlaylistNavigation() (évite de recalculer à chaque frame)
     std::vector<PlaylistNode*> m_cachedAllFiles;  // Liste mise en cache des fichiers
@@ -115,7 +125,18 @@ private:
     void navigateToFile(const std::string& filepath);  // Naviguer vers un fichier dans l'arbre
     void updateFilterLists();  // Mettre à jour les listes d'auteurs et d'années disponibles
     bool matchesFilters(PlaylistNode* node) const;  // Vérifier si un nœud correspond aux filtres
-    void rebuildFilteredTree();  // Reconstruire l'arbre filtré (élaguer les nœuds vides)
+    bool hasVisibleChildren(PlaylistNode* node) const;
+    
+    // Expand/Collapse tous les nœuds
+    void expandAllNodes();
+    void collapseAllNodes();
+    
+    // Virtual Scrolling
+    void buildFlatList();              // Construire la liste plate des nœuds visibles
+    void buildVisibleIndices();        // Construire la liste des indices visibles (filtrage dynamique)
+    void invalidateFlatList();         // Invalider la liste plate (quand ouverture/fermeture change)
+    void invalidateVisibleIndices();   // Invalider la liste d'indices (quand filtres changent)
+    
     void recordHistoryEntry(const std::string& filepath);  // Enregistrer une entrée dans l'historique
     void invalidateNavigationCache();  // Invalider le cache de navigation (appelé quand playlist/filtres changent)
 };
