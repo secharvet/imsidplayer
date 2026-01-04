@@ -40,6 +40,9 @@ background/
 # Cache files (IDE/editor)
 .cache/
 
+# Documentation temporaire (recherche)
+docs/
+
 
 
 
