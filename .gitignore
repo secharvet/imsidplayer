@@ -37,6 +37,9 @@ background/
 # Logs
 *.log
 
+# Cache files (IDE/editor)
+.cache/
+
 
 
 
