@@ -73,6 +73,9 @@ private:
     std::vector<const SidMetadata*> m_searchResults;  // Résultats de recherche (max 10)
     int m_selectedSearchResult;  // Index du résultat sélectionné dans la liste (-1 = aucun, focus sur champ)
     bool m_searchListFocused;  // True si la liste de résultats a le focus (navigation clavier)
+    std::string m_pendingSearchQuery;  // Requête en attente (pour debounce)
+    std::chrono::high_resolution_clock::time_point m_lastSearchInputTime;  // Temps de la dernière frappe
+    bool m_searchPending;  // True si une recherche est en attente
     std::unordered_map<std::string, uint32_t> m_filepathToHashCache;  // Cache filepath -> metadataHash pour éviter les lookups répétés
     
     // Filtres multicritères

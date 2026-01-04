@@ -23,7 +23,7 @@ namespace fs = std::filesystem;
 UIManager::UIManager(SidPlayer& player, PlaylistManager& playlist, BackgroundManager& background, FileBrowser& fileBrowser, DatabaseManager& database, HistoryManager& history)
     : m_player(player), m_playlist(playlist), m_background(background), m_fileBrowser(fileBrowser), m_database(database), m_history(history),
       m_window(nullptr), m_renderer(nullptr), m_showFileDialog(false), m_isConfigTabActive(false), m_indexRequested(false),
-      m_selectedSearchResult(-1), m_searchListFocused(false),
+      m_selectedSearchResult(-1), m_searchListFocused(false), m_searchPending(false),
       m_databaseOperationInProgress(false), m_databaseOperationProgress(0.0f),
       m_filtersNeedUpdate(true), m_authorFilterWidget("Author", 200.0f), m_yearFilterWidget("Year", 150.0f),
       m_filtersActive(false),
@@ -1037,6 +1037,13 @@ void UIManager::updateSearchResults() {
     m_searchResults.clear();
     
     if (m_searchQuery.empty()) {
+        m_searchPending = false;
+        return;
+    }
+    
+    // Ne pas rechercher si la requête est trop courte (moins de 2 caractères)
+    if (m_searchQuery.length() < 2) {
+        m_searchPending = false;
         return;
     }
     
@@ -1051,6 +1058,8 @@ void UIManager::updateSearchResults() {
             m_filepathToHashCache[results[i]->filepath] = results[i]->metadataHash;
         }
     }
+    
+    m_searchPending = false;
 }
 
 void UIManager::navigateToFile(const std::string& filepath) {
@@ -1210,6 +1219,9 @@ bool UIManager::matchesFilters(PlaylistNode* node) const {
         return false;
     }
     
+    bool authorMatches = true;
+    bool yearMatches = true;
+    
     // Vérifier le filtre auteur (comparaison partielle, insensible à la casse)
     if (!m_filterAuthor.empty()) {
         // Comparaison partielle : l'auteur doit contenir le filtre (insensible à la casse)
@@ -1219,8 +1231,9 @@ bool UIManager::matchesFilters(PlaylistNode* node) const {
         std::transform(authorLower.begin(), authorLower.end(), authorLower.begin(), ::tolower);
         std::transform(filterLower.begin(), filterLower.end(), filterLower.begin(), ::tolower);
         
-        if (authorLower.find(filterLower) == std::string::npos) {
-            return false;
+        authorMatches = (authorLower.find(filterLower) != std::string::npos);
+        if (!authorMatches) {
+            return false; // Auteur ne matche pas, pas besoin de vérifier l'année
         }
     }
     
@@ -1250,13 +1263,17 @@ bool UIManager::matchesFilters(PlaylistNode* node) const {
             }
         }
         
-        // Comparaison partielle de l'année : l'année extraite doit contenir le filtre
+        // Comparaison de l'année : l'année extraite doit correspondre exactement ou commencer par le filtre
         // Cela permet de filtrer avec "198" pour trouver "1985", "1986", etc.
-        if (yearFromReleased.find(m_filterYear) == std::string::npos) {
-            return false;
+        // Mais on compare uniquement le début de l'année pour éviter les faux positifs
+        yearMatches = (yearFromReleased.length() >= m_filterYear.length() && 
+                      yearFromReleased.substr(0, m_filterYear.length()) == m_filterYear);
+        if (!yearMatches) {
+            return false; // Année ne matche pas
         }
     }
     
+    // Les deux filtres matchent (si actifs)
     return true;
 }
 
@@ -1472,12 +1489,24 @@ void UIManager::renderFilters() {
     
     // Filtre Auteur
     // Mode 1 : Recherche (focus) - Mode 2 : Sélection (arbre filtré)
+    LOG_DEBUG("[Filter] renderFilters: Auteur='{}', Année='{}'", m_filterAuthor, m_filterYear);
     bool authorChanged = m_authorFilterWidget.render(m_filterAuthor, m_availableAuthors, 
         [this](const std::string& value) {
+            // IMPORTANT : Préserver m_filterYear lors du changement de m_filterAuthor
+            std::string previousYear = m_filterYear;
+            std::string previousAuthor = m_filterAuthor;
             m_filterAuthor = value;
+            // S'assurer que m_filterYear n'a pas été modifié
+            if (m_filterYear != previousYear) {
+                LOG_WARNING("[Filter] m_filterYear modifié lors du changement d'auteur! Restauration: '{}' -> '{}'", previousYear, m_filterYear);
+                m_filterYear = previousYear;
+            }
             // Mode 2 : Quand on sélectionne un item, activer le filtre (filtrage dynamique)
             m_filtersActive = !m_filterAuthor.empty() || !m_filterYear.empty();
+            LOG_DEBUG("[Filter] Auteur changé: '{}' -> '{}', Année préservée: '{}', Filtres actifs: {}", 
+                     previousAuthor, m_filterAuthor, m_filterYear, m_filtersActive);
             // Invalider la liste filtrée pour qu'elle soit reconstruite avec les nouveaux filtres
+            invalidateVisibleIndices();  // Forcer le rafraîchissement de l'affichage
         },
         downArrowPressed);
     
@@ -1485,15 +1514,29 @@ void UIManager::renderFilters() {
     ImGui::SameLine(0, 20);  // Espacement
     bool yearChanged = m_yearFilterWidget.render(m_filterYear, m_availableYears,
         [this](const std::string& value) {
+            // IMPORTANT : Préserver m_filterAuthor lors du changement de m_filterYear
+            std::string previousAuthor = m_filterAuthor;
+            std::string previousYear = m_filterYear;
             m_filterYear = value;
+            // S'assurer que m_filterAuthor n'a pas été modifié
+            if (m_filterAuthor != previousAuthor) {
+                LOG_WARNING("[Filter] m_filterAuthor modifié lors du changement d'année! Restauration: '{}' -> '{}'", previousAuthor, m_filterAuthor);
+                m_filterAuthor = previousAuthor;
+            }
             // Mode 2 : Quand on sélectionne un item, activer le filtre (filtrage dynamique)
             m_filtersActive = !m_filterAuthor.empty() || !m_filterYear.empty();
+            LOG_DEBUG("[Filter] Année changée: '{}' -> '{}', Auteur préservé: '{}', Filtres actifs: {}", 
+                     previousYear, m_filterYear, m_filterAuthor, m_filtersActive);
             // Invalider la liste filtrée pour qu'elle soit reconstruite avec les nouveaux filtres
+            invalidateVisibleIndices();  // Forcer le rafraîchissement de l'affichage
         },
         downArrowPressed);
     
-    // Note : m_filtersActive est maintenant géré dans les callbacks ci-dessus
-    // On ne reconstruit l'arbre filtré que quand on sélectionne un item (pas quand on tape)
+    // Si les filtres ont changé, invalider les indices visibles pour forcer le rafraîchissement
+    if (authorChanged || yearChanged || previousFiltersActive != m_filtersActive) {
+        invalidateVisibleIndices();
+        LOG_DEBUG("[Filter] Filtres modifiés, invalidation des indices visibles");
+    }
 }
 
 void UIManager::renderExplorerTab() {
@@ -1513,8 +1556,21 @@ void UIManager::renderExplorerTab() {
     strncpy(searchBuffer, m_searchQuery.c_str(), sizeof(searchBuffer) - 1);
     searchBuffer[sizeof(searchBuffer) - 1] = '\0';
     
-    bool textChanged = ImGui::InputText("##search", searchBuffer, sizeof(searchBuffer), 
-                                        dbOperationInProgress ? ImGuiInputTextFlags_ReadOnly : 0);
+    // Utiliser EnterReturnsTrue pour détecter quand Entrée est pressée
+    bool enterPressed = ImGui::InputText("##search", searchBuffer, sizeof(searchBuffer), 
+                                         (dbOperationInProgress ? ImGuiInputTextFlags_ReadOnly : 0) | ImGuiInputTextFlags_EnterReturnsTrue);
+    
+    bool textChanged = false;
+    
+    // Si Entrée est pressée et qu'il y a des résultats, naviguer vers le premier résultat
+    if (enterPressed && !m_searchResults.empty()) {
+        navigateToFile(m_searchResults[0]->filepath);
+        // Ne pas traiter textChanged car on a déjà navigué
+        textChanged = false;
+    } else {
+        // Détecter les changements de texte (sauf si Entrée a été pressée et qu'on a navigué)
+        textChanged = (strcmp(searchBuffer, m_searchQuery.c_str()) != 0);
+    }
     
     if (dbOperationInProgress) {
         ImGui::PopStyleVar();
@@ -1539,24 +1595,43 @@ void UIManager::renderExplorerTab() {
     }
     
     if (textChanged) {
-        m_searchQuery = searchBuffer;
         m_selectedSearchResult = -1;
         m_searchListFocused = false; // Reset focus sur liste quand on tape
-        // Mettre à jour les résultats de recherche
-        updateSearchResults();
+        // Debounce : ne pas rechercher immédiatement, mais marquer qu'une recherche est en attente
+        m_pendingSearchQuery = searchBuffer;
+        m_lastSearchInputTime = std::chrono::high_resolution_clock::now();
+        m_searchPending = true;
+    }
+    
+    // Gérer le debounce : lancer la recherche après 300ms d'inactivité
+    if (m_searchPending) {
+        auto now = std::chrono::high_resolution_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastSearchInputTime).count();
+        
+        if (elapsed >= 300) {  // 300ms de délai
+            m_searchQuery = m_pendingSearchQuery;
+            updateSearchResults();
+        }
     }
     ImGui::SameLine();
     if (ImGui::Button(ICON_FA_XMARK "##clearsearch")) {
         m_searchQuery.clear();
+        m_pendingSearchQuery.clear();
         m_searchResults.clear();
         m_selectedSearchResult = -1;
         m_searchListFocused = false;
+        m_searchPending = false;
     }
     
     // Afficher les résultats dans une zone dédiée sous le champ de recherche
     if (!m_searchQuery.empty() && !m_searchResults.empty()) {
         ImGui::Spacing();
-        ImGui::BeginChild("##searchResultsList", ImVec2(0, std::min(200.0f, m_searchResults.size() * 25.0f)), true);
+        // Calculer la hauteur avec un minimum (comme pour FilterWidget)
+        float calculatedHeight = m_searchResults.size() * 25.0f;
+        float minHeight = 100.0f; // Hauteur minimale pour garantir la cliquabilité
+        float maxHeight = 200.0f; // Hauteur maximale raisonnable
+        float listHeight = std::max(minHeight, std::min(calculatedHeight, maxHeight));
+        ImGui::BeginChild("##searchResultsList", ImVec2(0, listHeight), true);
         
         // Gérer la navigation clavier dans la liste
         // Ne traiter la flèche bas que si elle n'a pas déjà été traitée dans le champ de recherche
