@@ -309,9 +309,10 @@ void Application::handleDropFile(const char* filepath) {
     if (fs::is_directory(path)) {
         m_playlist.addDirectory(path);
         LOG_INFO("Dossier ajouté à la playlist: {}", path.filename().string());
-        // Marquer que les filtres doivent être mis à jour
+        // Marquer que les filtres doivent être mis à jour et rafraîchir l'arbre
         if (m_uiManager) {
             m_uiManager->markFiltersNeedUpdate();
+            m_uiManager->refreshPlaylistTree();
         }
     } else if (fs::is_regular_file(path)) {
         std::string ext = path.extension().string();
@@ -319,9 +320,10 @@ void Application::handleDropFile(const char* filepath) {
         if (ext == ".sid") {
             m_playlist.addFile(path);
             LOG_INFO("Fichier ajouté à la playlist: {}", path.filename().string());
-            // Marquer que les filtres doivent être mis à jour
+            // Marquer que les filtres doivent être mis à jour et rafraîchir l'arbre
             if (m_uiManager) {
                 m_uiManager->markFiltersNeedUpdate();
+                m_uiManager->refreshPlaylistTree();
             }
         }
     }

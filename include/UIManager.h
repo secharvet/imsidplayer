@@ -40,6 +40,9 @@ public:
     // Marquer que les filtres doivent être mis à jour (quand la playlist change)
     void markFiltersNeedUpdate() { m_filtersNeedUpdate = true; }
     
+    // Rafraîchir l'arbre de la playlist (appelé après ajout de fichiers/dossiers)
+    void refreshPlaylistTree();
+    
     // Vérifier si une opération de base de données est en cours
     // Ces méthodes sont appelées depuis Application pour mettre à jour l'état
     void setDatabaseOperationInProgress(bool inProgress, const std::string& status = "", float progress = 0.0f);

@@ -22,13 +22,16 @@ To run it:
 
 Source code is public and reproducible via GitHub Actions. Enjoy! 🎵
 
-## Features
+✨ Key Features
 
-- 🎵 **SID Playback** - High-quality playback with automatic SID model detection (6581/8580)
-- 🎛️ **Voice Analysis** - 3 parallel engines with individual voice control and real-time oscilloscopes
-- 📚 **Smart Library** - Automatic metadata indexing with fuzzy search and filters (author, year)
-- 🎨 **Customizable UI** - Drag & drop background images, hierarchical playlist management
-- 💾 **Auto-Save** - Configuration, playlist, and preferences automatically saved
+- **High-Quality SID Emulation**: Accurate playback of classic C64 sound chips (6581/8580).
+- **ImGui-Powered UI**: A fast, customizable, and clutter-free interface.
+- **Library Management**: Easily browse large collections of SID files with a hierarchical tree view.
+- **Rating System**: Integrated star rating system to keep track of your favorite tracks.
+- **Playlist Support**: Create and manage custom playlists.
+- **Voice Analysis**: 3 parallel engines with individual voice control and real-time oscilloscopes.
+- **Smart Search**: Fuzzy search with metadata indexing and filters (author, year).
+- **Cross-Platform**: Designed to be compiled and run on Linux, Windows, and macOS.
 
 ## Quick Start
 
@@ -57,6 +60,15 @@ Configuration files are stored in `~/.imsidplayer/`:
 
 You can drag & drop images anywhere in the application to add them to the background library.
 
+🛠️ Technical Stack
+
+- **Language**: C++20
+- **UI Framework**: Dear ImGui
+- **Audio Backend**: SDL2
+- **SID Engine**: libsidplayfp (with ReSIDfpBuilder)
+- **JSON Serialization**: Glaze
+- **Logging**: Quill (asynchronous logging library)
+
 ## Technical Details
 
 ### Multi-engine Architecture
@@ -69,10 +81,11 @@ The player uses 3 parallel SID engines for voice isolation:
 ### Dependencies
 
 - **ImGui** - GUI framework (git submodule)
-- **SDL2** - Window and audio
+- **SDL2** - Window and audio backend
 - **SDL2_image** - Image loading
-- **sidplayfp** - SID file playback
+- **libsidplayfp** - SID file playback engine
 - **Glaze** - JSON serialization for metadata database
+- **Quill** - Asynchronous logging library
 
 ## License
 
@@ -80,4 +93,6 @@ This project uses:
 - **ImGui** : MIT License
 - **SDL2** : zlib License
 - **SDL2_image** : zlib License
-- **sidplayfp** : GPL v2+
+- **libsidplayfp** : GPL v2+
+- **Glaze** : MIT License
+- **Quill** : MIT License

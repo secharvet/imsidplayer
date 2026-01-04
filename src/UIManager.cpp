@@ -1473,6 +1473,12 @@ void UIManager::invalidateNavigationCache() {
     m_cachedCurrentIndex = -1;
 }
 
+void UIManager::refreshPlaylistTree() {
+    invalidateFlatList();
+    invalidateVisibleIndices();
+    invalidateNavigationCache();
+}
+
 void UIManager::renderFilters() {
     // Mettre à jour les listes si nécessaire
     if (m_filtersNeedUpdate) {
