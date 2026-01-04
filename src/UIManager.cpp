@@ -520,25 +520,26 @@ void UIManager::renderPlayerControls() {
         ImGui::Spacing();
         
         // Widget de notation par étoiles
-        if (!m_player.getCurrentFile().empty()) {
-            const SidMetadata* metadata = m_database.getMetadata(m_player.getCurrentFile());
-            if (metadata) {
-                int currentRating = m_history.getRating(metadata->metadataHash);
-                int prevRating = currentRating;
-                
-                ImGui::Text("Rating:");
-                if (renderStarRating("##trackRating", &currentRating, 5)) {
-                    // Le rating a changé, sauvegarder
-                    if (currentRating != prevRating) {
-                        m_history.updateRating(metadata->metadataHash, currentRating);
-                        LOG_INFO("Rating mis à jour: {} étoiles pour {}", currentRating, metadata->title);
-                    }
+        const SidMetadata* metadata = m_database.getMetadata(m_player.getCurrentFile());
+        if (metadata) {
+            int currentRating = m_history.getRating(metadata->metadataHash);
+            int prevRating = currentRating;
+            
+            ImGui::Text("Rating:");
+            if (renderStarRating("##trackRating", &currentRating, 5)) {
+                // Le rating a changé, sauvegarder
+                if (currentRating != prevRating) {
+                    m_history.updateRating(metadata->metadataHash, currentRating);
+                    LOG_INFO("Rating mis à jour: {} étoiles pour {}", currentRating, metadata->title);
                 }
-                
-                ImGui::Spacing();
-                ImGui::Separator();
-                ImGui::Spacing();
             }
+            
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+        } else {
+            // Debug : vérifier pourquoi les métadonnées ne sont pas disponibles
+            LOG_DEBUG("Métadonnées non disponibles pour le fichier: {}", m_player.getCurrentFile());
         }
     }
 }
@@ -653,6 +654,8 @@ void UIManager::renderPlaylistTree() {
     bool shouldScroll = m_playlist.shouldScrollToCurrent();
     
     size_t nodesRendered = 0;
+    // Note: On ne compte plus totalNodes à chaque frame car c'est inutile
+    // Le vrai problème n'est pas là - renderNode ne parcourt que les nœuds visibles
     
     std::function<bool(PlaylistNode*)> isParentOfCurrent = [&](PlaylistNode* node) -> bool {
         if (!node || !currentNode) return false;
@@ -746,9 +749,12 @@ void UIManager::renderPlaylistTree() {
     
     auto renderEnd = std::chrono::high_resolution_clock::now();
     auto renderTime = std::chrono::duration_cast<std::chrono::milliseconds>(renderEnd - renderStart).count();
-    // Log seulement si problème de performance (> 10ms)
+    
+    // Log pour mesurer le problème
     if (renderTime > 10) {
         LOG_WARNING("[UI] renderPlaylistTree: {} ms ({} nœuds rendus)", renderTime, nodesRendered);
+    } else {
+        LOG_DEBUG("[UI] renderPlaylistTree: {} ms ({} nœuds rendus)", renderTime, nodesRendered);
     }
     
     ImGui::EndChild();

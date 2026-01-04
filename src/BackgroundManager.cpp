@@ -1,7 +1,7 @@
 #include "BackgroundManager.h"
 #include "Utils.h"
+#include "Logger.h"
 #include <algorithm>
-#include <iostream>
 #include <filesystem>
 
 namespace fs = std::filesystem;
@@ -20,16 +20,43 @@ BackgroundManager::~BackgroundManager() {
 
 void BackgroundManager::clearImages() {
     for (auto& img : m_images) {
-        if (img.texture) {
-            SDL_DestroyTexture(img.texture);
-            img.texture = nullptr;
-        }
+        unloadImageTexture(img);
     }
     m_images.clear();
 }
 
+void BackgroundManager::loadImageTexture(BackgroundImage& img) {
+    if (img.texture) {
+        return;  // Déjà chargé
+    }
+    
+#ifdef HAS_SDL2_IMAGE
+    SDL_Surface* bgSurface = IMG_Load(img.fullPath.c_str());
+    if (bgSurface) {
+        img.texture = SDL_CreateTextureFromSurface(m_renderer, bgSurface);
+        SDL_FreeSurface(bgSurface);
+        if (!img.texture) {
+            LOG_ERROR("Erreur lors de la création de la texture pour {}", img.filename);
+        }
+    } else {
+        LOG_ERROR("Erreur lors du chargement de l'image {}: {}", img.filename, IMG_GetError());
+    }
+#endif
+}
+
+void BackgroundManager::unloadImageTexture(BackgroundImage& img) {
+    if (img.texture) {
+        SDL_DestroyTexture(img.texture);
+        img.texture = nullptr;
+    }
+}
+
 void BackgroundManager::loadImages() {
-    clearImages();
+    // Décharger toutes les textures chargées
+    for (auto& img : m_images) {
+        unloadImageTexture(img);
+    }
+    m_images.clear();
     
 #ifdef HAS_SDL2_IMAGE
     fs::path configDir = getConfigDir();
@@ -39,7 +66,7 @@ void BackgroundManager::loadImages() {
         try {
             fs::create_directories(backgroundPath);
         } catch (const std::exception& e) {
-            std::cerr << "Impossible de créer le répertoire background: " << e.what() << std::endl;
+            LOG_ERROR("Impossible de créer le répertoire background: {}", e.what());
             return;
         }
     }
@@ -55,17 +82,16 @@ void BackgroundManager::loadImages() {
                     std::string filename = entry.path().filename().string();
                     std::string fullPath = entry.path().string();
                     if (filename[0] != '.') {
+                        // Charger seulement les métadonnées (pas la texture)
                         SDL_Surface* bgSurface = IMG_Load(fullPath.c_str());
                         if (bgSurface) {
-                            SDL_Texture* texture = SDL_CreateTextureFromSurface(m_renderer, bgSurface);
-                            if (texture) {
-                                BackgroundImage bgImg;
-                                bgImg.texture = texture;
-                                bgImg.filename = filename;
-                                bgImg.width = bgSurface->w;
-                                bgImg.height = bgSurface->h;
-                                m_images.push_back(bgImg);
-                            }
+                            BackgroundImage bgImg;
+                            bgImg.texture = nullptr;  // Non chargé pour l'instant
+                            bgImg.filename = filename;
+                            bgImg.fullPath = fullPath;
+                            bgImg.width = bgSurface->w;
+                            bgImg.height = bgSurface->h;
+                            m_images.push_back(bgImg);
                             SDL_FreeSurface(bgSurface);
                         }
                     }
@@ -78,8 +104,13 @@ void BackgroundManager::loadImages() {
         } else if (m_images.empty()) {
             m_currentIndex = -1;
         }
+        
+        // Charger la texture de l'image courante si elle existe
+        if (m_currentIndex >= 0 && m_currentIndex < (int)m_images.size()) {
+            loadImageTexture(m_images[m_currentIndex]);
+        }
     } catch (const std::exception& e) {
-        std::cerr << "Erreur lors du chargement des images: " << e.what() << std::endl;
+        LOG_ERROR("Erreur lors du chargement des images: {}", e.what());
     }
 #endif
 }
@@ -117,12 +148,12 @@ bool BackgroundManager::addImageFromFile(const std::string& filepath) {
         // Sélectionner la nouvelle image
         for (size_t i = 0; i < m_images.size(); i++) {
             if (m_images[i].filename == destPath.filename().string()) {
-                m_currentIndex = i;
+                setCurrentIndex(i);  // Utiliser setCurrentIndex pour charger la texture
                 return true;
             }
         }
     } catch (const std::exception& e) {
-        std::cerr << "Erreur lors de la copie de l'image: " << e.what() << std::endl;
+        LOG_ERROR("Erreur lors de la copie de l'image: {}", e.what());
         return false;
     }
 #endif
@@ -130,12 +161,23 @@ bool BackgroundManager::addImageFromFile(const std::string& filepath) {
 }
 
 void BackgroundManager::setCurrentIndex(int index) {
+    int oldIndex = m_currentIndex;
+    
     if (index >= 0 && index < (int)m_images.size()) {
         m_currentIndex = index;
     } else if (m_images.empty()) {
         m_currentIndex = -1;
     } else {
         m_currentIndex = 0;
+    }
+    
+    // Décharger l'ancienne texture et charger la nouvelle
+    if (oldIndex >= 0 && oldIndex < (int)m_images.size() && oldIndex != m_currentIndex) {
+        unloadImageTexture(m_images[oldIndex]);
+    }
+    
+    if (m_currentIndex >= 0 && m_currentIndex < (int)m_images.size()) {
+        loadImageTexture(m_images[m_currentIndex]);
     }
 }
 
@@ -152,8 +194,16 @@ void BackgroundManager::render(int windowWidth, int windowHeight) {
     }
     
     BackgroundImage* img = getCurrentImage();
-    if (!img || !img->texture) {
+    if (!img) {
         return;
+    }
+    
+    // Charger la texture si elle n'est pas déjà chargée
+    if (!img->texture) {
+        loadImageTexture(*img);
+        if (!img->texture) {
+            return;  // Échec du chargement
+        }
     }
     
     SDL_Rect destRect = {0, 0, windowWidth, windowHeight};
@@ -168,4 +218,5 @@ void BackgroundManager::render(int windowWidth, int windowHeight) {
     
     SDL_RenderCopy(m_renderer, img->texture, nullptr, &destRect);
 }
+
 

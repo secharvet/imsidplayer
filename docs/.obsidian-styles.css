@@ -1,0 +1,36 @@
+/* Styles personnalisés pour Obsidian - Largeur complète */
+
+/* Désactiver la largeur maximale pour les documents avec la classe wide-content */
+.markdown-source-view.mod-cm6 .cm-editor .cm-content,
+.markdown-preview-view.markdown-preview-view {
+    max-width: none !important;
+}
+
+/* Pour les documents avec la classe wide-content */
+.markdown-preview-view.markdown-preview-view[data-css-class~="wide-content"] {
+    max-width: 100% !important;
+    padding: 0 2rem;
+}
+
+/* Améliorer l'affichage des diagrammes Mermaid */
+.markdown-preview-view .mermaid {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto;
+}
+
+/* Améliorer l'affichage des tableaux */
+.markdown-preview-view table {
+    width: 100%;
+    display: table;
+    overflow-x: auto;
+}
+
+/* Améliorer l'affichage des blocs de code */
+.markdown-preview-view pre {
+    width: 100%;
+    overflow-x: auto;
+}
+
+
+

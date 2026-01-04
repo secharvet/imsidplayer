@@ -6,8 +6,9 @@
 #include <SDL2/SDL.h>
 
 struct BackgroundImage {
-    SDL_Texture* texture = nullptr;
+    SDL_Texture* texture = nullptr;  // Chargé à la volée, nullptr si non chargé
     std::string filename;
+    std::string fullPath;  // Chemin complet pour chargement à la volée
     int width = 0;
     int height = 0;
 };
@@ -50,7 +51,10 @@ private:
     int m_backgroundAlpha; // 0-255
     
     void clearImages();
+    void loadImageTexture(BackgroundImage& img);
+    void unloadImageTexture(BackgroundImage& img);
 };
 
 #endif // BACKGROUND_MANAGER_H
+
 
