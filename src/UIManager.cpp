@@ -1,4 +1,6 @@
 #include "UIManager.h"
+#include "SongLengthDB.h"
+#include "Config.h"
 #include "FilterWidget.h"
 #include "IconsFontAwesome6.h"
 #include "Logger.h"
@@ -17,6 +19,8 @@
 #include <chrono>
 #include <ctime>
 #include <cctype>
+#include <cmath>
+#include <thread>
 
 namespace fs = std::filesystem;
 
@@ -29,7 +33,9 @@ UIManager::UIManager(SidPlayer& player, PlaylistManager& playlist, BackgroundMan
       m_filtersActive(false),
       m_flatListValid(false),        // Virtual Scrolling : liste plate invalide au départ
       m_visibleIndicesValid(false),  // Virtual Scrolling : liste d'indices invalide au départ
-      m_cachedCurrentIndex(-1), m_navigationCacheValid(false) {
+      m_cachedCurrentIndex(-1), m_navigationCacheValid(false),
+      m_currentFPS(0.0f), m_oscilloscopeTime(0.0f), m_oscilloscopePlot0Time(0.0f), 
+      m_oscilloscopePlot1Time(0.0f), m_oscilloscopePlot2Time(0.0f) {
 }
 
 bool UIManager::initialize(SDL_Window* window, SDL_Renderer* renderer) {
@@ -151,13 +157,25 @@ void UIManager::render() {
     auto t7 = std::chrono::high_resolution_clock::now();
     auto fileBrowserTime = std::chrono::duration_cast<std::chrono::microseconds>(t7 - t6).count();
     
+    // Stocker les timings pour la fenêtre de debug (utilisés à la frame suivante)
+    static long long storedNewFrameTime = 0, storedMainPanelTime = 0, storedPlaylistPanelTime = 0;
+    static long long storedFileBrowserTime = 0, storedImguiRenderTime = 0, storedClearTime = 0;
+    static long long storedBackgroundTime = 0, storedRenderDrawDataTime = 0, storedPresentTime = 0;
+    static long long storedTotalFrameTime = 0;
+    
+    // Fenêtre de debug (affichée si CTRL est pressé) - utilise les timings de la frame précédente
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.KeyCtrl) {
+        renderDebugWindow(storedNewFrameTime, storedMainPanelTime, storedPlaylistPanelTime, storedFileBrowserTime,
+                         storedImguiRenderTime, storedClearTime, storedBackgroundTime, 
+                         storedRenderDrawDataTime, storedPresentTime, storedTotalFrameTime);
+    }
+    
     // Rendu ImGui
     auto t8 = std::chrono::high_resolution_clock::now();
     ImGui::Render();
     auto t9 = std::chrono::high_resolution_clock::now();
     auto imguiRenderTime = std::chrono::duration_cast<std::chrono::microseconds>(t9 - t8).count();
-    
-    ImGuiIO& io = ImGui::GetIO();
     SDL_RenderSetScale(m_renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
     
     // Effacer le renderer
@@ -192,6 +210,19 @@ void UIManager::render() {
     
     auto frameEnd = std::chrono::high_resolution_clock::now();
     auto totalFrameTime = std::chrono::duration_cast<std::chrono::microseconds>(frameEnd - frameStart).count();
+    
+    // Mettre à jour les timings stockés pour la fenêtre de debug (frame suivante)
+    // Les variables statiques sont déclarées plus haut dans la fonction
+    storedNewFrameTime = newFrameTime;
+    storedMainPanelTime = mainPanelTime;
+    storedPlaylistPanelTime = playlistPanelTime;
+    storedFileBrowserTime = fileBrowserTime;
+    storedImguiRenderTime = imguiRenderTime;
+    storedClearTime = clearTime;
+    storedBackgroundTime = backgroundTime;
+    storedRenderDrawDataTime = renderDrawDataTime;
+    storedPresentTime = presentTime;
+    storedTotalFrameTime = totalFrameTime;
     
     // Afficher les timings toutes les 10 frames (pour capture de référence)
     static int frameCount = 0;
@@ -275,6 +306,164 @@ void UIManager::renderPlayerTab() {
         ImGui::Separator();
         ImGui::TextWrapped("Information: %s", m_player.getTuneInfo().c_str());
         ImGui::Text("SID Model: %s", m_player.getSidModel().c_str());
+        
+        // Récupérer la durée depuis SongLengthDB
+        const SidMetadata* metadata = m_database.getMetadata(m_player.getCurrentFile());
+        if (metadata && !metadata->md5Hash.empty()) {
+            SongLengthDB& db = SongLengthDB::getInstance();
+            if (db.isLoaded()) {
+                // Obtenir la durée du subsong actuel (index 0-based, defaultSong commence à 1)
+                int subsongIndex = m_player.getCurrentSong(); // 0-based
+                double totalDuration = db.getDuration(metadata->md5Hash, subsongIndex);
+                
+                if (totalDuration > 0.0) {
+                    // Calculer la progression
+                    float currentTime = m_player.getPlaybackTime(); // Temps écoulé en secondes
+                    float progress = 0.0f;
+                    
+                    if (totalDuration > 0.0 && currentTime >= 0.0f) {
+                        progress = static_cast<float>(currentTime / totalDuration);
+                        progress = std::max(0.0f, std::min(1.0f, progress)); // Clamp entre 0 et 1
+                    }
+                    
+                    // Formater le temps actuel et total
+                    int currentMinutes = static_cast<int>(currentTime) / 60;
+                    int currentSeconds = static_cast<int>(currentTime) % 60;
+                    int totalMinutes = static_cast<int>(totalDuration) / 60;
+                    int totalSeconds = static_cast<int>(totalDuration) % 60;
+                    
+                    // Formater le texte centré
+                    char progressText[64];
+                    snprintf(progressText, sizeof(progressText), "%d:%02d / %d:%02d", 
+                            currentMinutes, currentSeconds, totalMinutes, totalSeconds);
+                    
+                    // Créer une barre de progression personnalisée avec dégradé pastel
+                    ImVec2 pos = ImGui::GetCursorScreenPos();
+                    float barWidth = ImGui::GetContentRegionAvail().x;
+                    float barHeight = 16.0f; // Hauteur réduite
+                    ImVec2 barMin = pos;
+                    ImVec2 barMax = ImVec2(pos.x + barWidth, pos.y + barHeight);
+                    
+                    // Dessiner le fond de la barre
+                    ImDrawList* drawList = ImGui::GetWindowDrawList();
+                    ImU32 bgColor = ImGui::GetColorU32(ImGuiCol_FrameBg);
+                    drawList->AddRectFilled(barMin, barMax, bgColor, ImGui::GetStyle().FrameRounding);
+                    
+                    // Dessiner la barre de progression avec dégradé pastel
+                    if (progress > 0.0f) {
+                        ImVec2 fillMax = ImVec2(barMin.x + barWidth * progress, barMax.y);
+                        
+                        // Couleurs pastel avec dégradé (bleu-cyan doux)
+                        ImU32 colorStart = IM_COL32(120, 180, 220, 200); // Bleu pastel clair
+                        ImU32 colorEnd = IM_COL32(100, 160, 200, 200);   // Bleu pastel foncé
+                        
+                        // Dessiner le dégradé avec plusieurs segments
+                        int segments = 20; // Nombre de segments pour le dégradé
+                        for (int i = 0; i < segments; ++i) {
+                            float t0 = static_cast<float>(i) / segments;
+                            float t1 = static_cast<float>(i + 1) / segments;
+                            
+                            ImVec2 p0 = ImVec2(barMin.x + barWidth * progress * t0, barMin.y);
+                            ImVec2 p1 = ImVec2(barMin.x + barWidth * progress * t1, barMax.y);
+                            
+                            // Interpolation des couleurs
+                            float r0 = (120.0f + (100.0f - 120.0f) * t0) / 255.0f;
+                            float g0 = (180.0f + (160.0f - 180.0f) * t0) / 255.0f;
+                            float b0 = (220.0f + (200.0f - 220.0f) * t0) / 255.0f;
+                            
+                            ImU32 color = IM_COL32(
+                                static_cast<int>(r0 * 255),
+                                static_cast<int>(g0 * 255),
+                                static_cast<int>(b0 * 255),
+                                200
+                            );
+                            
+                            drawList->AddRectFilled(p0, p1, color);
+                        }
+                    }
+                    
+                    // Dessiner le contour
+                    ImU32 borderColor = ImGui::GetColorU32(ImGuiCol_Border);
+                    drawList->AddRect(barMin, barMax, borderColor, ImGui::GetStyle().FrameRounding, 0, 1.0f);
+                    
+                    // Centrer le texte dans la barre
+                    ImVec2 textSize = ImGui::CalcTextSize(progressText);
+                    ImVec2 textPos = ImVec2(
+                        barMin.x + (barWidth - textSize.x) * 0.5f,
+                        barMin.y + (barHeight - textSize.y) * 0.5f
+                    );
+                    
+                    // Dessiner l'ombre du texte pour meilleure lisibilité
+                    drawList->AddText(ImVec2(textPos.x + 1, textPos.y + 1), IM_COL32(0, 0, 0, 128), progressText);
+                    drawList->AddText(textPos, IM_COL32(255, 255, 255, 255), progressText);
+                    
+                    // Déplacer le curseur après la barre
+                    ImGui::SetCursorScreenPos(ImVec2(barMin.x, barMax.y + ImGui::GetStyle().ItemSpacing.y));
+                    
+                    // Détecter la fin du morceau et gérer le loop ou le passage au suivant
+                    static bool songEnded = false; // Variable statique pour éviter les déclenchements multiples
+                    if (m_player.isPlaying() && !m_player.isPaused() && progress >= 0.99f && currentTime >= totalDuration - 0.5f) {
+                        // Le morceau est terminé (avec une petite marge de 0.5s)
+                        if (!songEnded) { // Éviter les déclenchements multiples
+                            songEnded = true;
+                            
+                            if (m_player.isLoopEnabled()) {
+                                // Loop activé : redémarrer le morceau
+                                m_player.stop();
+                                std::this_thread::sleep_for(std::chrono::milliseconds(50)); // Petit délai pour éviter les clics
+                                m_player.play();
+                            } else {
+                                // Loop désactivé : passer au morceau suivant
+                                PlaylistNode* nextNode = m_playlist.getNextFile();
+                                if (nextNode && !nextNode->filepath.empty()) {
+                                    m_playlist.setCurrentNode(nextNode);
+                                    m_playlist.setScrollToCurrent(true);
+                                    if (m_player.loadFile(nextNode->filepath)) {
+                                        m_player.play();
+                                    }
+                                } else {
+                                    // Pas de morceau suivant, arrêter
+                                    m_player.stop();
+                                }
+                            }
+                        }
+                    } else {
+                        // Réinitialiser le flag si on n'est plus à la fin
+                        songEnded = false;
+                    }
+                } else {
+                    // Durée non trouvée dans la base Songlengths.md5
+                    float currentTime = m_player.getPlaybackTime();
+                    if (currentTime > 0.0f) {
+                        int currentMinutes = static_cast<int>(currentTime) / 60;
+                        int currentSeconds = static_cast<int>(currentTime) % 60;
+                        ImGui::Text("Duration: Unknown (Playing: %d:%02d)", currentMinutes, currentSeconds);
+                    } else {
+                        ImGui::Text("Duration: Unknown");
+                    }
+                }
+            } else {
+                // Songlengths.md5 non chargé
+                float currentTime = m_player.getPlaybackTime();
+                if (currentTime > 0.0f) {
+                    int currentMinutes = static_cast<int>(currentTime) / 60;
+                    int currentSeconds = static_cast<int>(currentTime) % 60;
+                    ImGui::Text("Duration: Unknown (Playing: %d:%02d)", currentMinutes, currentSeconds);
+                } else {
+                    ImGui::Text("Duration: Unknown");
+                }
+            }
+        } else {
+            // Pas de métadonnées ou pas de MD5
+            float currentTime = m_player.getPlaybackTime();
+            if (currentTime > 0.0f) {
+                int currentMinutes = static_cast<int>(currentTime) / 60;
+                int currentSeconds = static_cast<int>(currentTime) % 60;
+                ImGui::Text("Duration: Unknown (Playing: %d:%02d)", currentMinutes, currentSeconds);
+            } else {
+                ImGui::Text("Duration: Unknown");
+            }
+        }
     } else {
         ImGui::SameLine();
         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No file loaded");
@@ -446,10 +635,16 @@ void UIManager::renderOscilloscopes() {
     static long long totalOscTime = 0;
     totalOscTime += std::chrono::duration_cast<std::chrono::microseconds>(oscEnd - oscStart).count();
     
-    // Afficher les timings accumulés toutes les 60 frames
+    // Afficher les timings accumulés toutes les 60 frames et mettre à jour les variables membres
     static int frameCount = 0;
     frameCount++;
     if (frameCount % 60 == 0) {
+        // Convertir en millisecondes et stocker dans les variables membres
+        m_oscilloscopeTime = totalOscTime / 60.0 / 1000.0;
+        m_oscilloscopePlot0Time = plot0Time / 60.0 / 1000.0;
+        m_oscilloscopePlot1Time = plot1Time / 60.0 / 1000.0;
+        m_oscilloscopePlot2Time = plot2Time / 60.0 / 1000.0;
+        
         LOG_DEBUG("[Oscilloscopes] Total: {:.2f} us/frame avg, Plot0: {:.2f} us, Plot1: {:.2f} us, Plot2: {:.2f} us",
                   totalOscTime / 60.0 / 1000.0, plot0Time / 60.0 / 1000.0, 
                   plot1Time / 60.0 / 1000.0, plot2Time / 60.0 / 1000.0);
@@ -467,7 +662,7 @@ void UIManager::renderPlayerControls() {
         ImGui::BeginDisabled();
     }
 
-    float buttonWidth = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) / 2.0f;
+    float buttonWidth = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 2) / 3.0f;
     
     if (m_player.isPlaying() && !m_player.isPaused()) {
         if (ImGui::Button(ICON_FA_PAUSE "", ImVec2(buttonWidth, 0))) {
@@ -484,6 +679,17 @@ void UIManager::renderPlayerControls() {
     if (ImGui::Button(ICON_FA_STOP "", ImVec2(buttonWidth, 0))) {
         m_player.stop();
     }
+    
+    ImGui::SameLine();
+    
+    // Bouton Loop / Non-Loop
+    bool loopEnabled = m_player.isLoopEnabled();
+    ImVec4 loopButtonColor = loopEnabled ? ImVec4(0.4f, 0.8f, 1.0f, 1.0f) : ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
+    ImGui::PushStyleColor(ImGuiCol_Text, loopButtonColor);
+    if (ImGui::Button(ICON_FA_REPEAT "", ImVec2(buttonWidth, 0))) {
+        m_player.setLoop(!loopEnabled);
+    }
+    ImGui::PopStyleColor();
 
     if (m_player.getCurrentFile().empty()) {
         ImGui::EndDisabled();
@@ -598,17 +804,58 @@ void UIManager::renderConfigTab() {
             m_background.setShown(!showBg);
         }
         
-        ImGui::Spacing();
-        ImGui::Separator();
+    ImGui::Spacing();
+    ImGui::Separator();
+    
+    int alpha = m_background.getAlpha();
+    ImGui::Text("Transparency:");
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "%d%%", 
+        (int)((alpha / 255.0f) * 100.0f));
+    if (ImGui::SliderInt("##alpha", &alpha, 0, 255, "%d")) {
+        m_background.setAlpha(alpha);
+    }
+    }
+    
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+    
+    // Section Songlength database
+    ImGui::Text("Songlength database");
+    ImGui::Separator();
+    
+    ImGui::Text("Drag & drop .md5 files for songlength db");
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.2f, 0.2f, 0.2f, 0.3f));
+    ImGui::BeginChild("SonglengthDropZone", ImVec2(-1, 60), true);
+    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), 
+        "Drop Songlengths.md5 file here");
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+    ImGui::Spacing();
+    
+    // Afficher le chemin du fichier et le statut
+    Config& config = Config::getInstance();
+    std::string songlengthsPath = config.getSonglengthsPath();
+    
+    SongLengthDB& db = SongLengthDB::getInstance();
+    if (!songlengthsPath.empty()) {
+        ImGui::Text("Current file:");
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "%s", 
+            fs::path(songlengthsPath).filename().string().c_str());
+        ImGui::Text("Path:");
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "%s", songlengthsPath.c_str());
         
-        int alpha = m_background.getAlpha();
-        ImGui::Text("Transparency:");
-        ImGui::SameLine();
-        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "%d%%", 
-            (int)((alpha / 255.0f) * 100.0f));
-        if (ImGui::SliderInt("##alpha", &alpha, 0, 255, "%d")) {
-            m_background.setAlpha(alpha);
+        if (db.isLoaded()) {
+            ImGui::TextColored(ImVec4(0.3f, 0.8f, 0.3f, 1.0f), 
+                ICON_FA_CHECK " Loaded: %zu entries", db.getCount());
+        } else {
+            ImGui::TextColored(ImVec4(0.8f, 0.5f, 0.3f, 1.0f), 
+                ICON_FA_TRIANGLE_EXCLAMATION " Not loaded");
         }
+    } else {
+        ImGui::TextColored(ImVec4(0.7f, 0.5f, 0.5f, 1.0f), 
+            "No Songlengths.md5 file configured");
     }
     
     ImGui::Spacing();
@@ -2025,5 +2272,50 @@ bool UIManager::renderStarRating(const char* label, int* rating, int max_stars) 
     ImGui::PopStyleColor(2);
     ImGui::PopID();
     return changed;
+}
+
+void UIManager::renderDebugWindow(long long newFrameTime, long long mainPanelTime, long long playlistPanelTime,
+                                  long long fileBrowserTime, long long imguiRenderTime, long long clearTime,
+                                  long long backgroundTime, long long renderDrawDataTime, long long presentTime, long long totalFrameTime) {
+    ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(400, 500), ImGuiCond_FirstUseEver);
+    
+    if (ImGui::Begin("Debug Window (CTRL to show)", nullptr, ImGuiWindowFlags_None)) {
+        // FPS
+        ImGui::Text("FPS: %.1f", m_currentFPS);
+        ImGui::Separator();
+        
+        // Node counts
+        ImGui::Text("Playlist Tree:");
+        ImGui::Text("  Total nodes: %zu", m_flatList.size());
+        ImGui::Text("  Visible nodes: %zu", m_filtersActive ? m_visibleIndices.size() : m_flatList.size());
+        ImGui::Text("  Filters: %s", m_filtersActive ? "Active" : "Inactive");
+        ImGui::Separator();
+        
+        // Render timings
+        ImGui::Text("Render Timings (microseconds):");
+        if (totalFrameTime > 0) {
+            ImGui::Text("  NewFrame:        %6.2f us (%.2f%%)", newFrameTime / 1000.0, (newFrameTime * 100.0) / totalFrameTime);
+            ImGui::Text("  MainPanel:       %6.2f us (%.2f%%)", mainPanelTime / 1000.0, (mainPanelTime * 100.0) / totalFrameTime);
+            ImGui::Text("  PlaylistPanel:   %6.2f us (%.2f%%)", playlistPanelTime / 1000.0, (playlistPanelTime * 100.0) / totalFrameTime);
+            ImGui::Text("  FileBrowser:     %6.2f us (%.2f%%)", fileBrowserTime / 1000.0, (fileBrowserTime * 100.0) / totalFrameTime);
+            ImGui::Text("  ImGui::Render:  %6.2f us (%.2f%%)", imguiRenderTime / 1000.0, (imguiRenderTime * 100.0) / totalFrameTime);
+            ImGui::Text("  Clear:           %6.2f us (%.2f%%)", clearTime / 1000.0, (clearTime * 100.0) / totalFrameTime);
+            ImGui::Text("  Background:      %6.2f us (%.2f%%)", backgroundTime / 1000.0, (backgroundTime * 100.0) / totalFrameTime);
+            ImGui::Text("  RenderDrawData:  %6.2f us (%.2f%%)", renderDrawDataTime / 1000.0, (renderDrawDataTime * 100.0) / totalFrameTime);
+            ImGui::Text("  Present:         %6.2f us (%.2f%%)", presentTime / 1000.0, (presentTime * 100.0) / totalFrameTime);
+            ImGui::Text("  TOTAL FRAME:     %6.2f us (%.2f ms, %.1f FPS)", 
+                       totalFrameTime / 1000.0, totalFrameTime / 1000.0, 1000000.0 / totalFrameTime);
+        }
+        ImGui::Separator();
+        
+        // Oscilloscope timings
+        ImGui::Text("Oscilloscope Timings:");
+        ImGui::Text("  Total:     %.2f ms", m_oscilloscopeTime);
+        ImGui::Text("  Plot 0:    %.2f ms", m_oscilloscopePlot0Time);
+        ImGui::Text("  Plot 1:    %.2f ms", m_oscilloscopePlot1Time);
+        ImGui::Text("  Plot 2:    %.2f ms", m_oscilloscopePlot2Time);
+    }
+    ImGui::End();
 }
 

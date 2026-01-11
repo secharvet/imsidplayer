@@ -43,7 +43,7 @@ bool HistoryManager::load(const std::string& filepath) {
         
         auto error = glz::read_json(m_entries, buffer);
         if (error) {
-            LOG_ERROR("Erreur lecture historique: {}", glz::format_error(error, buffer));
+            LOG_ERROR("Error reading history: {}", glz::format_error(error, buffer));
             return false;
         }
         
@@ -60,7 +60,7 @@ bool HistoryManager::load(const std::string& filepath) {
         
         return true;
     } catch (const std::exception& e) {
-        LOG_ERROR("Exception lors du chargement de l'historique: {}", e.what());
+        LOG_ERROR("Exception while loading history: {}", e.what());
         return false;
     }
 }
@@ -85,11 +85,11 @@ bool HistoryManager::save(const std::string& filepath) {
             file.close();
             return true;
         } else {
-            LOG_ERROR("Erreur sérialisation historique");
+            LOG_ERROR("Error serializing history");
             return false;
         }
     } catch (const std::exception& e) {
-        LOG_ERROR("Exception lors de la sauvegarde de l'historique: {}", e.what());
+        LOG_ERROR("Exception while saving history: {}", e.what());
         return false;
     }
 }

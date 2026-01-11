@@ -24,6 +24,7 @@ struct SidMetadata {
     int clockSpeed;                 // Vitesse d'horloge (PAL/NTSC)
     std::vector<std::string> infoStrings; // Autres informations
     uint32_t metadataHash;          // Hash 32-bit basé sur métadonnées (title+author+released+sidModel+clockSpeed)
+    std::string md5Hash;            // Hash MD5 du fichier (pour matching avec Songlengths.md5)
     int64_t fileSize;               // Taille du fichier
     int64_t lastModified;           // Date de modification (timestamp)
     
@@ -58,6 +59,7 @@ struct glz::meta<SidMetadata> {
         "clockSpeed", &T::clockSpeed,
         "infoStrings", &T::infoStrings,
         "metadataHash", &T::metadataHash,
+        "md5Hash", &T::md5Hash,
         "fileSize", &T::fileSize,
         "lastModified", &T::lastModified
     );

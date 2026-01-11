@@ -255,6 +255,8 @@ set(SOURCES
     src/FilterWidget.cpp
     src/HistoryManager.cpp
     src/Logger.cpp
+    src/MD5.cpp
+    src/SongLengthDB.cpp
 )
 
 set(HEADERS
@@ -271,15 +273,27 @@ set(HEADERS
     include/FilterWidget.h
     include/HistoryManager.h
     include/Logger.h
+    include/MD5.h
+    include/SongLengthDB.h
 )
 
-# Exécutable
+# Exécutable principal
 # Sur Windows, utiliser WIN32 pour créer une application GUI sans console
 if(WIN32)
     add_executable(${PROJECT_NAME} WIN32 ${SOURCES} ${HEADERS})
 else()
     add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
 endif()
+
+# Exécutable de test MD5
+add_executable(md5_test 
+    tests/md5_test.cpp
+    src/MD5.cpp
+    src/Logger.cpp
+    src/Utils.cpp
+)
+target_link_libraries(md5_test PRIVATE quill::quill)
+target_include_directories(md5_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 # Include directories
 target_include_directories(${PROJECT_NAME} PRIVATE

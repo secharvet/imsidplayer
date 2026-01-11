@@ -1,4 +1,5 @@
 #include "Application.h"
+#include "SongLengthDB.h"
 #include "Utils.h"
 #include "Config.h"
 #include "Logger.h"
@@ -41,6 +42,16 @@ bool Application::initialize() {
     
     // Initialiser les composants
     m_playlist.loadFromConfig(m_config);
+    
+    // Charger Songlengths.md5 si configuré
+    if (!m_config.getSonglengthsPath().empty()) {
+        SongLengthDB& db = SongLengthDB::getInstance();
+        if (db.load(m_config.getSonglengthsPath())) {
+            LOG_INFO("Songlengths.md5 loaded at startup: {} entries", db.getCount());
+        } else {
+            LOG_WARNING("Failed to load Songlengths.md5 at startup: {}", m_config.getSonglengthsPath());
+        }
+    }
     
     // Restaurer le fichier en cours
     if (!m_config.getCurrentFile().empty() && fs::exists(m_config.getCurrentFile())) {
@@ -289,8 +300,27 @@ void Application::handleDropFile(const char* filepath) {
     
     fs::path path(filepath);
     
-    // Vérifier d'abord si c'est une image
+    // Vérifier d'abord si c'est Songlengths.md5
     if (fs::is_regular_file(path)) {
+        std::string filename = path.filename().string();
+        std::transform(filename.begin(), filename.end(), filename.begin(), ::tolower);
+        
+        if (filename == "songlengths.md5") {
+            // Charger le fichier Songlengths.md5
+            SongLengthDB& db = SongLengthDB::getInstance();
+            if (db.load(filepath)) {
+                // Sauvegarder le chemin dans la config
+                m_config.setSonglengthsPath(filepath);
+                saveConfig();
+                LOG_INFO("Songlengths.md5 loaded: {} entries", db.getCount());
+            } else {
+                LOG_ERROR("Failed to load Songlengths.md5: {}", filepath);
+            }
+            SDL_free((void*)filepath);
+            return;
+        }
+        
+        // Vérifier si c'est une image
         std::string ext = path.extension().string();
         std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
         std::vector<std::string> imageExtensions = {".png", ".jpg", ".jpeg", ".bmp", ".gif"};

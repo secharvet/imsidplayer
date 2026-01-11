@@ -20,7 +20,7 @@ DatabaseManager::DatabaseManager() {
 
 bool DatabaseManager::load() {
     if (!fs::exists(m_databasePath)) {
-        LOG_INFO("Base de données n'existe pas encore, création d'une nouvelle base");
+        LOG_INFO("Database does not exist yet, creating a new database");
         return true; // Pas d'erreur, juste pas de fichier existant
     }
     
@@ -28,7 +28,7 @@ bool DatabaseManager::load() {
         std::string jsonStr;
         std::ifstream file(m_databasePath);
         if (!file) {
-            LOG_ERROR("Impossible d'ouvrir la base de données");
+            LOG_ERROR("Failed to open database");
             return false;
         }
         
@@ -40,7 +40,7 @@ bool DatabaseManager::load() {
         auto error = glz::read_json(m_metadata, jsonStr);
         if (error) {
             std::string errorMsg = glz::format_error(error, jsonStr);
-            LOG_ERROR("Erreur lors de la lecture de la base de données: {}", errorMsg);
+            LOG_ERROR("Error reading database: {}", errorMsg);
             return false;
         }
         
@@ -54,10 +54,10 @@ bool DatabaseManager::load() {
             }
         }
         
-        LOG_INFO("Base de données chargée: {} fichiers indexés", m_metadata.size());
+        LOG_INFO("Database loaded: {} files indexed", m_metadata.size());
         return true;
     } catch (const std::exception& e) {
-        LOG_ERROR("Erreur lors du chargement de la base de données: {}", e.what());
+        LOG_ERROR("Error loading database: {}", e.what());
         return false;
     }
 }
@@ -66,22 +66,22 @@ bool DatabaseManager::save() {
     try {
         auto result = glz::write_json(m_metadata);
         if (!result) {
-            LOG_ERROR("Erreur lors de l'écriture de la base de données");
+            LOG_ERROR("Error writing database");
             return false;
         }
         std::string jsonStr = result.value();
         
         std::ofstream file(m_databasePath);
         if (!file) {
-            LOG_ERROR("Impossible d'écrire dans la base de données");
+            LOG_ERROR("Failed to write to database");
             return false;
         }
         
         file << jsonStr;
-        LOG_INFO("Base de données sauvegardée: {} fichiers", m_metadata.size());
+        LOG_INFO("Database saved: {} files", m_metadata.size());
         return true;
     } catch (const std::exception& e) {
-        LOG_ERROR("Erreur lors de la sauvegarde de la base de données: {}", e.what());
+        LOG_ERROR("Error saving database: {}", e.what());
         return false;
     }
 }
@@ -113,13 +113,37 @@ bool DatabaseManager::indexFile(const std::string& filepath) {
         return false;
     }
     
-    // Extraire les métadonnées d'abord pour obtenir le metadataHash
+    // Vérifier d'abord si le fichier est déjà indexé par filepath
+    auto filepathIt = m_filepathIndex.find(filepath);
+    if (filepathIt != m_filepathIndex.end()) {
+        // Fichier déjà indexé, vérifier s'il a changé
+        SidMetadata& existing = m_metadata[filepathIt->second];
+        
+        if (!existing.isFileChanged()) {
+            // Fichier à jour, pas besoin de réindexer
+            // Le MD5 est déjà présent (conservé)
+            return false;
+        }
+        
+        // Fichier a changé : réindexer et recalculer le MD5
+        existing = extractMetadata(filepath);
+        if (existing.filepath.empty()) {
+            return false;
+        }
+        
+        // Recalculer le MD5 car le fichier a changé
+        existing.md5Hash = calculateFileMD5(filepath);
+        
+        return true; // Fichier réindexé
+    }
+    
+    // Extraire les métadonnées pour obtenir le metadataHash
     SidMetadata metadata = extractMetadata(filepath);
     if (metadata.filepath.empty() || metadata.metadataHash == 0) {
         return false; // Erreur lors de l'extraction
     }
     
-    // Vérifier si déjà indexé par metadataHash (clé primaire)
+    // Vérifier si déjà indexé par metadataHash (même morceau, chemin différent)
     auto hashIt = m_hashIndex.find(metadata.metadataHash);
     if (hashIt != m_hashIndex.end()) {
         // Le morceau existe déjà dans la base (même métadonnées)
@@ -141,13 +165,24 @@ bool DatabaseManager::indexFile(const std::string& filepath) {
             if (existing.filepath.empty()) {
                 return false;
             }
+            
+            // Recalculer le MD5 car le fichier a changé
+            existing.md5Hash = calculateFileMD5(filepath);
+            
             return true; // Fichier réindexé
+        }
+        
+        // Fichier identique mais chemin différent : conserver le MD5 existant
+        // Si le MD5 n'existe pas encore, le calculer maintenant
+        if (existing.md5Hash.empty()) {
+            existing.md5Hash = calculateFileMD5(filepath);
         }
         
         return false; // Déjà indexé et à jour
     }
     
-    // Nouveau morceau : ajouter les métadonnées
+    // Nouveau morceau : ajouter les métadonnées et calculer le MD5
+    metadata.md5Hash = calculateFileMD5(filepath);
     size_t index = m_metadata.size();
     m_metadata.push_back(metadata);
     m_filepathIndex[filepath] = index;
@@ -423,9 +458,14 @@ SidMetadata DatabaseManager::extractMetadata(const std::string& filepath) {
             return SidMetadata(); // Erreur
         }
         
-        return SidMetadata::fromSidTune(filepath, &tune);
+        SidMetadata metadata = SidMetadata::fromSidTune(filepath, &tune);
+        
+        // Le MD5 sera calculé dans indexFile() si nécessaire
+        // (évite de recalculer si déjà présent dans la base)
+        
+        return metadata;
     } catch (const std::exception& e) {
-        LOG_ERROR("Erreur lors de l'extraction des métadonnées de {}: {}", filepath, e.what());
+        LOG_ERROR("Error extracting metadata from {}: {}", filepath, e.what());
         return SidMetadata();
     }
 }

@@ -43,6 +43,9 @@ public:
     // Rafraîchir l'arbre de la playlist (appelé après ajout de fichiers/dossiers)
     void refreshPlaylistTree();
     
+    // Définir les FPS actuels pour affichage
+    void setCurrentFPS(float fps) { m_currentFPS = fps; }
+    
     // Vérifier si une opération de base de données est en cours
     // Ces méthodes sont appelées depuis Application pour mettre à jour l'état
     void setDatabaseOperationInProgress(bool inProgress, const std::string& status = "", float progress = 0.0f);
@@ -66,6 +69,13 @@ private:
     SDL_Window* m_window;
     SDL_Renderer* m_renderer;
     ImFont* m_boldFont;  // Police bold pour les dossiers
+    float m_currentFPS;  // FPS actuels pour affichage
+    
+    // Timings des oscilloscopes pour la fenêtre de debug
+    float m_oscilloscopeTime;  // Temps total des oscilloscopes (en ms)
+    float m_oscilloscopePlot0Time;  // Temps du plot 0 (en ms)
+    float m_oscilloscopePlot1Time;  // Temps du plot 1 (en ms)
+    float m_oscilloscopePlot2Time;  // Temps du plot 2 (en ms)
     
     // Variables UI
     bool m_showFileDialog;
@@ -124,6 +134,9 @@ private:
     void renderPlaylistNavigation();
     void renderFilters();  // Afficher les filtres multicritères
     bool renderStarRating(const char* label, int* rating, int max_stars = 5);  // Widget de notation par étoiles
+    void renderDebugWindow(long long newFrameTime, long long mainPanelTime, long long playlistPanelTime,
+                          long long fileBrowserTime, long long imguiRenderTime, long long clearTime,
+                          long long backgroundTime, long long renderDrawDataTime, long long presentTime, long long totalFrameTime);
     
     // Helpers
     void renderBackground();

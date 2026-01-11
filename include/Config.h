@@ -26,6 +26,9 @@ public:
     std::string getBackgroundFilename() const { return m_backgroundFilename; }
     void setBackgroundFilename(const std::string& filename) { m_backgroundFilename = filename; }
     
+    std::string getSonglengthsPath() const { return m_songlengthsPath; }
+    void setSonglengthsPath(const std::string& path) { m_songlengthsPath = path; }
+    
     bool isBackgroundShown() const { return m_backgroundShown; }
     void setBackgroundShown(bool shown) { m_backgroundShown = shown; }
     
@@ -69,6 +72,7 @@ private:
     std::string m_currentFile;
     int m_backgroundIndex = 0;
     std::string m_backgroundFilename;
+    std::string m_songlengthsPath; // Chemin vers Songlengths.md5
     bool m_backgroundShown = false;
     int m_backgroundAlpha = 128;
     int m_windowX = 100;

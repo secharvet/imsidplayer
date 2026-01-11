@@ -21,12 +21,16 @@ public:
     void play();
     void pause();
     void stop();
+    void nextSong();
+    void prevSong();
     bool isPlaying() const { return m_playing; }
     bool isPaused() const { return m_paused; }
     
     std::string getCurrentFile() const { return m_currentFile; }
     std::string getTuneInfo() const { return m_tuneInfo; }
     std::string getSidModel() const; // Retourne le modèle SID détecté (6581 ou 8580)
+    int getCurrentSong() const { return m_currentSong; }
+    float getPlaybackTime() const;
     
     // Contrôle du mute des voix
     void setVoiceMute(int voice, bool muted);
@@ -35,6 +39,10 @@ public:
     // Contrôle du moteur master vs mixage manuel
     void setUseMasterEngine(bool useMaster);
     bool isUsingMasterEngine() const { return m_useMasterEngine; }
+    
+    // Contrôle du loop
+    void setLoop(bool loop) { m_loopEnabled = loop; }
+    bool isLoopEnabled() const { return m_loopEnabled; }
     
     // Pour les oscilloscopes - accès direct aux buffers (pas de copies!)
     static const int OSCILLOSCOPE_SIZE = 256;
@@ -86,6 +94,9 @@ private:
     std::atomic<bool> m_audioCallbackActive;
     std::atomic<bool> m_stopping;
     
+    // État du sub-tune
+    int m_currentSong;
+    
     // État du mute pour chaque voix
     bool m_voice0Muted;
     bool m_voice1Muted;
@@ -111,6 +122,9 @@ private:
     
     // Flag pour basculer entre master et mixage manuel
     bool m_useMasterEngine;
+    
+    // Flag pour le loop (redémarrer automatiquement à la fin)
+    bool m_loopEnabled;
     
     static const int SAMPLE_RATE = 44100;
     static const int BUFFER_SIZE = 256;

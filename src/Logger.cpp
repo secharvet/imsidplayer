@@ -58,20 +58,20 @@ void Logger::initialize(const std::string& logFilePath) {
     // Configurer le niveau de log selon le mode de build
     #ifdef ENABLE_DEBUG_LOGS
         s_defaultLogger->set_log_level(quill::LogLevel::Debug);
-        QUILL_LOG_INFO(s_defaultLogger, "Niveau de log: DEBUG (ENABLE_DEBUG_LOGS défini)");
+        QUILL_LOG_INFO(s_defaultLogger, "Log level: DEBUG (ENABLE_DEBUG_LOGS defined)");
     #elif defined(NDEBUG)
         s_defaultLogger->set_log_level(quill::LogLevel::Info);
-        QUILL_LOG_INFO(s_defaultLogger, "Niveau de log: INFO (NDEBUG défini)");
+        QUILL_LOG_INFO(s_defaultLogger, "Log level: INFO (NDEBUG defined)");
     #else
         s_defaultLogger->set_log_level(quill::LogLevel::Debug);
-        QUILL_LOG_INFO(s_defaultLogger, "Niveau de log: DEBUG (par défaut)");
+        QUILL_LOG_INFO(s_defaultLogger, "Log level: DEBUG (default)");
     #endif
     
     s_initialized = true;
     
     // Utiliser directement le logger pour le premier message
-    QUILL_LOG_INFO(s_defaultLogger, "Logger initialisé - Fichier: {}", filePath);
-    QUILL_LOG_DEBUG(s_defaultLogger, "Test log DEBUG - Si vous voyez ce message, le niveau DEBUG est actif");
+    QUILL_LOG_INFO(s_defaultLogger, "Logger initialized - File: {}", filePath);
+    QUILL_LOG_DEBUG(s_defaultLogger, "Test DEBUG log - If you see this message, DEBUG level is active");
 }
 
 void Logger::shutdown() {

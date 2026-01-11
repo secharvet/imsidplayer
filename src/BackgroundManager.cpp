@@ -36,10 +36,10 @@ void BackgroundManager::loadImageTexture(BackgroundImage& img) {
         img.texture = SDL_CreateTextureFromSurface(m_renderer, bgSurface);
         SDL_FreeSurface(bgSurface);
         if (!img.texture) {
-            LOG_ERROR("Erreur lors de la création de la texture pour {}", img.filename);
+            LOG_ERROR("Error creating texture for {}", img.filename);
         }
     } else {
-        LOG_ERROR("Erreur lors du chargement de l'image {}: {}", img.filename, IMG_GetError());
+        LOG_ERROR("Error loading image {}: {}", img.filename, IMG_GetError());
     }
 #endif
 }
@@ -66,7 +66,7 @@ void BackgroundManager::loadImages() {
         try {
             fs::create_directories(backgroundPath);
         } catch (const std::exception& e) {
-            LOG_ERROR("Impossible de créer le répertoire background: {}", e.what());
+            LOG_ERROR("Failed to create background directory: {}", e.what());
             return;
         }
     }
@@ -110,7 +110,7 @@ void BackgroundManager::loadImages() {
             loadImageTexture(m_images[m_currentIndex]);
         }
     } catch (const std::exception& e) {
-        LOG_ERROR("Erreur lors du chargement des images: {}", e.what());
+        LOG_ERROR("Error loading images: {}", e.what());
     }
 #endif
 }
@@ -153,7 +153,7 @@ bool BackgroundManager::addImageFromFile(const std::string& filepath) {
             }
         }
     } catch (const std::exception& e) {
-        LOG_ERROR("Erreur lors de la copie de l'image: {}", e.what());
+        LOG_ERROR("Error copying image: {}", e.what());
         return false;
     }
 #endif

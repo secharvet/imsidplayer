@@ -9,7 +9,7 @@ int main(int argc, char* argv[]) {
     Application app;
     
     if (!app.initialize()) {
-        LOG_CRITICAL_MSG("Impossible d'initialiser l'application");
+        LOG_CRITICAL_MSG("Failed to initialize application");
         Logger::shutdown();
         return -1;
     }

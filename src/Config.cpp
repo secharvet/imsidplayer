@@ -155,6 +155,8 @@ bool Config::load(const std::string& filename) {
             m_backgroundIndex = std::stoi(value);
         } else if (key == "background_filename") {
             m_backgroundFilename = value;
+        } else if (key == "songlengths_path") {
+            m_songlengthsPath = value;
         } else if (key == "background_shown") {
             m_backgroundShown = (value == "true" || value == "1");
         } else if (key == "background_alpha") {
@@ -232,6 +234,7 @@ bool Config::save(const std::string& filename) {
     file << "current_file: " << m_currentFile << "\n";
     file << "background_index: " << m_backgroundIndex << "\n";
     file << "background_filename: " << m_backgroundFilename << "\n";
+    file << "songlengths_path: " << m_songlengthsPath << "\n";
     file << "background_shown: " << (m_backgroundShown ? "true" : "false") << "\n";
     file << "background_alpha: " << m_backgroundAlpha << "\n";
     file << "window_x: " << m_windowX << "\n";

@@ -1,7 +1,10 @@
 #include "Utils.h"
+#include "MD5.h"
 #include "Logger.h"
 #include <cstdlib>
 #include <stdexcept>
+#include <fstream>
+#include <vector>
 #ifdef _WIN32
 #include <windows.h>
 #include <shlobj.h>
@@ -50,5 +53,32 @@ fs::path getConfigDir() {
         }
     }
     return configDir;
+}
+
+std::string calculateFileMD5(const std::string& filepath) {
+    try {
+        std::ifstream file(filepath, std::ios::binary);
+        if (!file) {
+            LOG_WARNING("Cannot open file for MD5 calculation: {}", filepath);
+            return "";
+        }
+        
+        MD5 md5;
+        std::vector<unsigned char> buffer(4096);
+        
+        while (file.read(reinterpret_cast<char*>(buffer.data()), buffer.size())) {
+            md5.update(buffer.data(), file.gcount());
+        }
+        
+        if (file.gcount() > 0) {
+            md5.update(buffer.data(), file.gcount());
+        }
+        
+        md5.finalize();
+        return md5.toString();
+    } catch (const std::exception& e) {
+        LOG_WARNING("Error calculating MD5 for {}: {}", filepath, e.what());
+        return "";
+    }
 }
 
