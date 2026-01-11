@@ -163,6 +163,9 @@ private:
     
     void recordHistoryEntry(const std::string& filepath);  // Enregistrer une entrée dans l'historique
     void invalidateNavigationCache();  // Invalider le cache de navigation (appelé quand playlist/filtres changent)
+    
+    // Obtenir le prochain fichier dans la liste filtrée (utilise le cache si disponible)
+    PlaylistNode* getNextFilteredFile();
 };
 
 #endif // UI_MANAGER_H

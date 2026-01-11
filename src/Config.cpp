@@ -169,6 +169,9 @@ bool Config::load(const std::string& filename) {
         } else if (key == "star_rating_rainbow_cycle_freq") {
             int freq = std::stoi(value);
             m_starRatingRainbowCycleFreq = std::max(0, std::min(20, freq)); // Clamp entre 0 et 20
+        } else if (key == "star_rating_rainbow_offset") {
+            int offset = std::stoi(value);
+            m_starRatingRainbowOffset = std::max(0, std::min(255, offset)); // Clamp entre 0 et 255
         } else if (key == "background_alpha") {
             m_backgroundAlpha = std::stoi(value);
         } else if (key == "window_x") {
@@ -250,6 +253,7 @@ bool Config::save(const std::string& filename) {
     file << "star_rating_rainbow: " << (m_starRatingRainbow ? "true" : "false") << "\n";
     file << "star_rating_rainbow_step: " << m_starRatingRainbowStep << "\n";
     file << "star_rating_rainbow_cycle_freq: " << m_starRatingRainbowCycleFreq << "\n";
+    file << "star_rating_rainbow_offset: " << m_starRatingRainbowOffset << "\n";
     file << "background_alpha: " << m_backgroundAlpha << "\n";
     file << "window_x: " << m_windowX << "\n";
     file << "window_y: " << m_windowY << "\n";

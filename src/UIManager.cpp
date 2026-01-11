@@ -320,8 +320,19 @@ void UIManager::renderPlayerTab() {
     ImGui::Text("Current file:");
     if (!m_player.getCurrentFile().empty()) {
         ImGui::SameLine();
-        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", 
-            fs::path(m_player.getCurrentFile()).filename().string().c_str());
+        std::string filename = fs::path(m_player.getCurrentFile()).filename().string();
+        std::string clickableText = ICON_FA_HAND_POINTER " " + filename;
+        
+        // Rendre le nom cliquable
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.8f, 1.0f, 1.0f));
+        if (ImGui::Selectable(clickableText.c_str(), false, ImGuiSelectableFlags_None)) {
+            // Au clic, positionner l'arbre sur le morceau en cours
+            m_playlist.setScrollToCurrent(true);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        }
+        ImGui::PopStyleColor();
         ImGui::Separator();
         ImGui::TextWrapped("Information: %s", m_player.getTuneInfo().c_str());
         ImGui::Text("SID Model: %s", m_player.getSidModel().c_str());
@@ -477,12 +488,17 @@ void UIManager::renderPlayerTab() {
                                 m_player.play();
                             } else {
                                 // Loop désactivé : passer au morceau suivant
-                                PlaylistNode* nextNode = m_playlist.getNextFile();
+                                PlaylistNode* nextNode = getNextFilteredFile();
                                 if (nextNode && !nextNode->filepath.empty()) {
-                                    m_playlist.setCurrentNode(nextNode);
+                                    // Toujours trouver le nœud correspondant dans l'arbre original pour setCurrentNode
+                                    // (même sans filtres, pour s'assurer qu'on utilise le bon pointeur)
+                                    PlaylistNode* originalNode = m_playlist.findNodeByPath(nextNode->filepath);
+                                    PlaylistNode* targetNode = originalNode ? originalNode : nextNode;
+                                    m_playlist.setCurrentNode(targetNode);
                                     m_playlist.setScrollToCurrent(true);
                                     if (m_player.loadFile(nextNode->filepath)) {
                                         m_player.play();
+                                        recordHistoryEntry(nextNode->filepath);
                                     }
                                 } else {
                                     // Pas de morceau suivant, arrêter
@@ -953,6 +969,23 @@ void UIManager::renderConfigTab() {
         ImGui::PopItemWidth();
         ImGui::PopStyleVar();
         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Cycle every N frames (0-20, 0=disabled)");
+        
+        ImGui::Spacing();
+        
+        int rainbowOffset = config.getStarRatingRainbowOffset();
+        ImGui::Text("Color offset:");
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 2.0f)); // Réduire la hauteur
+        ImGui::PushItemWidth(150.0f); // Slider plus petit en largeur
+        if (ImGui::SliderInt("##rainbow_offset", &rainbowOffset, 0, 255, "%d")) {
+            config.setStarRatingRainbowOffset(rainbowOffset);
+            // Sauvegarder la config
+            fs::path configDir = getConfigDir();
+            std::string configPath = (configDir / "config.txt").string();
+            config.save(configPath);
+        }
+        ImGui::PopItemWidth();
+        ImGui::PopStyleVar();
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Offset to add to color indices (0-255)");
     }
     
     ImGui::Spacing();
@@ -1237,7 +1270,8 @@ void UIManager::renderPlaylistTree() {
                                 // Calculer l'index dans la palette pour cette étoile
                                 // Utiliser l'écart configurable entre les étoiles
                                 int step = config.getStarRatingRainbowStep();
-                                int paletteIndex = ((i - 1) * step + m_rainbowCycleOffset) % 255;
+                                int offset = config.getStarRatingRainbowOffset();
+                                int paletteIndex = ((i - 1) * step + m_rainbowCycleOffset + offset) % 255;
                                 ImGui::PushStyleColor(ImGuiCol_Text, m_rainbowPalette[paletteIndex]);
                             } else {
                                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.0f, 1.0f));
@@ -1867,6 +1901,27 @@ void UIManager::invalidateNavigationCache() {
     m_cachedCurrentIndex = -1;
 }
 
+PlaylistNode* UIManager::getNextFilteredFile() {
+    // Utiliser uniquement le cache existant (construit par renderPlaylistNavigation)
+    // Le cache est construit/mis à jour par renderPlaylistNavigation() à chaque frame
+    if (!m_navigationCacheValid || m_cachedAllFiles.empty()) {
+        return nullptr;
+    }
+    
+    // Utiliser le cache pour trouver le prochain fichier
+    const std::vector<PlaylistNode*>& allFiles = m_cachedAllFiles;
+    int currentIndex = m_cachedCurrentIndex;
+    
+    if (currentIndex >= 0 && currentIndex < static_cast<int>(allFiles.size()) - 1) {
+        return allFiles[currentIndex + 1];
+    } else if (!allFiles.empty()) {
+        // Reboucler au début si on est à la fin
+        return allFiles[0];
+    }
+    
+    return nullptr;
+}
+
 void UIManager::refreshPlaylistTree() {
     invalidateFlatList();
     invalidateVisibleIndices();
@@ -2371,7 +2426,8 @@ void UIManager::renderHistoryTab() {
                         // Calculer l'index dans la palette pour cette étoile
                         // Utiliser l'écart configurable entre les étoiles
                         int step = config.getStarRatingRainbowStep();
-                        int paletteIndex = ((i - 1) * step + m_rainbowCycleOffset) % 255;
+                        int offset = config.getStarRatingRainbowOffset();
+                        int paletteIndex = ((i - 1) * step + m_rainbowCycleOffset + offset) % 255;
                         ImGui::PushStyleColor(ImGuiCol_Text, m_rainbowPalette[paletteIndex]);
                     } else {
                         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.0f, 1.0f));
@@ -2431,7 +2487,8 @@ bool UIManager::renderStarRating(const char* label, int* rating, int max_stars) 
                 // Calculer l'index dans la palette pour cette étoile
                 // Utiliser l'écart configurable entre les étoiles
                 int step = config.getStarRatingRainbowStep();
-                int paletteIndex = ((i - 1) * step + m_rainbowCycleOffset) % 255;
+                int offset = config.getStarRatingRainbowOffset();
+                int paletteIndex = ((i - 1) * step + m_rainbowCycleOffset + offset) % 255;
                 ImGui::PushStyleColor(ImGuiCol_Text, m_rainbowPalette[paletteIndex]);
             } else {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.0f, 1.0f)); // Orange vif pour les étoiles pleines
@@ -2458,6 +2515,11 @@ bool UIManager::renderStarRating(const char* label, int* rating, int max_stars) 
         if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
             *rating = 0;
             changed = true;
+        }
+        
+        // Changer le curseur au survol
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
         }
         
         ImGui::PopStyleColor(); // Retirer la couleur de texte après chaque étoile

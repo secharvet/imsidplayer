@@ -48,6 +48,11 @@ public:
         m_starRatingRainbowCycleFreq = std::max(0, std::min(20, freq)); // Clamp entre 0 et 20
     }
     
+    int getStarRatingRainbowOffset() const { return m_starRatingRainbowOffset; }
+    void setStarRatingRainbowOffset(int offset) { 
+        m_starRatingRainbowOffset = std::max(0, std::min(255, offset)); // Clamp entre 0 et 255
+    }
+    
     int getBackgroundAlpha() const { return m_backgroundAlpha; }
     void setBackgroundAlpha(int alpha) { m_backgroundAlpha = alpha; }
     
@@ -95,6 +100,7 @@ private:
     bool m_starRatingRainbow = false; // Cyclage arc-en-ciel des étoiles de notation
     int m_starRatingRainbowStep = 51; // Écart d'index entre les étoiles dans la palette (0-51)
     int m_starRatingRainbowCycleFreq = 2; // Fréquence de cyclage (0-20, cycle une frame sur N)
+    int m_starRatingRainbowOffset = 0; // Offset à ajouter à chaque index de palette (0-255)
     int m_windowX = 100;
     int m_windowY = 100;
     int m_windowWidth = 1200;
