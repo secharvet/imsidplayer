@@ -159,6 +159,16 @@ bool Config::load(const std::string& filename) {
             m_songlengthsPath = value;
         } else if (key == "background_shown") {
             m_backgroundShown = (value == "true" || value == "1");
+        } else if (key == "progress_bar_animated") {
+            m_progressBarAnimated = (value == "true" || value == "1");
+        } else if (key == "star_rating_rainbow") {
+            m_starRatingRainbow = (value == "true" || value == "1");
+        } else if (key == "star_rating_rainbow_step") {
+            int step = std::stoi(value);
+            m_starRatingRainbowStep = std::max(0, std::min(51, step)); // Clamp entre 0 et 51
+        } else if (key == "star_rating_rainbow_cycle_freq") {
+            int freq = std::stoi(value);
+            m_starRatingRainbowCycleFreq = std::max(0, std::min(20, freq)); // Clamp entre 0 et 20
         } else if (key == "background_alpha") {
             m_backgroundAlpha = std::stoi(value);
         } else if (key == "window_x") {
@@ -236,6 +246,10 @@ bool Config::save(const std::string& filename) {
     file << "background_filename: " << m_backgroundFilename << "\n";
     file << "songlengths_path: " << m_songlengthsPath << "\n";
     file << "background_shown: " << (m_backgroundShown ? "true" : "false") << "\n";
+    file << "progress_bar_animated: " << (m_progressBarAnimated ? "true" : "false") << "\n";
+    file << "star_rating_rainbow: " << (m_starRatingRainbow ? "true" : "false") << "\n";
+    file << "star_rating_rainbow_step: " << m_starRatingRainbowStep << "\n";
+    file << "star_rating_rainbow_cycle_freq: " << m_starRatingRainbowCycleFreq << "\n";
     file << "background_alpha: " << m_backgroundAlpha << "\n";
     file << "window_x: " << m_windowX << "\n";
     file << "window_y: " << m_windowY << "\n";

@@ -1,6 +1,7 @@
 #include "UIManager.h"
 #include "SongLengthDB.h"
 #include "Config.h"
+#include "Utils.h"
 #include "FilterWidget.h"
 #include "IconsFontAwesome6.h"
 #include "Logger.h"
@@ -21,6 +22,7 @@
 #include <cctype>
 #include <cmath>
 #include <thread>
+#include <algorithm>
 
 namespace fs = std::filesystem;
 
@@ -35,7 +37,9 @@ UIManager::UIManager(SidPlayer& player, PlaylistManager& playlist, BackgroundMan
       m_visibleIndicesValid(false),  // Virtual Scrolling : liste d'indices invalide au départ
       m_cachedCurrentIndex(-1), m_navigationCacheValid(false),
       m_currentFPS(0.0f), m_oscilloscopeTime(0.0f), m_oscilloscopePlot0Time(0.0f), 
-      m_oscilloscopePlot1Time(0.0f), m_oscilloscopePlot2Time(0.0f) {
+      m_oscilloscopePlot1Time(0.0f), m_oscilloscopePlot2Time(0.0f),
+      m_rainbowCycleOffset(0) {
+    generateRainbowPalette();
 }
 
 bool UIManager::initialize(SDL_Window* window, SDL_Renderer* renderer) {
@@ -130,6 +134,21 @@ void UIManager::render() {
     
     // Réinitialiser isConfigTabActive au début de chaque frame
     m_isConfigTabActive = false;
+    
+    // Gérer le cyclage arc-en-ciel des étoiles (si activé)
+    Config& config = Config::getInstance();
+    bool rainbowEnabled = config.isStarRatingRainbow();
+    static int rainbowFrameCount = 0;
+    if (rainbowEnabled) {
+        int cycleFreq = config.getStarRatingRainbowCycleFreq();
+        if (cycleFreq > 0) {
+            rainbowFrameCount++;
+            if (rainbowFrameCount >= cycleFreq) {
+                m_rainbowCycleOffset = (m_rainbowCycleOffset + 1) % 255;
+                rainbowFrameCount = 0;
+            }
+        }
+    }
     
     // Démarrer le frame ImGui
     auto t0 = std::chrono::high_resolution_clock::now();
@@ -349,36 +368,80 @@ void UIManager::renderPlayerTab() {
                     ImU32 bgColor = ImGui::GetColorU32(ImGuiCol_FrameBg);
                     drawList->AddRectFilled(barMin, barMax, bgColor, ImGui::GetStyle().FrameRounding);
                     
-                    // Dessiner la barre de progression avec dégradé pastel
+                    // Dessiner la barre de progression avec dégradé pastel arc-en-ciel
                     if (progress > 0.0f) {
-                        ImVec2 fillMax = ImVec2(barMin.x + barWidth * progress, barMax.y);
+                        float fillWidth = barWidth * progress;
+                        ImVec2 fillMax = ImVec2(barMin.x + fillWidth, barMax.y);
                         
-                        // Couleurs pastel avec dégradé (bleu-cyan doux)
-                        ImU32 colorStart = IM_COL32(120, 180, 220, 200); // Bleu pastel clair
-                        ImU32 colorEnd = IM_COL32(100, 160, 200, 200);   // Bleu pastel foncé
+                        // Obtenir l'option d'animation depuis Config
+                        Config& config = Config::getInstance();
+                        bool animated = config.isProgressBarAnimated();
                         
-                        // Dessiner le dégradé avec plusieurs segments
-                        int segments = 20; // Nombre de segments pour le dégradé
-                        for (int i = 0; i < segments; ++i) {
-                            float t0 = static_cast<float>(i) / segments;
-                            float t1 = static_cast<float>(i + 1) / segments;
+                        if (animated) {
+                            // Dégradé arc-en-ciel cyclique avec couleurs pastel tamisées
+                            // Cycle basé sur le temps pour créer un effet animé
+                            static auto cycleStart = std::chrono::steady_clock::now();
+                            auto now = std::chrono::steady_clock::now();
+                            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - cycleStart).count();
+                            float cyclePhase = (elapsed % 3000) / 3000.0f; // Cycle de 3 secondes
                             
-                            ImVec2 p0 = ImVec2(barMin.x + barWidth * progress * t0, barMin.y);
-                            ImVec2 p1 = ImVec2(barMin.x + barWidth * progress * t1, barMax.y);
+                            // Couleurs arc-en-ciel pastel tamisées (HSV → RGB)
+                            // Format : doux et discret, saturation et luminosité réduites
+                            auto getRainbowColor = [](float hue, float sat = 0.30f, float val = 0.55f) -> ImU32 {
+                                // HSV to RGB (hue en 0-1, saturation et value réduites pour pastel tamisé)
+                                float c = val * sat;
+                                float x = c * (1.0f - std::abs(std::fmod(hue * 6.0f, 2.0f) - 1.0f));
+                                float m = val - c;
+                                
+                                float r = 0.0f, g = 0.0f, b = 0.0f;
+                                if (hue < 1.0f/6.0f) { r = c; g = x; b = 0; }
+                                else if (hue < 2.0f/6.0f) { r = x; g = c; b = 0; }
+                                else if (hue < 3.0f/6.0f) { r = 0; g = c; b = x; }
+                                else if (hue < 4.0f/6.0f) { r = 0; g = x; b = c; }
+                                else if (hue < 5.0f/6.0f) { r = x; g = 0; b = c; }
+                                else { r = c; g = 0; b = x; }
+                                
+                                return IM_COL32(
+                                    static_cast<int>((r + m) * 255),
+                                    static_cast<int>((g + m) * 255),
+                                    static_cast<int>((b + m) * 255),
+                                    180 // Opacité modérée pour rester discret
+                                );
+                            };
                             
-                            // Interpolation des couleurs
-                            float r0 = (120.0f + (100.0f - 120.0f) * t0) / 255.0f;
-                            float g0 = (180.0f + (160.0f - 180.0f) * t0) / 255.0f;
-                            float b0 = (220.0f + (200.0f - 220.0f) * t0) / 255.0f;
+                            // Créer un dégradé arc-en-ciel avec plusieurs segments pour plus de fluidité
+                            int segments = 50; // Plus de segments pour un dégradé plus fluide
+                            for (int i = 0; i < segments; ++i) {
+                                float t0 = static_cast<float>(i) / segments;
+                                float t1 = static_cast<float>(i + 1) / segments;
+                                
+                                ImVec2 p0 = ImVec2(barMin.x + fillWidth * t0, barMin.y);
+                                ImVec2 p1 = ImVec2(barMin.x + fillWidth * t1, barMax.y);
+                                
+                                // Dégradé arc-en-ciel qui cycle dans la barre
+                                // Le cycle se déplace de gauche à droite
+                                float hue0 = std::fmod(cyclePhase + t0 * 0.7f, 1.0f); // Arc-en-ciel sur 70% du spectre
+                                float hue1 = std::fmod(cyclePhase + t1 * 0.7f, 1.0f);
+                                
+                                ImU32 color0 = getRainbowColor(hue0);
+                                ImU32 color1 = getRainbowColor(hue1);
+                                
+                                // Dégradé entre les deux couleurs pour chaque segment
+                                drawList->AddRectFilledMultiColor(p0, p1, color0, color1, color1, color0);
+                            }
+                        } else {
+                            // Dégradé statique discret (bleu pastel vers vert-cyan pastel)
+                            ImU32 colorLeft = IM_COL32(140, 160, 180, 180);   // Bleu pastel tamisé (gauche)
+                            ImU32 colorRight = IM_COL32(120, 180, 170, 180);  // Vert-cyan pastel tamisé (droite)
                             
-                            ImU32 color = IM_COL32(
-                                static_cast<int>(r0 * 255),
-                                static_cast<int>(g0 * 255),
-                                static_cast<int>(b0 * 255),
-                                200
+                            drawList->AddRectFilledMultiColor(
+                                barMin,
+                                fillMax,
+                                colorLeft,
+                                colorRight,
+                                colorRight,
+                                colorLeft
                             );
-                            
-                            drawList->AddRectFilled(p0, p1, color);
                         }
                     }
                     
@@ -749,9 +812,13 @@ void UIManager::renderPlayerControls() {
             ImGui::Spacing();
             ImGui::Separator();
             ImGui::Spacing();
-        } else {
+        } else if (!m_player.getCurrentFile().empty()) {
             // Debug : vérifier pourquoi les métadonnées ne sont pas disponibles
             LOG_DEBUG("Métadonnées non disponibles pour le fichier: {}", m_player.getCurrentFile());
+            ImGui::Text("Rating: Not available (file not indexed)");
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
         }
     }
 }
@@ -812,9 +879,80 @@ void UIManager::renderConfigTab() {
     ImGui::SameLine();
     ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "%d%%", 
         (int)((alpha / 255.0f) * 100.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 2.0f)); // Réduire la hauteur
+    ImGui::PushItemWidth(150.0f); // Slider plus petit en largeur
     if (ImGui::SliderInt("##alpha", &alpha, 0, 255, "%d")) {
         m_background.setAlpha(alpha);
     }
+    ImGui::PopItemWidth();
+    ImGui::PopStyleVar();
+    }
+    
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+    
+    // Section Player Settings
+    ImGui::Text("Player Settings");
+    ImGui::Separator();
+    
+    Config& config = Config::getInstance();
+    bool progressBarAnimated = config.isProgressBarAnimated();
+    if (ImGui::Checkbox("Animated progress bar (rainbow gradient)", &progressBarAnimated)) {
+        config.setProgressBarAnimated(progressBarAnimated);
+        // Sauvegarder la config
+        fs::path configDir = getConfigDir();
+        std::string configPath = (configDir / "config.txt").string();
+        config.save(configPath);
+    }
+    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Enable animated rainbow gradient in progress bar");
+    
+    ImGui::Spacing();
+    
+    bool starRatingRainbow = config.isStarRatingRainbow();
+    if (ImGui::Checkbox("Rainbow star rating (cycling colors)", &starRatingRainbow)) {
+        config.setStarRatingRainbow(starRatingRainbow);
+        // Sauvegarder la config
+        fs::path configDir = getConfigDir();
+        std::string configPath = (configDir / "config.txt").string();
+        config.save(configPath);
+    }
+    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Enable rainbow cycling colors for star ratings");
+    
+    if (starRatingRainbow) {
+        ImGui::Spacing();
+        
+        int rainbowStep = config.getStarRatingRainbowStep();
+        ImGui::Text("Color spacing:");
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 2.0f)); // Réduire la hauteur
+        ImGui::PushItemWidth(150.0f); // Slider plus petit en largeur
+        if (ImGui::SliderInt("##rainbow_step", &rainbowStep, 0, 51, "%d")) {
+            config.setStarRatingRainbowStep(rainbowStep);
+            // Sauvegarder la config
+            fs::path configDir = getConfigDir();
+            std::string configPath = (configDir / "config.txt").string();
+            config.save(configPath);
+        }
+        ImGui::PopItemWidth();
+        ImGui::PopStyleVar();
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Index spacing between stars (0-51)");
+        
+        ImGui::Spacing();
+        
+        int cycleFreq = config.getStarRatingRainbowCycleFreq();
+        ImGui::Text("Cycle frequency:");
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 2.0f)); // Réduire la hauteur
+        ImGui::PushItemWidth(150.0f); // Slider plus petit en largeur
+        if (ImGui::SliderInt("##rainbow_cycle_freq", &cycleFreq, 0, 20, "%d")) {
+            config.setStarRatingRainbowCycleFreq(cycleFreq);
+            // Sauvegarder la config
+            fs::path configDir = getConfigDir();
+            std::string configPath = (configDir / "config.txt").string();
+            config.save(configPath);
+        }
+        ImGui::PopItemWidth();
+        ImGui::PopStyleVar();
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Cycle every N frames (0-20, 0=disabled)");
     }
     
     ImGui::Spacing();
@@ -835,7 +973,6 @@ void UIManager::renderConfigTab() {
     ImGui::Spacing();
     
     // Afficher le chemin du fichier et le statut
-    Config& config = Config::getInstance();
     std::string songlengthsPath = config.getSonglengthsPath();
     
     SongLengthDB& db = SongLengthDB::getInstance();
@@ -1087,14 +1224,24 @@ void UIManager::renderPlaylistTree() {
                     float smallFontHeight = ImGui::GetTextLineHeight(); 
                     float offsetY = (textLineHeight - smallFontHeight) * 0.5f; 
                 
+                    // Vérifier si le cyclage arc-en-ciel est activé
+                    Config& config = Config::getInstance();
+                    bool rainbowEnabled = config.isStarRatingRainbow();
+                    
                     for (int i = 1; i <= 5; i++) {
-
-                        
                         if (i > 1) ImGui::SameLine(0.0f, 1.0f);
-                            // On utilise SetCursorPosY (relatif) plutôt que ScreenPos pour éviter les conflits de boundaries
+                        // On utilise SetCursorPosY (relatif) plutôt que ScreenPos pour éviter les conflits de boundaries
                         ImGui::SetCursorPosY(startY + offsetY);
                         if (i <= fileRating) {
-                            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.0f, 1.0f));
+                            if (rainbowEnabled) {
+                                // Calculer l'index dans la palette pour cette étoile
+                                // Utiliser l'écart configurable entre les étoiles
+                                int step = config.getStarRatingRainbowStep();
+                                int paletteIndex = ((i - 1) * step + m_rainbowCycleOffset) % 255;
+                                ImGui::PushStyleColor(ImGuiCol_Text, m_rainbowPalette[paletteIndex]);
+                            } else {
+                                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.0f, 1.0f));
+                            }
                         } else {
                             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 0.3f));
                         }
@@ -2145,25 +2292,53 @@ void UIManager::renderHistoryTab() {
             // Colonne Titre
             ImGui::TableSetColumnIndex(0);
             std::string title = entry.title.empty() ? "(Sans titre)" : entry.title;
-            if (ImGui::Selectable(title.c_str(), false, ImGuiSelectableFlags_SpanAllColumns)) {
+            if (ImGui::Selectable(title.c_str(), false, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap)) {
                 // Trouver le fichier correspondant dans la playlist par metadataHash
+                auto startTime = std::chrono::high_resolution_clock::now();
                 auto allFiles = m_playlist.getAllFiles();
+                LOG_DEBUG("Looking for history entry: hash={}, title='{}', author='{}', total files in playlist: {}", 
+                          entry.metadataHash, entry.title, entry.author, allFiles.size());
+                
+                bool found = false;
+                int checkedCount = 0;
+                int indexedCount = 0;
+                int hashMatchCount = 0;
+                
                 for (PlaylistNode* node : allFiles) {
                     if (!node || node->filepath.empty()) continue;
+                    checkedCount++;
                     
                     const SidMetadata* metadata = m_database.getMetadata(node->filepath);
-                    if (metadata && metadata->metadataHash == entry.metadataHash) {
-                        // Sélectionner ce nœud
-                        m_playlist.setCurrentNode(node);
-                        m_playlist.setScrollToCurrent(true);
-                        
-                        // Charger et jouer le fichier
-                        if (m_player.loadFile(node->filepath)) {
-                            m_player.play();
-                            recordHistoryEntry(node->filepath);
+                    if (metadata) {
+                        indexedCount++;
+                        if (metadata->metadataHash == entry.metadataHash) {
+                            hashMatchCount++;
+                            LOG_DEBUG("Found matching file: {} (hash: {})", node->filepath, metadata->metadataHash);
+                            // Sélectionner ce nœud
+                            m_playlist.setCurrentNode(node);
+                            m_playlist.setScrollToCurrent(true);
+                            
+                            // Charger et jouer le fichier
+                            if (m_player.loadFile(node->filepath)) {
+                                m_player.play();
+                                recordHistoryEntry(node->filepath);
+                                found = true;
+                            }
+                            break;
                         }
-                        break;
+                    } else {
+                        LOG_DEBUG("File not indexed in database: {}", node->filepath);
                     }
+                }
+                
+                auto endTime = std::chrono::high_resolution_clock::now();
+                auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
+                if (!found) {
+                    LOG_WARNING("History entry not found: checked {} files, {} indexed, {} hash matches, search took {} ms", 
+                               checkedCount, indexedCount, hashMatchCount, duration.count());
+                } else {
+                    LOG_DEBUG("History entry found in {} ms (checked {} files, {} indexed)", 
+                             duration.count(), checkedCount, indexedCount);
                 }
             }
             
@@ -2184,10 +2359,23 @@ void UIManager::renderHistoryTab() {
             float originalFontSize = ImGui::GetFontSize();
             float reducedFontSize = originalFontSize * 0.7f; // Réduire à 70%
             ImGui::PushFont(currentFont, reducedFontSize);
+            
+            // Vérifier si le cyclage arc-en-ciel est activé
+            Config& config = Config::getInstance();
+            bool rainbowEnabled = config.isStarRatingRainbow();
+            
             // Afficher les étoiles
             for (int i = 1; i <= 5; i++) {
                 if (i <= rating) {
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.0f, 1.0f));
+                    if (rainbowEnabled) {
+                        // Calculer l'index dans la palette pour cette étoile
+                        // Utiliser l'écart configurable entre les étoiles
+                        int step = config.getStarRatingRainbowStep();
+                        int paletteIndex = ((i - 1) * step + m_rainbowCycleOffset) % 255;
+                        ImGui::PushStyleColor(ImGuiCol_Text, m_rainbowPalette[paletteIndex]);
+                    } else {
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.0f, 1.0f));
+                    }
                 } else {
                     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 0.5f));
                 }
@@ -2230,12 +2418,24 @@ bool UIManager::renderStarRating(const char* label, int* rating, int max_stars) 
     ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.0f, 0.0f, 0.0f, 0.0f)); // Transparent au survol
     ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.0f, 0.0f, 0.0f, 0.0f)); // Transparent au clic
 
+    // Vérifier si le cyclage arc-en-ciel est activé
+    Config& config = Config::getInstance();
+    bool rainbowEnabled = config.isStarRatingRainbow();
+
     for (int i = 1; i <= max_stars; i++) {
         ImGui::PushID(i); // ID unique pour chaque étoile
         
         // Appliquer une couleur aux étoiles
         if (i <= *rating) {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.0f, 1.0f)); // Orange vif pour les étoiles pleines
+            if (rainbowEnabled) {
+                // Calculer l'index dans la palette pour cette étoile
+                // Utiliser l'écart configurable entre les étoiles
+                int step = config.getStarRatingRainbowStep();
+                int paletteIndex = ((i - 1) * step + m_rainbowCycleOffset) % 255;
+                ImGui::PushStyleColor(ImGuiCol_Text, m_rainbowPalette[paletteIndex]);
+            } else {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.0f, 1.0f)); // Orange vif pour les étoiles pleines
+            }
         } else {
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 0.5f)); // Gris transparent pour les vides
         }
@@ -2272,6 +2472,40 @@ bool UIManager::renderStarRating(const char* label, int* rating, int max_stars) 
     ImGui::PopStyleColor(2);
     ImGui::PopID();
     return changed;
+}
+
+void UIManager::generateRainbowPalette() {
+    // Générer une palette de 255 couleurs arc-en-ciel (HSV: H varie de 0 à 360, S=1, V=1)
+    m_rainbowPalette.resize(255);
+    
+    for (int i = 0; i < 255; i++) {
+        float hue = (i * 360.0f) / 255.0f; // H varie de 0 à 360
+        float saturation = 1.0f;
+        float value = 1.0f;
+        
+        // Conversion HSV vers RGB
+        float c = value * saturation;
+        float x = c * (1.0f - std::abs(std::fmod(hue / 60.0f, 2.0f) - 1.0f));
+        float m = value - c;
+        
+        float r = 0.0f, g = 0.0f, b = 0.0f;
+        
+        if (hue < 60.0f) {
+            r = c; g = x; b = 0.0f;
+        } else if (hue < 120.0f) {
+            r = x; g = c; b = 0.0f;
+        } else if (hue < 180.0f) {
+            r = 0.0f; g = c; b = x;
+        } else if (hue < 240.0f) {
+            r = 0.0f; g = x; b = c;
+        } else if (hue < 300.0f) {
+            r = x; g = 0.0f; b = c;
+        } else {
+            r = c; g = 0.0f; b = x;
+        }
+        
+        m_rainbowPalette[i] = ImVec4(r + m, g + m, b + m, 1.0f);
+    }
 }
 
 void UIManager::renderDebugWindow(long long newFrameTime, long long mainPanelTime, long long playlistPanelTime,

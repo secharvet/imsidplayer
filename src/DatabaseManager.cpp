@@ -47,14 +47,17 @@ bool DatabaseManager::load() {
         // Reconstruire les index (filepath et metadataHash)
         m_filepathIndex.clear();
         m_hashIndex.clear();
+        size_t hashIndexedCount = 0;
         for (size_t i = 0; i < m_metadata.size(); ++i) {
             m_filepathIndex[m_metadata[i].filepath] = i;
             if (m_metadata[i].metadataHash != 0) {
                 m_hashIndex[m_metadata[i].metadataHash] = i;
+                hashIndexedCount++;
             }
         }
         
-        LOG_INFO("Database loaded: {} files indexed", m_metadata.size());
+        LOG_INFO("Database loaded: {} files indexed, {} with valid hash, {} filepath entries, {} hash entries", 
+                 m_metadata.size(), hashIndexedCount, m_filepathIndex.size(), m_hashIndex.size());
         return true;
     } catch (const std::exception& e) {
         LOG_ERROR("Error loading database: {}", e.what());

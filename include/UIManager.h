@@ -77,6 +77,11 @@ private:
     float m_oscilloscopePlot1Time;  // Temps du plot 1 (en ms)
     float m_oscilloscopePlot2Time;  // Temps du plot 2 (en ms)
     
+    // Palette arc-en-ciel pour les étoiles (255 couleurs)
+    std::vector<ImVec4> m_rainbowPalette;
+    int m_rainbowCycleOffset;  // Offset pour le cyclage des couleurs
+    void generateRainbowPalette();  // Générer la palette arc-en-ciel
+    
     // Variables UI
     bool m_showFileDialog;
     std::string m_selectedFilePath;

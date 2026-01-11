@@ -32,6 +32,22 @@ public:
     bool isBackgroundShown() const { return m_backgroundShown; }
     void setBackgroundShown(bool shown) { m_backgroundShown = shown; }
     
+    bool isProgressBarAnimated() const { return m_progressBarAnimated; }
+    void setProgressBarAnimated(bool animated) { m_progressBarAnimated = animated; }
+    
+    bool isStarRatingRainbow() const { return m_starRatingRainbow; }
+    void setStarRatingRainbow(bool rainbow) { m_starRatingRainbow = rainbow; }
+    
+    int getStarRatingRainbowStep() const { return m_starRatingRainbowStep; }
+    void setStarRatingRainbowStep(int step) { 
+        m_starRatingRainbowStep = std::max(0, std::min(51, step)); // Clamp entre 0 et 51
+    }
+    
+    int getStarRatingRainbowCycleFreq() const { return m_starRatingRainbowCycleFreq; }
+    void setStarRatingRainbowCycleFreq(int freq) { 
+        m_starRatingRainbowCycleFreq = std::max(0, std::min(20, freq)); // Clamp entre 0 et 20
+    }
+    
     int getBackgroundAlpha() const { return m_backgroundAlpha; }
     void setBackgroundAlpha(int alpha) { m_backgroundAlpha = alpha; }
     
@@ -75,6 +91,10 @@ private:
     std::string m_songlengthsPath; // Chemin vers Songlengths.md5
     bool m_backgroundShown = false;
     int m_backgroundAlpha = 128;
+    bool m_progressBarAnimated = true; // Dégradé arc-en-ciel animé dans la barre de progression
+    bool m_starRatingRainbow = false; // Cyclage arc-en-ciel des étoiles de notation
+    int m_starRatingRainbowStep = 51; // Écart d'index entre les étoiles dans la palette (0-51)
+    int m_starRatingRainbowCycleFreq = 2; // Fréquence de cyclage (0-20, cycle une frame sur N)
     int m_windowX = 100;
     int m_windowY = 100;
     int m_windowWidth = 1200;

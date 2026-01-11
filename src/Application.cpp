@@ -413,7 +413,15 @@ void Application::loadDatabaseAsync() {
     
     m_databaseThread = std::thread([this]() {
         if (m_database) {
-            m_database->load();
+            auto startTime = std::chrono::high_resolution_clock::now();
+            bool loaded = m_database->load();
+            auto endTime = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
+            if (loaded) {
+                LOG_INFO("Database loaded in {} ms, {} files indexed", duration.count(), m_database->getCount());
+            } else {
+                LOG_WARNING("Database loading failed or database is empty");
+            }
         }
         m_databaseProgress = 1.0f;
         
