@@ -68,6 +68,9 @@ bool Application::initialize() {
         m_player.setVoiceMute(i, !m_config.isVoiceActive(i));
     }
     
+    // Restaurer l'état du loop
+    m_player.setLoop(m_config.isLoopEnabled());
+    
     // Créer DatabaseManager
     m_database = std::make_unique<DatabaseManager>();
     

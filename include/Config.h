@@ -53,6 +53,9 @@ public:
         m_starRatingRainbowOffset = std::max(0, std::min(255, offset)); // Clamp entre 0 et 255
     }
     
+    bool isLoopEnabled() const { return m_loopEnabled; }
+    void setLoopEnabled(bool enabled) { m_loopEnabled = enabled; }
+    
     int getBackgroundAlpha() const { return m_backgroundAlpha; }
     void setBackgroundAlpha(int alpha) { m_backgroundAlpha = alpha; }
     
@@ -101,6 +104,7 @@ private:
     int m_starRatingRainbowStep = 51; // Écart d'index entre les étoiles dans la palette (0-51)
     int m_starRatingRainbowCycleFreq = 2; // Fréquence de cyclage (0-20, cycle une frame sur N)
     int m_starRatingRainbowOffset = 0; // Offset à ajouter à chaque index de palette (0-255)
+    bool m_loopEnabled = false; // État du loop (redémarrer automatiquement à la fin)
     int m_windowX = 100;
     int m_windowY = 100;
     int m_windowWidth = 1200;

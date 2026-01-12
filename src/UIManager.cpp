@@ -321,7 +321,7 @@ void UIManager::renderPlayerTab() {
     if (!m_player.getCurrentFile().empty()) {
         ImGui::SameLine();
         std::string filename = fs::path(m_player.getCurrentFile()).filename().string();
-        std::string clickableText = ICON_FA_HAND_POINTER " " + filename;
+        std::string clickableText = std::string(ICON_FA_MICROCHIP) + " " + std::string(ICON_FA_MUSIC) + " " + filename;
         
         // Rendre le nom cliquable
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.8f, 1.0f, 1.0f));
@@ -349,16 +349,23 @@ void UIManager::renderPlayerTab() {
                 if (totalDuration > 0.0) {
                     // Calculer la progression
                     float currentTime = m_player.getPlaybackTime(); // Temps écoulé en secondes
-                    float progress = 0.0f;
                     
-                    if (totalDuration > 0.0 && currentTime >= 0.0f) {
-                        progress = static_cast<float>(currentTime / totalDuration);
+                    // Pour le loop : calculer le temps modulo la durée totale
+                    // libsidplayfp boucle naturellement, on ajuste juste l'affichage
+                    float displayTime = currentTime;
+                    if (m_player.isLoopEnabled() && totalDuration > 0.0f) {
+                        displayTime = std::fmod(currentTime, totalDuration);
+                    }
+                    
+                    float progress = 0.0f;
+                    if (totalDuration > 0.0 && displayTime >= 0.0f) {
+                        progress = static_cast<float>(displayTime / totalDuration);
                         progress = std::max(0.0f, std::min(1.0f, progress)); // Clamp entre 0 et 1
                     }
                     
                     // Formater le temps actuel et total
-                    int currentMinutes = static_cast<int>(currentTime) / 60;
-                    int currentSeconds = static_cast<int>(currentTime) % 60;
+                    int currentMinutes = static_cast<int>(displayTime) / 60;
+                    int currentSeconds = static_cast<int>(displayTime) % 60;
                     int totalMinutes = static_cast<int>(totalDuration) / 60;
                     int totalSeconds = static_cast<int>(totalDuration) % 60;
                     
@@ -474,36 +481,31 @@ void UIManager::renderPlayerTab() {
                     // Déplacer le curseur après la barre
                     ImGui::SetCursorScreenPos(ImVec2(barMin.x, barMax.y + ImGui::GetStyle().ItemSpacing.y));
                     
-                    // Détecter la fin du morceau et gérer le loop ou le passage au suivant
+                    // Détecter la fin du morceau et gérer le passage au suivant (si loop désactivé)
+                    // Si loop est actif, libsidplayfp boucle naturellement, on ne fait rien
                     static bool songEnded = false; // Variable statique pour éviter les déclenchements multiples
-                    if (m_player.isPlaying() && !m_player.isPaused() && progress >= 0.99f && currentTime >= totalDuration - 0.5f) {
-                        // Le morceau est terminé (avec une petite marge de 0.5s)
+                    if (!m_player.isLoopEnabled() && m_player.isPlaying() && !m_player.isPaused() && progress >= 0.99f && currentTime >= totalDuration - 0.5f) {
+                        // Le morceau est terminé (avec une petite marge de 0.5s) - seulement si loop désactivé
                         if (!songEnded) { // Éviter les déclenchements multiples
                             songEnded = true;
                             
-                            if (m_player.isLoopEnabled()) {
-                                // Loop activé : redémarrer le morceau
-                                m_player.stop();
-                                std::this_thread::sleep_for(std::chrono::milliseconds(50)); // Petit délai pour éviter les clics
-                                m_player.play();
-                            } else {
+                            // Loop désactivé : passer au morceau suivant
                                 // Loop désactivé : passer au morceau suivant
-                                PlaylistNode* nextNode = getNextFilteredFile();
-                                if (nextNode && !nextNode->filepath.empty()) {
-                                    // Toujours trouver le nœud correspondant dans l'arbre original pour setCurrentNode
-                                    // (même sans filtres, pour s'assurer qu'on utilise le bon pointeur)
-                                    PlaylistNode* originalNode = m_playlist.findNodeByPath(nextNode->filepath);
-                                    PlaylistNode* targetNode = originalNode ? originalNode : nextNode;
-                                    m_playlist.setCurrentNode(targetNode);
-                                    m_playlist.setScrollToCurrent(true);
-                                    if (m_player.loadFile(nextNode->filepath)) {
-                                        m_player.play();
-                                        recordHistoryEntry(nextNode->filepath);
-                                    }
-                                } else {
-                                    // Pas de morceau suivant, arrêter
-                                    m_player.stop();
+                            PlaylistNode* nextNode = getNextFilteredFile();
+                            if (nextNode && !nextNode->filepath.empty()) {
+                                // Toujours trouver le nœud correspondant dans l'arbre original pour setCurrentNode
+                                // (même sans filtres, pour s'assurer qu'on utilise le bon pointeur)
+                                PlaylistNode* originalNode = m_playlist.findNodeByPath(nextNode->filepath);
+                                PlaylistNode* targetNode = originalNode ? originalNode : nextNode;
+                                m_playlist.setCurrentNode(targetNode);
+                                m_playlist.setScrollToCurrent(true);
+                                if (m_player.loadFile(nextNode->filepath)) {
+                                    m_player.play();
+                                    recordHistoryEntry(nextNode->filepath);
                                 }
+                            } else {
+                                // Pas de morceau suivant, arrêter
+                                m_player.stop();
                             }
                         }
                     } else {
@@ -766,7 +768,14 @@ void UIManager::renderPlayerControls() {
     ImVec4 loopButtonColor = loopEnabled ? ImVec4(0.4f, 0.8f, 1.0f, 1.0f) : ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
     ImGui::PushStyleColor(ImGuiCol_Text, loopButtonColor);
     if (ImGui::Button(ICON_FA_REPEAT "", ImVec2(buttonWidth, 0))) {
-        m_player.setLoop(!loopEnabled);
+        bool newLoopState = !loopEnabled;
+        m_player.setLoop(newLoopState);
+        // Sauvegarder l'état dans la config
+        Config& config = Config::getInstance();
+        config.setLoopEnabled(newLoopState);
+        fs::path configDir = getConfigDir();
+        std::string configPath = (configDir / "config.txt").string();
+        config.save(configPath);
     }
     ImGui::PopStyleColor();
 
