@@ -32,6 +32,7 @@ UIManager::UIManager(SidPlayer& player, PlaylistManager& playlist, BackgroundMan
       m_selectedSearchResult(-1), m_searchListFocused(false), m_searchPending(false),
       m_databaseOperationInProgress(false), m_databaseOperationProgress(0.0f),
       m_filtersNeedUpdate(true), m_authorFilterWidget("Author", 200.0f), m_yearFilterWidget("Year", 150.0f),
+      m_filterRating(0), m_filterRatingOperator(true),  // 0 = pas de filtre, true = >= par défaut
       m_filtersActive(false),
       m_shouldFocusPlaylist(false),
       m_flatListValid(false),        // Virtual Scrolling : liste plate invalide au départ
@@ -338,6 +339,13 @@ void UIManager::renderPlayerTab() {
         ImGui::Separator();
         ImGui::TextWrapped("Information: %s", m_player.getTuneInfo().c_str());
         ImGui::Text("SID Model: %s", m_player.getSidModel().c_str());
+        
+        // Afficher les informations de subsong si plusieurs subsongs disponibles
+        if (m_player.hasMultipleSongs()) {
+            int currentSong = m_player.getCurrentSong() + 1;  // Convertir en 1-based pour affichage
+            int totalSongs = m_player.getTotalSongs();
+            ImGui::Text("Subsong: %d / %d", currentSong, totalSongs);
+        }
         
         // Récupérer la durée depuis SongLengthDB
         const SidMetadata* metadata = m_database.getMetadata(m_player.getCurrentFile());
@@ -789,6 +797,56 @@ void UIManager::renderPlayerControls() {
 
     ImGui::Spacing();
     ImGui::Separator();
+
+    // Contrôles de navigation des subsongs
+    if (!m_player.getCurrentFile().empty() && m_player.hasMultipleSongs()) {
+        ImGui::Text("Subsong Navigation:");
+        
+        int currentSong = m_player.getCurrentSong() + 1;  // 1-based
+        int totalSongs = m_player.getTotalSongs();
+        
+        // Largeur fixe pour les boutons (plus prévisible)
+        float buttonWidth = 100.0f;
+        float availableWidth = ImGui::GetContentRegionAvail().x;
+        float comboWidth = availableWidth - (buttonWidth * 2) - (ImGui::GetStyle().ItemSpacing.x * 2);
+        comboWidth = std::max(120.0f, std::min(comboWidth, 200.0f));  // Entre 120 et 200 pixels
+        
+        // Bouton Précédent
+        if (ImGui::Button(ICON_FA_BACKWARD_STEP " Prev", ImVec2(buttonWidth, 0))) {
+            m_player.prevSong();
+        }
+        
+        ImGui::SameLine();
+        
+        // Sélecteur de subsong (Combo) avec largeur limitée
+        char subsongLabel[32];
+        snprintf(subsongLabel, sizeof(subsongLabel), "Subsong %d/%d", currentSong, totalSongs);
+        ImGui::SetNextItemWidth(comboWidth);
+        if (ImGui::BeginCombo("##subsong", subsongLabel)) {
+            for (int i = 1; i <= totalSongs; i++) {
+                char itemLabel[32];
+                snprintf(itemLabel, sizeof(itemLabel), "Subsong %d", i);
+                bool isSelected = (i == currentSong);
+                if (ImGui::Selectable(itemLabel, isSelected)) {
+                    m_player.selectSong(i);
+                }
+                if (isSelected) {
+                    ImGui::SetItemDefaultFocus();
+                }
+            }
+            ImGui::EndCombo();
+        }
+        
+        ImGui::SameLine();
+        
+        // Bouton Suivant
+        if (ImGui::Button(ICON_FA_FORWARD_STEP " Next", ImVec2(buttonWidth, 0))) {
+            m_player.nextSong();
+        }
+        
+        ImGui::Spacing();
+        ImGui::Separator();
+    }
 
     ImGui::Text("State:");
     ImGui::SameLine();
@@ -1527,6 +1585,7 @@ void UIManager::navigateToFile(const std::string& filepath) {
             if (m_filtersActive && !matchesFilters(node)) {
                 m_filterAuthor.clear();
                 m_filterYear.clear();
+                m_filterRating = 0;
                 m_filtersActive = false;
                 invalidateFlatList();
                 invalidateVisibleIndices();
@@ -1667,7 +1726,7 @@ bool UIManager::matchesFilters(PlaylistNode* node) const {
     }
     
     // Si aucun filtre n'est actif, tout passe
-    if (m_filterAuthor.empty() && m_filterYear.empty()) {
+    if (m_filterAuthor.empty() && m_filterYear.empty() && m_filterRating == 0) {
         return true;
     }
     
@@ -1685,6 +1744,7 @@ bool UIManager::matchesFilters(PlaylistNode* node) const {
     
     bool authorMatches = true;
     bool yearMatches = true;
+    bool ratingMatches = true;
     
     // Vérifier le filtre auteur (comparaison partielle, insensible à la casse)
     if (!m_filterAuthor.empty()) {
@@ -1737,7 +1797,25 @@ bool UIManager::matchesFilters(PlaylistNode* node) const {
         }
     }
     
-    // Les deux filtres matchent (si actifs)
+    // Vérifier le filtre rating
+    if (m_filterRating > 0) {
+        // Récupérer le rating depuis l'historique
+        int fileRating = m_history.getRating(metadata->metadataHash);
+        
+        if (m_filterRatingOperator) {
+            // Opérateur >= : le rating du fichier doit être >= au filtre
+            ratingMatches = (fileRating >= m_filterRating);
+        } else {
+            // Opérateur = : le rating du fichier doit être exactement égal au filtre
+            ratingMatches = (fileRating == m_filterRating);
+        }
+        
+        if (!ratingMatches) {
+            return false; // Rating ne matche pas
+        }
+    }
+    
+    // Tous les filtres matchent (si actifs)
     return true;
 }
 
@@ -1978,9 +2056,17 @@ void UIManager::renderFilters() {
     // Vérifier si les filtres étaient actifs avant le rendu
     bool previousFiltersActive = m_filtersActive;
     
+    // Utiliser des largeurs fixes pour éviter que les filtres s'élargissent
+    // et poussent les autres éléments hors de la vue
+    float authorWidth = 200.0f;
+    float yearWidth = 150.0f;
+    float ratingComboWidth = 120.0f;  // Élargi pour afficher "All Stars" en entier
+    float ratingButtonWidth = 40.0f;
+    
     // Filtre Auteur
     // Mode 1 : Recherche (focus) - Mode 2 : Sélection (arbre filtré)
     LOG_DEBUG("[Filter] renderFilters: Auteur='{}', Année='{}'", m_filterAuthor, m_filterYear);
+    ImGui::PushItemWidth(authorWidth);  // Forcer la largeur du filtre auteur
     bool authorChanged = m_authorFilterWidget.render(m_filterAuthor, m_availableAuthors, 
         [this](const std::string& value) {
             // IMPORTANT : Préserver m_filterYear lors du changement de m_filterAuthor
@@ -1993,16 +2079,18 @@ void UIManager::renderFilters() {
                 m_filterYear = previousYear;
             }
             // Mode 2 : Quand on sélectionne un item, activer le filtre (filtrage dynamique)
-            m_filtersActive = !m_filterAuthor.empty() || !m_filterYear.empty();
+            m_filtersActive = !m_filterAuthor.empty() || !m_filterYear.empty() || m_filterRating > 0;
             LOG_DEBUG("[Filter] Auteur changé: '{}' -> '{}', Année préservée: '{}', Filtres actifs: {}", 
                      previousAuthor, m_filterAuthor, m_filterYear, m_filtersActive);
             // Invalider la liste filtrée pour qu'elle soit reconstruite avec les nouveaux filtres
             invalidateVisibleIndices();  // Forcer le rafraîchissement de l'affichage
         },
         downArrowPressed);
+    ImGui::PopItemWidth();
     
-    // Filtre Année
+    // Filtre Année (label intégré dans le hint : "All Year")
     ImGui::SameLine(0, 20);  // Espacement
+    ImGui::PushItemWidth(yearWidth);  // Forcer la largeur du filtre année
     bool yearChanged = m_yearFilterWidget.render(m_filterYear, m_availableYears,
         [this](const std::string& value) {
             // IMPORTANT : Préserver m_filterAuthor lors du changement de m_filterYear
@@ -2015,13 +2103,44 @@ void UIManager::renderFilters() {
                 m_filterAuthor = previousAuthor;
             }
             // Mode 2 : Quand on sélectionne un item, activer le filtre (filtrage dynamique)
-            m_filtersActive = !m_filterAuthor.empty() || !m_filterYear.empty();
+            m_filtersActive = !m_filterAuthor.empty() || !m_filterYear.empty() || m_filterRating > 0;
             LOG_DEBUG("[Filter] Année changée: '{}' -> '{}', Auteur préservé: '{}', Filtres actifs: {}", 
                      previousYear, m_filterYear, m_filterAuthor, m_filtersActive);
             // Invalider la liste filtrée pour qu'elle soit reconstruite avec les nouveaux filtres
             invalidateVisibleIndices();  // Forcer le rafraîchissement de l'affichage
         },
         downArrowPressed);
+    ImGui::PopItemWidth();
+    
+    // Filtre Rating
+    ImGui::SameLine(0, 20);  // Espacement
+    
+    // Combo box pour sélectionner le nombre d'étoiles (5, 4, 3, 2, 1)
+    // Label intégré : "All Stars" au lieu de "All"
+    const char* ratingItems[] = { "All Stars", "5", "4", "3", "2", "1" };
+    // Convertir m_filterRating (0-5) en index combo box (0 = All, 1 = "5", 2 = "4", etc.)
+    int currentRatingIndex = (m_filterRating == 0) ? 0 : (6 - m_filterRating);
+    ImGui::PushItemWidth(ratingComboWidth);  // Forcer la largeur du combo rating
+    if (ImGui::Combo("##rating", &currentRatingIndex, ratingItems, 6)) {
+        // Convertir l'index combo box en valeur rating (0 = All, 1-5 = nombre d'étoiles)
+        m_filterRating = (currentRatingIndex == 0) ? 0 : (6 - currentRatingIndex);
+        m_filtersActive = !m_filterAuthor.empty() || !m_filterYear.empty() || m_filterRating > 0;
+        invalidateVisibleIndices();
+        LOG_DEBUG("[Filter] Rating changé: {} (index combo: {})", m_filterRating, currentRatingIndex);
+    }
+    
+    ImGui::PopItemWidth();
+    
+    // Bouton opérateur (>= ou =) - seulement si un rating est sélectionné
+    if (m_filterRating > 0) {
+        ImGui::SameLine();
+        const char* operatorLabel = m_filterRatingOperator ? ">=" : "=";
+        if (ImGui::Button(operatorLabel, ImVec2(ratingButtonWidth, 0))) {
+            m_filterRatingOperator = !m_filterRatingOperator;
+            invalidateVisibleIndices();
+            LOG_DEBUG("[Filter] Opérateur rating changé: {}", m_filterRatingOperator ? ">=" : "=");
+        }
+    }
     
     // Si les filtres ont changé, invalider les indices visibles pour forcer le rafraîchissement
     if (authorChanged || yearChanged || previousFiltersActive != m_filtersActive) {

@@ -32,6 +32,12 @@ public:
     int getCurrentSong() const { return m_currentSong; }
     float getPlaybackTime() const;
     
+    // Gestion des subsongs
+    int getTotalSongs() const;              // Nombre total de subsongs
+    int getDefaultSong() const;             // Subsong par défaut (1-based)
+    bool selectSong(int songNum);           // Sélectionner un subsong spécifique (1-based)
+    bool hasMultipleSongs() const;          // Vérifier si plusieurs subsongs
+    
     // Contrôle du mute des voix
     void setVoiceMute(int voice, bool muted);
     bool isVoiceMuted(int voice) const;

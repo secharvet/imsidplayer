@@ -99,6 +99,8 @@ private:
     // Filtres multicritères
     std::string m_filterAuthor;  // Filtre par auteur (vide = pas de filtre)
     std::string m_filterYear;   // Filtre par année (vide = pas de filtre)
+    int m_filterRating;         // Filtre par rating (0 = pas de filtre, 1-5 = nombre d'étoiles)
+    bool m_filterRatingOperator; // Opérateur de comparaison (true = >=, false = =)
     std::vector<std::string> m_availableAuthors;  // Liste des auteurs disponibles
     std::vector<std::string> m_availableYears;    // Liste des années disponibles
     bool m_filtersNeedUpdate;  // Flag pour mettre à jour les listes de filtres

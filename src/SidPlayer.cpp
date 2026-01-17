@@ -54,9 +54,12 @@ bool SidPlayer::loadFile(const std::string& filepath) {
     if (m_audioDevice > 0) { SDL_CloseAudioDevice(m_audioDevice); m_audioDevice = 0; }
     m_tune = std::make_unique<SidTune>(filepath.c_str());
     if (!m_tune->getStatus()) { m_tune.reset(); return false; }
-    m_tune->selectSong(1);
-    m_currentSong = 0;
     const SidTuneInfo* tuneInfo = m_tune->getInfo();
+    if (!tuneInfo) { m_tune.reset(); return false; }
+    // Utiliser le subsong par défaut du fichier au lieu de forcer le subsong 1
+    int defaultSong = tuneInfo->startSong();
+    m_tune->selectSong(defaultSong);
+    m_currentSong = defaultSong - 1;  // Convertir en 0-based
     SidConfig::sid_model_t sidModel = (tuneInfo && tuneInfo->sidModel(0) == SidTuneInfo::SIDMODEL_8580) ? SidConfig::MOS8580 : SidConfig::MOS6581;
     m_currentSidModel = sidModel;
     m_engineVoice0->load(m_tune.get()); m_engineVoice1->load(m_tune.get()); m_engineVoice2->load(m_tune.get()); m_engineMaster->load(m_tune.get());
@@ -135,9 +138,8 @@ void SidPlayer::nextSong() {
     if (!info) return;
     int numSongs = info->songs();
     if (numSongs > 1) {
-        m_currentSong = (m_currentSong + 1) % numSongs;
-        m_tune->selectSong(m_currentSong + 1);
-        play();
+        int nextSong = (m_currentSong + 1) % numSongs;
+        selectSong(nextSong + 1);  // Convertir en 1-based
     }
 }
 
@@ -147,9 +149,8 @@ void SidPlayer::prevSong() {
     if (!info) return;
     int numSongs = info->songs();
     if (numSongs > 1) {
-        m_currentSong = (m_currentSong - 1 + numSongs) % numSongs;
-        m_tune->selectSong(m_currentSong + 1);
-        play();
+        int prevSong = (m_currentSong - 1 + numSongs) % numSongs;
+        selectSong(prevSong + 1);  // Convertir en 1-based
     }
 }
 
@@ -232,4 +233,57 @@ float SidPlayer::getPlaybackTime() const {
         return m_engineMaster->time();
     }
     return 0.0f;
+}
+
+int SidPlayer::getTotalSongs() const {
+    if (!m_tune) return 0;
+    const SidTuneInfo* info = m_tune->getInfo();
+    return info ? info->songs() : 0;
+}
+
+int SidPlayer::getDefaultSong() const {
+    if (!m_tune) return 1;
+    const SidTuneInfo* info = m_tune->getInfo();
+    return info ? info->startSong() : 1;
+}
+
+bool SidPlayer::hasMultipleSongs() const {
+    return getTotalSongs() > 1;
+}
+
+bool SidPlayer::selectSong(int songNum) {
+    if (!m_tune) return false;
+    const SidTuneInfo* info = m_tune->getInfo();
+    if (!info) return false;
+    
+    int totalSongs = info->songs();
+    if (songNum < 1 || songNum > totalSongs) return false;
+    
+    // Arrêter la lecture si en cours
+    bool wasPlaying = m_playing && !m_paused;
+    if (wasPlaying) {
+        stop();
+    }
+    
+    // Sélectionner le nouveau subsong
+    m_tune->selectSong(songNum);
+    m_currentSong = songNum - 1;  // Convertir en 0-based
+    
+    // Recharger dans tous les engines
+    m_engineVoice0->load(m_tune.get());
+    m_engineVoice1->load(m_tune.get());
+    m_engineVoice2->load(m_tune.get());
+    m_engineMaster->load(m_tune.get());
+    
+    // Réappliquer les mutes
+    m_engineVoice0->mute(0, 1, false); m_engineVoice0->mute(0, 2, false);
+    m_engineVoice1->mute(0, 0, false); m_engineVoice1->mute(0, 2, false);
+    m_engineVoice2->mute(0, 0, false); m_engineVoice2->mute(0, 1, false);
+    
+    // Reprendre la lecture si elle était en cours
+    if (wasPlaying) {
+        play();
+    }
+    
+    return true;
 }

@@ -13,11 +13,7 @@ bool FilterWidget::render(const std::string& currentValue,
                           bool downArrowPressed) {
     bool valueChanged = false;
     
-    // Label
-    ImGui::Text("%s:", m_label.c_str());
-    ImGui::SameLine();
-    
-    // Champ de saisie
+    // Champ de saisie (label intégré dans le hint, pas de label séparé)
     ImGui::SetNextItemWidth(m_inputWidth);
     
     char buffer[256];
@@ -25,8 +21,10 @@ bool FilterWidget::render(const std::string& currentValue,
     buffer[sizeof(buffer) - 1] = '\0';
     
     // Utiliser le flag EnterReturnsTrue pour détecter quand Entrée est pressée
+    // Intégrer le label dans le hint : "All Author", "All Year", etc.
+    std::string hintText = currentValue.empty() ? ("All " + m_label) : currentValue.c_str();
     bool enterPressed = ImGui::InputTextWithHint(("##" + m_label + "Input").c_str(), 
-                                                  currentValue.empty() ? "All" : currentValue.c_str(), 
+                                                  hintText.c_str(), 
                                                   buffer, sizeof(buffer),
                                                   ImGuiInputTextFlags_EnterReturnsTrue);
     
@@ -115,9 +113,10 @@ bool FilterWidget::render(const std::string& currentValue,
             }
         }
         
-        // Option "All" (pas de filtre)
+        // Option "All" (pas de filtre) - avec label intégré
         bool isAllSelected = currentValue.empty();
-        if (ImGui::Selectable("All", isAllSelected)) {
+        std::string allLabel = "All " + m_label;
+        if (ImGui::Selectable(allLabel.c_str(), isAllSelected)) {
             onValueChanged("");
             m_query.clear();
             m_selectedIndex = -1;
