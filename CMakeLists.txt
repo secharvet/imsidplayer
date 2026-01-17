@@ -340,7 +340,9 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR NOT CMAKE_BUILD_TYPE)
     target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_DEBUG_LOGS=1)
     message(STATUS "Build type: Debug - symbols enabled, DEBUG logs enabled")
 else()
-    message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
+    # En mode Release, définir NDEBUG pour désactiver les logs DEBUG
+    target_compile_definitions(${PROJECT_NAME} PRIVATE NDEBUG=1)
+    message(STATUS "Build type: ${CMAKE_BUILD_TYPE} - DEBUG logs disabled (NDEBUG defined)")
 endif()
 
 # Flags de linkage
@@ -352,4 +354,3 @@ target_link_directories(${PROJECT_NAME} PRIVATE
 # La police doit être accessible depuis l'exécutable (dans bin/)
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/fonts DESTINATION ${CMAKE_BINARY_DIR}/bin)
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/fonts DESTINATION ${CMAKE_BINARY_DIR})
-

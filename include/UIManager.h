@@ -106,6 +106,7 @@ private:
     FilterWidget m_yearFilterWidget;    // Widget de filtre pour les années
     bool m_filtersActive;  // True si au moins un filtre est actif (item sélectionné dans la liste)
     std::unordered_map<PlaylistNode*, bool> m_openNodes;  // État d'ouverture des nœuds (pour filtrage dynamique)
+    bool m_shouldFocusPlaylist;  // Flag pour donner le focus à la fenêtre de playlist à la prochaine frame
     
     // Virtual Scrolling : Liste plate des nœuds visibles
     struct FlatNode {

@@ -33,6 +33,7 @@ UIManager::UIManager(SidPlayer& player, PlaylistManager& playlist, BackgroundMan
       m_databaseOperationInProgress(false), m_databaseOperationProgress(0.0f),
       m_filtersNeedUpdate(true), m_authorFilterWidget("Author", 200.0f), m_yearFilterWidget("Year", 150.0f),
       m_filtersActive(false),
+      m_shouldFocusPlaylist(false),
       m_flatListValid(false),        // Virtual Scrolling : liste plate invalide au départ
       m_visibleIndicesValid(false),  // Virtual Scrolling : liste d'indices invalide au départ
       m_cachedCurrentIndex(-1), m_navigationCacheValid(false),
@@ -328,6 +329,7 @@ void UIManager::renderPlayerTab() {
         if (ImGui::Selectable(clickableText.c_str(), false, ImGuiSelectableFlags_None)) {
             // Au clic, positionner l'arbre sur le morceau en cours
             m_playlist.setScrollToCurrent(true);
+            m_shouldFocusPlaylist = true;  // Donner le focus à la playlist à la prochaine frame
         }
         if (ImGui::IsItemHovered()) {
             ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
@@ -1049,6 +1051,13 @@ void UIManager::renderPlaylistPanel() {
     ImGui::SetNextWindowPos(ImVec2(mainPanelWidth, 0), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(playlistPanelWidth, (float)windowHeight), ImGuiCond_Always);
     ImGui::SetNextWindowBgAlpha(0.0f);
+    
+    // Donner le focus à la fenêtre de playlist si demandé
+    if (m_shouldFocusPlaylist) {
+        ImGui::SetNextWindowFocus();
+        m_shouldFocusPlaylist = false;
+    }
+    
     ImGui::Begin("Playlist", nullptr, 
         ImGuiWindowFlags_NoTitleBar | 
         ImGuiWindowFlags_NoResize | 
@@ -1153,6 +1162,13 @@ void UIManager::renderPlaylistTree() {
                     break;
                 }
             }
+        }
+        
+        // Si le fichier n'est pas visible (à cause du filtre), désactiver le scroll immédiatement
+        // pour éviter les recalculs constants
+        if (currentIndex < 0) {
+            m_playlist.setScrollToCurrent(false);
+            shouldScroll = false;
         }
     }
     
@@ -1506,9 +1522,22 @@ void UIManager::navigateToFile(const std::string& filepath) {
     auto allFiles = m_playlist.getAllFiles();
     for (PlaylistNode* node : allFiles) {
         if (node && node->filepath == filepath) {
+            // Si des filtres sont actifs et que le fichier ne correspond pas, désactiver les filtres
+            // pour que le fichier soit visible dans l'arbre
+            if (m_filtersActive && !matchesFilters(node)) {
+                m_filterAuthor.clear();
+                m_filterYear.clear();
+                m_filtersActive = false;
+                invalidateFlatList();
+                invalidateVisibleIndices();
+                // Invalider aussi le cache de navigation
+                m_navigationCacheValid = false;
+            }
+            
             // Sélectionner ce nœud
             m_playlist.setCurrentNode(node);
             m_playlist.setScrollToCurrent(true);
+            m_shouldFocusPlaylist = true;  // Donner le focus à la playlist à la prochaine frame
             
             // Charger et jouer le fichier
             if (m_player.loadFile(filepath)) {
@@ -1521,8 +1550,6 @@ void UIManager::navigateToFile(const std::string& filepath) {
             m_searchResults.clear();
             m_selectedSearchResult = -1;
             m_searchListFocused = false;
-            
-            // Note : on ne restaure pas les filtres ici car l'utilisateur a peut-être voulu les garder
             
             break;
         }
@@ -2378,9 +2405,23 @@ void UIManager::renderHistoryTab() {
                         if (metadata->metadataHash == entry.metadataHash) {
                             hashMatchCount++;
                             LOG_DEBUG("Found matching file: {} (hash: {})", node->filepath, metadata->metadataHash);
+                            
+                            // Si des filtres sont actifs et que le fichier ne correspond pas, désactiver les filtres
+                            // pour que le fichier soit visible dans l'arbre
+                            if (m_filtersActive && !matchesFilters(node)) {
+                                m_filterAuthor.clear();
+                                m_filterYear.clear();
+                                m_filtersActive = false;
+                                invalidateFlatList();
+                                invalidateVisibleIndices();
+                                // Invalider aussi le cache de navigation
+                                m_navigationCacheValid = false;
+                            }
+                            
                             // Sélectionner ce nœud
                             m_playlist.setCurrentNode(node);
                             m_playlist.setScrollToCurrent(true);
+                            m_shouldFocusPlaylist = true;  // Donner le focus à la playlist à la prochaine frame
                             
                             // Charger et jouer le fichier
                             if (m_player.loadFile(node->filepath)) {
