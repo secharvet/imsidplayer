@@ -1,5 +1,5 @@
 #!/bin/bash
-# Script pour tester la compilation Windows dans Docker localement
+# Script pour tester la compilation Windows avec Podman/Docker localement
 # Usage: ./docker-test-windows.sh
 
 set -e
@@ -7,27 +7,39 @@ set -e
 IMAGE_NAME="imsidplayer-windows"
 DOCKERFILE="Dockerfile.windows"
 
-echo "=== Test de compilation Windows avec Docker ==="
-echo ""
-
-# Vérifier que Docker est installé
-if ! command -v docker &> /dev/null; then
-    echo "❌ Docker n'est pas installé. Installez-le avec:"
+# Détecter podman ou docker
+if command -v podman &> /dev/null; then
+    CONTAINER_CMD="podman"
+    echo "✅ Utilisation de Podman"
+elif command -v docker &> /dev/null; then
+    CONTAINER_CMD="docker"
+    echo "✅ Utilisation de Docker"
+else
+    echo "❌ Ni Podman ni Docker n'est installé. Installez l'un des deux:"
+    echo "   sudo apt install podman"
+    echo "   ou"
     echo "   sudo apt install docker.io"
     exit 1
 fi
 
-# Vérifier que Docker fonctionne
-if ! docker info &> /dev/null; then
-    echo "❌ Docker n'est pas en cours d'exécution. Démarrez-le avec:"
-    echo "   sudo systemctl start docker"
+echo "=== Test de compilation Windows avec $CONTAINER_CMD ==="
+echo ""
+
+# Vérifier que le conteneur fonctionne
+if ! $CONTAINER_CMD info &> /dev/null; then
+    if [ "$CONTAINER_CMD" = "docker" ]; then
+        echo "❌ Docker n'est pas en cours d'exécution. Démarrez-le avec:"
+        echo "   sudo systemctl start docker"
+    else
+        echo "⚠️  Podman devrait fonctionner sans daemon"
+    fi
     exit 1
 fi
 
 # Construire l'image si elle n'existe pas
-if ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
-    echo "📦 Construction de l'image Docker (cela peut prendre plusieurs minutes)..."
-    docker build -f "$DOCKERFILE" -t "$IMAGE_NAME" .
+if ! $CONTAINER_CMD image exists "$IMAGE_NAME" 2>/dev/null; then
+    echo "📦 Construction de l'image (cela peut prendre plusieurs minutes)..."
+    $CONTAINER_CMD build -f "$DOCKERFILE" -t "$IMAGE_NAME" .
     if [ $? -ne 0 ]; then
         echo "❌ Échec de la construction de l'image"
         exit 1
@@ -42,7 +54,7 @@ echo "🧪 Test de compilation dans le conteneur..."
 echo ""
 
 # Tester la compilation
-docker run --rm \
+$CONTAINER_CMD run --rm \
   -v "$(pwd):/workspace" \
   -w /workspace \
   "$IMAGE_NAME" \
