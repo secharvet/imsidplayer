@@ -1,0 +1,11 @@
+# Fichiers à ignorer lors de la construction de l'image Docker
+build/
+.git/
+.gitignore
+*.code-workspace
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store

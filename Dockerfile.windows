@@ -1,0 +1,32 @@
+# Dockerfile pour tester la compilation Windows (MSYS2/MinGW) localement
+# Usage: docker build -f Dockerfile.windows -t imsidplayer-windows .
+#        docker run -it -v $(pwd):/workspace imsidplayer-windows bash
+
+FROM msys2/msys2:latest
+
+# Mettre à jour le système et installer les dépendances
+RUN pacman -Syu --noconfirm && \
+    pacman -S --noconfirm --needed \
+      mingw-w64-x86_64-gcc \
+      mingw-w64-x86_64-cmake \
+      mingw-w64-x86_64-make \
+      mingw-w64-x86_64-SDL2 \
+      mingw-w64-x86_64-SDL2_image \
+      mingw-w64-x86_64-libsidplayfp \
+      mingw-w64-x86_64-pkg-config \
+      mingw-w64-x86_64-perl \
+      python \
+      python-pip \
+      zip \
+      git \
+      base-devel
+
+# Créer un script d'environnement pour faciliter l'utilisation
+RUN echo 'export PATH="/mingw64/bin:/usr/bin:$PATH"' >> /etc/profile.d/mingw.sh && \
+    echo 'export SIDPLAYFP_ROOT=/mingw64' >> /etc/profile.d/mingw.sh
+
+# Définir le répertoire de travail
+WORKDIR /workspace
+
+# Commande par défaut
+CMD ["/usr/bin/bash"]
