@@ -93,17 +93,12 @@ jobs:
           python-pip \
           zip
         
-        # Install Rust for building rpds-py (dependency of jsonschema)
-        pacman -S --noconfirm --needed mingw-w64-x86_64-rust || echo "Rust installation failed, trying alternative"
-        # Add Rust to PATH for pip
-        export PATH="/mingw64/bin:$PATH"
-        
         # Create Python virtual environment for MBed TLS dependencies
         python -m venv venv
         source venv/bin/activate || venv/Scripts/activate
         pip install --upgrade pip
-        # Try installing jsonschema (may need Rust for rpds-py)
-        pip install jsonschema || pip install "jsonschema<5.0.0" || echo "jsonschema installation failed"
+        # Use jsonschema 3.x which doesn't require rpds-py (no Rust needed)
+        pip install "jsonschema>=3.0.0,<4.0.0" || echo "jsonschema installation failed"
         # Export venv Python path for MBed TLS scripts
         echo "PYTHON=$(which python)" >> $GITHUB_ENV
         
