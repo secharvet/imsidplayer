@@ -249,6 +249,8 @@ if(ENABLE_CLOUD_SAVE)
         # Options de compilation MBed TLS (avant add_subdirectory)
         set(ENABLE_PROGRAMS OFF CACHE BOOL "Build programs" FORCE)
         set(ENABLE_TESTING OFF CACHE BOOL "Build tests" FORCE)
+        # Activer la génération de fichiers (nécessaire pour error.c, ssl_debug_helpers_generated.c, etc.)
+        set(GEN_FILES ON CACHE BOOL "Generate auto-generated files" FORCE)
         
         # Les modules nécessaires pour npoint.io sont activés par défaut dans MBed TLS
         # On n'a pas besoin de les redéfinir, ils sont déjà dans mbedtls_config.h
