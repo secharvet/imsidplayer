@@ -15,7 +15,7 @@ std::string calculateFileMd5(const std::string& filepath) {
         return "";
     }
     
-    MD5 md5;
+    imsid::ImSidMD5 md5;
     char buffer[4096];
     
     while (file.read(buffer, sizeof(buffer))) {
@@ -31,7 +31,7 @@ std::string calculateFileMd5(const std::string& filepath) {
 
 // Helper function to calculate MD5 of a string
 std::string calculateStringMd5(const std::string& str) {
-    MD5 md5;
+    imsid::ImSidMD5 md5;
     md5.update(reinterpret_cast<const unsigned char*>(str.c_str()), str.length());
     md5.finalize();
     return md5.toString();
@@ -143,7 +143,7 @@ int main() {
     
     // Test 8: Reset and reuse
     tests++;
-    MD5 md5_test;
+    imsid::ImSidMD5 md5_test;
     md5_test.update(reinterpret_cast<const unsigned char*>("test"), 4);
     md5_test.finalize();
     std::string hash1 = md5_test.toString();

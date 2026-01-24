@@ -59,11 +59,13 @@ static uint32_t rotateLeft(uint32_t x, uint32_t n) {
     return (x << n) | (x >> (32 - n));
 }
 
-MD5::MD5() {
+namespace imsid {
+
+ImSidMD5::ImSidMD5() {
     init();
 }
 
-void MD5::init() {
+void ImSidMD5::init() {
     _finalized = false;
     _count[0] = 0;
     _count[1] = 0;
@@ -75,16 +77,15 @@ void MD5::init() {
     std::memset(_digest, 0, sizeof(_digest));
 }
 
-void MD5::reset() {
+void ImSidMD5::reset() {
     init();
 }
 
-void MD5::update(const unsigned char* input, size_t inputLen) {
+void ImSidMD5::update(const unsigned char* input, size_t inputLen) {
     if (_finalized) {
         return;
     }
     
-    uint32_t input_words[16];
     // Calculate current offset in bytes
     uint64_t size_in_bytes = ((uint64_t)_count[1] << 32) | _count[0];
     unsigned int offset = (unsigned int)(size_in_bytes % 64);
@@ -102,26 +103,17 @@ void MD5::update(const unsigned char* input, size_t inputLen) {
         // then reset the offset to 0 and fill in a new buffer.
         // Every time we fill out a chunk, we run it through the algorithm
         if (offset % 64 == 0) {
-            for (unsigned int j = 0; j < 16; ++j) {
-                // Convert to little-endian
-                // The local variable `input_words` our 512-bit chunk separated into 32-bit words
-                input_words[j] = (uint32_t)(_buffer[(j * 4) + 3]) << 24 |
-                                (uint32_t)(_buffer[(j * 4) + 2]) << 16 |
-                                (uint32_t)(_buffer[(j * 4) + 1]) <<  8 |
-                                (uint32_t)(_buffer[(j * 4)]);
-            }
             transform(_state, _buffer);
             offset = 0;
         }
     }
 }
 
-void MD5::finalize() {
+void ImSidMD5::finalize() {
     if (_finalized) {
         return;
     }
     
-    uint32_t input_words[16];
     // Calculate current offset in bytes
     uint64_t total_size = ((uint64_t)_count[1] << 32) | _count[0];
     unsigned int offset = (unsigned int)(total_size % 64);
@@ -137,6 +129,7 @@ void MD5::finalize() {
     _count[1] = (uint32_t)((total_size >> 32) & 0xFFFFFFFF);
     
     // Prepare final block with size in bits (little-endian)
+    uint32_t input_words[16];
     // The buffer now contains the padding, we need to write the size at the end
     for (unsigned int j = 0; j < 14; ++j) {
         input_words[j] = (uint32_t)(_buffer[(j * 4) + 3]) << 24 |
@@ -173,7 +166,7 @@ void MD5::finalize() {
     _finalized = true;
 }
 
-std::string MD5::toString() const {
+std::string ImSidMD5::toString() const {
     if (!_finalized) {
         return "";
     }
@@ -186,7 +179,13 @@ std::string MD5::toString() const {
     return ss.str();
 }
 
-void MD5::transform(uint32_t state[4], const unsigned char block[64]) {
+void ImSidMD5::getDigest(unsigned char* output) const {
+    if (_finalized) {
+        std::memcpy(output, _digest, 16);
+    }
+}
+
+void ImSidMD5::transform(uint32_t state[4], const unsigned char block[64]) {
     uint32_t input[16];
     
     // Convert block to 32-bit words (little-endian)
@@ -240,16 +239,18 @@ void MD5::transform(uint32_t state[4], const unsigned char block[64]) {
     std::memset(input, 0, sizeof(input));
 }
 
-void MD5::encode(unsigned char* output, const uint32_t* input, size_t len) {
+void ImSidMD5::encode(unsigned char* output, const uint32_t* input, size_t len) {
     // Not used in this implementation, kept for interface compatibility
     (void)output;
     (void)input;
     (void)len;
 }
 
-void MD5::decode(uint32_t* output, const unsigned char* input, size_t len) {
+void ImSidMD5::decode(uint32_t* output, const unsigned char* input, size_t len) {
     // Not used in this implementation, kept for interface compatibility
     (void)output;
     (void)input;
     (void)len;
 }
+
+} // namespace imsid

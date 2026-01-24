@@ -63,7 +63,7 @@ std::string calculateFileMD5(const std::string& filepath) {
             return "";
         }
         
-        MD5 md5;
+        imsid::ImSidMD5 md5;
         std::vector<unsigned char> buffer(4096);
         
         while (file.read(reinterpret_cast<char*>(buffer.data()), buffer.size())) {

@@ -4,15 +4,17 @@
 #include <string>
 #include <cstdint>
 
+namespace imsid {
+
 /**
  * MD5 hash implementation (RFC 1321)
  * 
  * Simple, lightweight MD5 implementation with no external dependencies.
  * Used for calculating MD5 hashes of SID files for Songlengths.md5 support.
  */
-class MD5 {
+class ImSidMD5 {
 public:
-    MD5();
+    ImSidMD5();
     
     /**
      * Update the hash with new data
@@ -34,6 +36,12 @@ public:
     std::string toString() const;
     
     /**
+     * Get the digest as raw bytes (16 bytes)
+     * @param output Buffer to store the 16 bytes digest
+     */
+    void getDigest(unsigned char* output) const;
+    
+    /**
      * Reset the hash to initial state
      * Allows reuse of the same MD5 object
      */
@@ -51,6 +59,8 @@ private:
     unsigned char _digest[16];  // Message digest
     bool _finalized;            // True if finalize() has been called
 };
+
+} // namespace imsid
 
 #endif // MD5_H
 
