@@ -83,6 +83,14 @@ jobs:
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+    env:
+      CC: x86_64-w64-mingw32-gcc
+      CXX: x86_64-w64-mingw32-g++
+      PATH: /usr/x86_64-w64-mingw32/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      SIDPLAYFP_ROOT: /usr/x86_64-w64-mingw32
+      PKG_CONFIG_PATH: /usr/x86_64-w64-mingw32/lib/pkgconfig
+      PKG_CONFIG_LIBDIR: /usr/x86_64-w64-mingw32/lib/pkgconfig
+      PKG_CONFIG_SYSROOT_DIR: /
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -107,20 +115,30 @@ jobs:
           echo "is_release=false" >> $GITHUB_OUTPUT
         fi
 
+    - name: Prepare Python environment
+      run: |
+        python3 -m venv venv
+        . venv/bin/activate
+        pip install --upgrade pip
+        pip install "jsonschema>=3.0.0,<4.0.0" jinja2
+
     - name: Configure CMake
       run: |
+        . venv/bin/activate
         cmake -B build-win -S . \
           -DCMAKE_SYSTEM_NAME=Windows \
           -DCMAKE_C_COMPILER=$CC \
           -DCMAKE_CXX_COMPILER=$CXX \
           -DCMAKE_BUILD_TYPE=Release \
           -DENABLE_CLOUD_SAVE=ON \
-          -DPython3_EXECUTABLE=$(which python3) \
+          -DPython3_EXECUTABLE=$(pwd)/venv/bin/python3 \
           -DCMAKE_FIND_ROOT_PATH=/usr/x86_64-w64-mingw32 \
           -DSDL2_DIR=/usr/x86_64-w64-mingw32/lib/cmake/SDL2
 
     - name: Build
-      run: cmake --build build-win --config Release -j$(nproc)
+      run: |
+        . venv/bin/activate
+        cmake --build build-win --config Release -j$(nproc)
 
     - name: Prepare Windows artifacts (Install)
       run: |
@@ -132,7 +150,7 @@ jobs:
       if: steps.get_version.outputs.is_release == 'true'
       run: |
         VERSION="${{ steps.get_version.outputs.version }}"
-        apt-get update && apt-get install -y zip
+        # zip est déjà dans l'image
         cd artifacts/windows
         zip -r "../imSidPlayer-${VERSION}-windows.zip" .
         cd ../..
