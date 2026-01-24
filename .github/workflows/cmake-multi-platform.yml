@@ -135,8 +135,8 @@ jobs:
         elif [ -d "$(pwd)/venv/Scripts" ]; then
           VENV_PYTHON_PATH="$(pwd)/venv/Scripts:"
         fi
-        echo "PATH=${VENV_PYTHON_PATH}/mingw64/bin:/usr/bin:$PATH" >> $GITHUB_ENV
-        export PATH="${VENV_PYTHON_PATH}/mingw64/bin:/usr/bin:$PATH"
+        echo "PATH=${VENV_PYTHON_PATH}mingw64/bin:/usr/bin:$PATH" >> $GITHUB_ENV
+        export PATH="${VENV_PYTHON_PATH}mingw64/bin:/usr/bin:$PATH"
     
     - name: Inspect mingw64 directory
       if: runner.os == 'Windows'
