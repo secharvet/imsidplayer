@@ -128,8 +128,15 @@ jobs:
         
         # Set environment variables for CMake (export to GITHUB_ENV for next steps)
         echo "SIDPLAYFP_ROOT=/mingw64" >> $GITHUB_ENV
-        echo "PATH=/mingw64/bin:/usr/bin:$PATH" >> $GITHUB_ENV
-        export PATH="/mingw64/bin:/usr/bin:$PATH"
+        # Add venv to PATH for Python scripts (MBed TLS generation)
+        VENV_PYTHON_PATH=""
+        if [ -d "$(pwd)/venv/bin" ]; then
+          VENV_PYTHON_PATH="$(pwd)/venv/bin:"
+        elif [ -d "$(pwd)/venv/Scripts" ]; then
+          VENV_PYTHON_PATH="$(pwd)/venv/Scripts:"
+        fi
+        echo "PATH=${VENV_PYTHON_PATH}/mingw64/bin:/usr/bin:$PATH" >> $GITHUB_ENV
+        export PATH="${VENV_PYTHON_PATH}/mingw64/bin:/usr/bin:$PATH"
     
     - name: Inspect mingw64 directory
       if: runner.os == 'Windows'
