@@ -196,15 +196,34 @@ jobs:
         echo "Make path (Windows): $MAKE_PATH"
         echo "pkg-config path (Windows): $PKG_CONFIG_PATH"
         
+        # Activate venv and set Python path for CMake
+        if [ -f "venv/bin/activate" ]; then
+          source venv/bin/activate
+        elif [ -f "venv/Scripts/activate" ]; then
+          source venv/Scripts/activate
+        fi
+        VENV_PYTHON=""
+        if [ -f "$(pwd)/venv/bin/python" ]; then
+          VENV_PYTHON="$(pwd)/venv/bin/python"
+        elif [ -f "$(pwd)/venv/Scripts/python.exe" ]; then
+          VENV_PYTHON="$(cygpath -w "$(pwd)/venv/Scripts/python.exe")"
+        fi
+        
         # Configure CMake with MinGW
-        cmake -B build -S . \
-          -G "MinGW Makefiles" \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_C_COMPILER="$GCC_PATH" \
-          -DCMAKE_CXX_COMPILER="$GXX_PATH" \
-          -DCMAKE_MAKE_PROGRAM="$MAKE_PATH" \
-          -DPKG_CONFIG_EXECUTABLE="$PKG_CONFIG_PATH" \
+        CMAKE_ARGS=(
+          -B build -S .
+          -G "MinGW Makefiles"
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER="$GCC_PATH"
+          -DCMAKE_CXX_COMPILER="$GXX_PATH"
+          -DCMAKE_MAKE_PROGRAM="$MAKE_PATH"
+          -DPKG_CONFIG_EXECUTABLE="$PKG_CONFIG_PATH"
           -DENABLE_CLOUD_SAVE=ON
+        )
+        if [ -n "$VENV_PYTHON" ]; then
+          CMAKE_ARGS+=(-DPython3_EXECUTABLE="$VENV_PYTHON")
+        fi
+        cmake "${CMAKE_ARGS[@]}"
     
     - name: Build (Windows MinGW)
       if: runner.os == 'Windows'
