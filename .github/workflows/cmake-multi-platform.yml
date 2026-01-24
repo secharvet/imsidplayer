@@ -79,19 +79,35 @@ jobs:
       if: runner.os == 'Windows'
       shell: msys2 {0}
       run: |
-        # Install build tools and dependencies via MSYS2/MinGW
-        pacman -S --noconfirm --needed \
-          mingw-w64-x86_64-gcc \
-          mingw-w64-x86_64-cmake \
-          mingw-w64-x86_64-make \
-          mingw-w64-x86_64-SDL2 \
-          mingw-w64-x86_64-SDL2_image \
-          mingw-w64-x86_64-libsidplayfp \
-          mingw-w64-x86_64-pkg-config \
-          mingw-w64-x86_64-perl \
-          python \
-          python-pip \
-          zip
+        # Install build tools and dependencies via MSYS2/MinGW with retry
+        MAX_RETRIES=3
+        RETRY_COUNT=0
+        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+          if pacman -S --noconfirm --needed \
+            mingw-w64-x86_64-gcc \
+            mingw-w64-x86_64-cmake \
+            mingw-w64-x86_64-make \
+            mingw-w64-x86_64-SDL2 \
+            mingw-w64-x86_64-SDL2_image \
+            mingw-w64-x86_64-libsidplayfp \
+            mingw-w64-x86_64-pkg-config \
+            mingw-w64-x86_64-perl \
+            python \
+            python-pip \
+            zip; then
+            echo "Packages installed successfully"
+            break
+          else
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+              echo "Installation failed, retrying in 10 seconds... (attempt $RETRY_COUNT/$MAX_RETRIES)"
+              sleep 10
+            else
+              echo "Installation failed after $MAX_RETRIES attempts"
+              exit 1
+            fi
+          fi
+        done
         
         # Create Python virtual environment for MBed TLS dependencies
         python -m venv venv
