@@ -2,57 +2,44 @@ name: CMake Multi-Platform
 
 permissions:
   contents: write
+  packages: read
 
 on:
   push:
     branches: [ main ]
     tags:
-      - 'v*'  # Triggers on tags like v0.0.1, v0.0.2, etc. (alpha versioning)
+      - 'v*'
   pull_request:
     branches: [ main ]
 
 jobs:
-  build:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    
+  build-linux:
+    runs-on: ubuntu-latest
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
         submodules: 'recursive'
-        fetch-depth: 0  # Fetch all history for tags
-    
+        fetch-depth: 0
+
     - name: Get version from tag
       id: get_version
       shell: bash
       run: |
         if [ "${{ github.ref_type }}" = "tag" ]; then
           VERSION="${{ github.ref_name }}"
-          # Remove 'v' prefix if present
           VERSION=${VERSION#v}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
           echo "is_release=true" >> $GITHUB_OUTPUT
         else
-          # Use commit SHA for non-tag builds
           VERSION="dev-${{ github.sha }}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=" >> $GITHUB_OUTPUT
           echo "is_release=false" >> $GITHUB_OUTPUT
         fi
-        echo "Version: $VERSION"
-        if [ "${{ github.ref_type }}" = "tag" ]; then
-          echo "Is release: true"
-        else
-          echo "Is release: false"
-        fi
-    
+
     - name: Install Linux dependencies
-      if: runner.os == 'Linux'
       run: |
         sudo apt-get update
         sudo apt-get install -y \
@@ -62,602 +49,146 @@ jobs:
           libsdl2-image-dev \
           libsidplayfp-dev \
           pkg-config
-    
-    - name: Install macOS dependencies
-      if: runner.os == 'macOS'
-      run: |
-        brew update
-        brew install cmake sdl2 sdl2_image sidplayfp pkg-config
-    
-    - name: Setup MSYS2
-      if: runner.os == 'Windows'
-      uses: msys2/setup-msys2@v2
-      with:
-        update: true
-    
-    - name: Install Windows dependencies (MinGW)
-      if: runner.os == 'Windows'
-      shell: msys2 {0}
-      run: |
-        # Install build tools and dependencies via MSYS2/MinGW with retry
-        MAX_RETRIES=3
-        RETRY_COUNT=0
-        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-          if pacman -S --noconfirm --needed \
-            mingw-w64-x86_64-gcc \
-            mingw-w64-x86_64-cmake \
-            mingw-w64-x86_64-make \
-            mingw-w64-x86_64-SDL2 \
-            mingw-w64-x86_64-SDL2_image \
-            mingw-w64-x86_64-libsidplayfp \
-            mingw-w64-x86_64-pkg-config \
-            mingw-w64-x86_64-perl \
-            python \
-            python-pip \
-            zip; then
-            echo "Packages installed successfully"
-            break
-          else
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-            if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-              echo "Installation failed, retrying in 10 seconds... (attempt $RETRY_COUNT/$MAX_RETRIES)"
-              sleep 10
-            else
-              echo "Installation failed after $MAX_RETRIES attempts"
-              exit 1
-            fi
-          fi
-        done
-        
-        # Create Python virtual environment for MBed TLS dependencies
-        python -m venv venv
-        source venv/bin/activate || venv/Scripts/activate
-        pip install --upgrade pip
-        # Use jsonschema 3.x which doesn't require rpds-py (no Rust needed)
-        pip install "jsonschema>=3.0.0,<4.0.0" || echo "jsonschema installation failed"
-        # Export venv Python path for MBed TLS scripts
-        echo "PYTHON=$(which python)" >> $GITHUB_ENV
-        
-        # Verify installations
-        echo "=== Checking MinGW tools ==="
-        which gcc
-        which g++
-        which cmake
-        which pkg-config
-        which make || which mingw32-make || echo "make not found, will install"
-        which perl
-        which python
-        gcc --version
-        pkg-config --version
-        perl --version
-        python --version
-        
-        # Make sure make is available (mingw-w64-x86_64-make installs mingw32-make)
-        if ! command -v make &> /dev/null; then
-          if command -v mingw32-make &> /dev/null; then
-            echo "mingw32-make found, creating symlink to make"
-            ln -sf $(which mingw32-make) /mingw64/bin/make
-          else
-            echo "Installing make..."
-            pacman -S --noconfirm --needed make
-          fi
-        fi
-        
-        # Set environment variables for CMake (export to GITHUB_ENV for next steps)
-        echo "SIDPLAYFP_ROOT=/mingw64" >> $GITHUB_ENV
-        # Add venv to PATH for Python scripts (MBed TLS generation)
-        VENV_PYTHON_PATH=""
-        if [ -d "$(pwd)/venv/bin" ]; then
-          VENV_PYTHON_PATH="$(pwd)/venv/bin:"
-        elif [ -d "$(pwd)/venv/Scripts" ]; then
-          VENV_PYTHON_PATH="$(pwd)/venv/Scripts:"
-        fi
-        echo "PATH=${VENV_PYTHON_PATH}mingw64/bin:/usr/bin:$PATH" >> $GITHUB_ENV
-        # Export Python path explicitly for CMake
-        if [ -f "$(pwd)/venv/bin/python" ]; then
-          echo "PYTHON=$(pwd)/venv/bin/python" >> $GITHUB_ENV
-        elif [ -f "$(pwd)/venv/Scripts/python.exe" ]; then
-          echo "PYTHON=$(pwd)/venv/Scripts/python.exe" >> $GITHUB_ENV
-        fi
-        export PATH="${VENV_PYTHON_PATH}mingw64/bin:/usr/bin:$PATH"
-    
-    - name: Inspect mingw64 directory
-      if: runner.os == 'Windows'
-      shell: msys2 {0}
-      run: |
-        echo "=== Contents of /mingw64 ==="
-        ls -la /mingw64 | head -20
-        echo ""
-        echo "=== Contents of /mingw64/lib ==="
-        ls -la /mingw64/lib | grep -i sid || echo "No sidplayfp in lib"
-        echo ""
-        echo "=== Contents of /mingw64/include ==="
-        ls -la /mingw64/include | grep -i sid || echo "No sidplayfp in include"
-        echo ""
-        echo "=== Searching for sidplayfp files ==="
-        find /mingw64 -name "*sidplayfp*" -type f 2>/dev/null | head -20
-        echo ""
-        echo "=== pkg-config info for libsidplayfp ==="
-        pkg-config --modversion libsidplayfp 2>&1 || echo "pkg-config libsidplayfp not found"
-        pkg-config --cflags libsidplayfp 2>&1 || echo "pkg-config --cflags failed"
-        pkg-config --libs libsidplayfp 2>&1 || echo "pkg-config --libs failed"
-    
-    - name: Configure CMake (Windows MinGW)
-      if: runner.os == 'Windows'
-      shell: msys2 {0}
-      run: |
-        # Convert Windows path to MSYS2 path and set PATH
-        export PATH="/mingw64/bin:/usr/bin:$PATH"
-        WORKSPACE=$(cygpath -u "${{ github.workspace }}")
-        cd "$WORKSPACE"
-        
-        # Verify we're using MinGW tools
-        echo "=== Using MinGW tools ==="
-        which gcc
-        which cmake
-        which pkg-config
-        gcc --version
-        pkg-config --version
-        
-        # Convert Unix paths to Windows paths for CMake
-        GCC_PATH=$(cygpath -w "$(which gcc)")
-        GXX_PATH=$(cygpath -w "$(which g++)")
-        # Try make, then mingw32-make, then use /usr/bin/make
-        MAKE_CMD=$(which make 2>/dev/null || which mingw32-make 2>/dev/null || echo "/usr/bin/make")
-        MAKE_PATH=$(cygpath -w "$MAKE_CMD")
-        PKG_CONFIG_PATH=$(cygpath -w "$(which pkg-config)")
-        echo "GCC path (Windows): $GCC_PATH"
-        echo "G++ path (Windows): $GXX_PATH"
-        echo "Make command: $MAKE_CMD"
-        echo "Make path (Windows): $MAKE_PATH"
-        echo "pkg-config path (Windows): $PKG_CONFIG_PATH"
-        
-        # Activate venv and set Python path for CMake
-        if [ -f "venv/bin/activate" ]; then
-          source venv/bin/activate
-        elif [ -f "venv/Scripts/activate" ]; then
-          source venv/Scripts/activate
-        fi
-        VENV_PYTHON=""
-        if [ -f "$(pwd)/venv/bin/python" ]; then
-          VENV_PYTHON="$(pwd)/venv/bin/python"
-        elif [ -f "$(pwd)/venv/Scripts/python.exe" ]; then
-          VENV_PYTHON="$(cygpath -w "$(pwd)/venv/Scripts/python.exe")"
-        fi
-        
-        # Configure CMake with MinGW
-        CMAKE_ARGS=(
-          -B build -S .
-          -G "MinGW Makefiles"
-          -DCMAKE_BUILD_TYPE=Release
-          -DCMAKE_C_COMPILER="$GCC_PATH"
-          -DCMAKE_CXX_COMPILER="$GXX_PATH"
-          -DCMAKE_MAKE_PROGRAM="$MAKE_PATH"
-          -DPKG_CONFIG_EXECUTABLE="$PKG_CONFIG_PATH"
-          -DENABLE_CLOUD_SAVE=ON
-        )
-        if [ -n "$VENV_PYTHON" ]; then
-          CMAKE_ARGS+=(-DPython3_EXECUTABLE="$VENV_PYTHON")
-        fi
-        cmake "${CMAKE_ARGS[@]}"
-    
-    - name: Build (Windows MinGW)
-      if: runner.os == 'Windows'
-      shell: msys2 {0}
-      run: |
-        export PATH="/mingw64/bin:/usr/bin:$PATH"
-        WORKSPACE=$(cygpath -u "${{ github.workspace }}")
-        cd "$WORKSPACE"
-        cmake --build build --config Release -j$(nproc)
-    
-    - name: Configure CMake (Linux/macOS)
-      if: runner.os != 'Windows'
-      run: cmake -B ${{ github.workspace }}/build -S ${{ github.workspace }} -DENABLE_CLOUD_SAVE=ON
-    
-    - name: Build (Linux/macOS)
-      if: runner.os != 'Windows'
-      run: cmake --build ${{ github.workspace }}/build --config Release
-    
+
+    - name: Configure CMake
+      run: cmake -B build -S . -DENABLE_CLOUD_SAVE=ON -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build
+      run: cmake --build build --config Release -j$(nproc)
+
     - name: Prepare Linux artifacts
-      if: runner.os == 'Linux'
       run: |
         mkdir -p artifacts/linux
         VERSION="${{ steps.get_version.outputs.version }}"
         cp build/bin/imSidPlayer artifacts/linux/
         strip artifacts/linux/imSidPlayer || true
+        cp -r fonts artifacts/linux/
+        cp -r certs artifacts/linux/
         
-        # Copy FontAwesome fonts directory
-        if [ -d "fonts" ]; then
-          cp -r fonts artifacts/linux/
-          echo "Fonts directory copied to Linux artifacts"
-        elif [ -d "build/bin/fonts" ]; then
-          cp -r build/bin/fonts artifacts/linux/
-          echo "Fonts directory copied from build/bin to Linux artifacts"
-        else
-          echo "Warning: fonts directory not found"
-        fi
-        
-        # Copy certificates directory for cloud save
-        if [ -d "certs" ]; then
-          cp -r certs artifacts/linux/
-          echo "Certificates directory copied to Linux artifacts"
-        else
-          echo "Warning: certs directory not found"
-        fi
-        
-        # Always create versioned file for releases
         if [ "${{ steps.get_version.outputs.is_release }}" = "true" ]; then
           cp artifacts/linux/imSidPlayer "artifacts/linux/imSidPlayer-${VERSION}-linux"
-          chmod +x "artifacts/linux/imSidPlayer-${VERSION}-linux"
-          echo "Created versioned Linux binary: imSidPlayer-${VERSION}-linux"
         fi
-        echo "Linux executable prepared"
-        ls -lh artifacts/linux/
-        if [ -d "artifacts/linux/fonts" ]; then
-          echo "Fonts in artifacts:"
-          ls -lh artifacts/linux/fonts/
-        fi
-        if [ -d "artifacts/linux/certs" ]; then
-          echo "Certificates in artifacts:"
-          ls -lh artifacts/linux/certs/
-        fi
-    
-    - name: Prepare Windows artifacts
-      if: runner.os == 'Windows'
-      shell: msys2 {0}
-      run: |
-        export PATH="/mingw64/bin:/usr/bin:$PATH"
-        WORKSPACE=$(cygpath -u "${{ github.workspace }}")
-        cd "$WORKSPACE"
-        mkdir -p artifacts/windows
-        
-        # Copy executable
-        EXE_PATH="build/bin/imSidPlayer.exe"
-        if [ ! -f "$EXE_PATH" ]; then
-          EXE_PATH="build/bin/imSidPlayer"
-        fi
-        cp "$EXE_PATH" artifacts/windows/imSidPlayer.exe
-        
-        # Core runtime DLLs (MinGW)
-        cp /mingw64/bin/libgcc_s_seh-*.dll artifacts/windows/ 2>/dev/null || true
-        cp /mingw64/bin/libstdc++-*.dll artifacts/windows/ 2>/dev/null || true
-        cp /mingw64/bin/libwinpthread-*.dll artifacts/windows/ 2>/dev/null || true
-        
-        # SDL2 DLLs
-        cp /mingw64/bin/SDL2.dll artifacts/windows/ 2>/dev/null || true
-        
-        # SDL2_image DLL and all its dependencies
-        cp /mingw64/bin/SDL2_image.dll artifacts/windows/ 2>/dev/null || true
-        cp /mingw64/bin/libpng16-16.dll artifacts/windows/ 2>/dev/null || true
-        cp /mingw64/bin/libjpeg-8.dll artifacts/windows/ 2>/dev/null || true
-        cp /mingw64/bin/libtiff-6.dll artifacts/windows/ 2>/dev/null || true
-        cp /mingw64/bin/libwebp-7.dll artifacts/windows/ 2>/dev/null || true
-        cp /mingw64/bin/libwebpdemux-2.dll artifacts/windows/ 2>/dev/null || true
-        cp /mingw64/bin/libavif-16.dll artifacts/windows/ 2>/dev/null || true
-        cp /mingw64/bin/libjxl.dll artifacts/windows/ 2>/dev/null || true
-        cp /mingw64/bin/zlib1.dll artifacts/windows/ 2>/dev/null || true
-        
-        # sidplayfp DLL and its dependencies
-        cp /mingw64/bin/libsidplayfp-*.dll artifacts/windows/ 2>/dev/null || true
-        cp /mingw64/bin/libgcrypt-20.dll artifacts/windows/ 2>/dev/null || true
-        cp /mingw64/bin/libgpg-error-*.dll artifacts/windows/ 2>/dev/null || true
-        
-        # Recursive function to copy all DLL dependencies
-        copy_dll_deps() {
-          local dll_file="$1"
-          local depth="${2:-0}"
-          
-          # Limit recursion depth to avoid infinite loops
-          if [ "$depth" -gt 10 ]; then
-            return 0
-          fi
-          
-          if [ ! -f "$dll_file" ]; then
-            return 0
-          fi
-          
-          # Get dependencies using objdump
-          if ! command -v objdump &> /dev/null; then
-            return 0
-          fi
-          
-          local deps=$(objdump -p "$dll_file" 2>/dev/null | grep "DLL Name:" | awk '{print $3}' | grep -v "^$" | grep -v "^KERNEL32.dll$" | grep -v "^msvcrt.dll$" | grep -v "^USER32.dll$" | grep -v "^GDI32.dll$" || true)
-          
-          for dep in $deps; do
-            # Skip Windows system DLLs
-            case "$dep" in
-              KERNEL32.dll|msvcrt.dll|USER32.dll|GDI32.dll|ADVAPI32.dll|SHELL32.dll|WS2_32.dll|WINMM.dll|OLE32.dll|OLEAUT32.dll|RPCRT4.dll|SHLWAPI.dll|VERSION.dll|WINSPOOL.DRV|comdlg32.dll|gdiplus.dll|IMM32.dll|MSIMG32.dll|PROPSYS.dll|SETUPAPI.dll|UxTheme.dll|dwmapi.dll|IPHLPAPI.DLL|NSI.dll|WINNSI.DLL|dhcpcsvc.DLL|dhcpcsvc6.DLL|DNSAPI.dll|WINHTTP.dll|WINMM.dll|WSOCK32.dll|WS2_32.dll|WS2HELP.dll|ntdll.dll|kernelbase.dll)
-                continue
-                ;;
-            esac
-            
-            local src_dll="/mingw64/bin/$dep"
-            local dst_dll="artifacts/windows/$dep"
-            
-            # Copy if exists in mingw64 and not already copied
-            if [ -f "$src_dll" ] && [ ! -f "$dst_dll" ]; then
-              echo "Copying dependency (depth $depth): $dep"
-              cp "$src_dll" "$dst_dll" 2>/dev/null || true
-              
-              # Recursively copy dependencies of this DLL
-              copy_dll_deps "$dst_dll" $((depth + 1))
-            fi
-          done
-        }
-        
-        # Find and copy all dependencies recursively
-        echo "=== Finding all dependencies recursively ==="
-        if command -v objdump &> /dev/null; then
-          # Start with the executable
-          copy_dll_deps "artifacts/windows/imSidPlayer.exe" 0
-          
-          # Process all DLLs in artifacts/windows recursively
-          # This ensures we catch dependencies of dependencies
-          changed=1
-          iteration=0
-          while [ "$changed" -eq 1 ] && [ "$iteration" -lt 5 ]; do
-            changed=0
-            iteration=$((iteration + 1))
-            echo "=== Dependency pass $iteration ==="
-            for dll in artifacts/windows/*.dll; do
-              if [ -f "$dll" ]; then
-                deps_before=$(ls -1 artifacts/windows/*.dll 2>/dev/null | wc -l)
-                copy_dll_deps "$dll" 0
-                deps_after=$(ls -1 artifacts/windows/*.dll 2>/dev/null | wc -l)
-                if [ "$deps_after" -gt "$deps_before" ]; then
-                  changed=1
-                fi
-              fi
-            done
-          done
-        fi
-        
-        # Copy FontAwesome fonts directory
-        if [ -d "fonts" ]; then
-          cp -r fonts artifacts/windows/
-          echo "Fonts directory copied to Windows artifacts"
-        elif [ -d "build/bin/fonts" ]; then
-          cp -r build/bin/fonts artifacts/windows/
-          echo "Fonts directory copied from build/bin to Windows artifacts"
-        elif [ -d "build/fonts" ]; then
-          cp -r build/fonts artifacts/windows/
-          echo "Fonts directory copied from build to Windows artifacts"
-        else
-          echo "Warning: fonts directory not found"
-        fi
-        
-        # Copy certificates directory for cloud save
-        if [ -d "certs" ]; then
-          cp -r certs artifacts/windows/
-          echo "Certificates directory copied to Windows artifacts"
-        else
-          echo "Warning: certs directory not found"
-        fi
-        
-        echo "=== Windows artifacts prepared ==="
-        ls -lh artifacts/windows/
-        echo ""
-        echo "=== DLL count ==="
-        ls -1 artifacts/windows/*.dll 2>/dev/null | wc -l || echo "0"
-        echo ""
-        echo "=== Fonts in artifacts ==="
-        if [ -d "artifacts/windows/fonts" ]; then
-          ls -lh artifacts/windows/fonts/
-        else
-          echo "Warning: fonts directory not found in Windows artifacts"
-        fi
-        echo ""
-        echo "=== Certificates in artifacts ==="
-        if [ -d "artifacts/windows/certs" ]; then
-          ls -lh artifacts/windows/certs/
-        else
-          echo "Warning: certs directory not found in Windows artifacts"
-        fi
-        
-        # Create versioned archive for releases
-        if [ "${{ steps.get_version.outputs.is_release }}" = "true" ]; then
-          VERSION="${{ steps.get_version.outputs.version }}"
-          cd artifacts/windows
-          zip -r "../imSidPlayer-${VERSION}-windows.zip" . -x "*.zip"
-          cd ../..
-          echo "Created: imSidPlayer-${VERSION}-windows.zip"
-          # Verify fonts and certs are in the zip
-          if command -v unzip &> /dev/null; then
-            echo "=== Verifying fonts in zip ==="
-            unzip -l "../imSidPlayer-${VERSION}-windows.zip" | grep -i "fonts\|fa-solid" || echo "Warning: fonts not found in zip"
-            echo "=== Verifying certificates in zip ==="
-            unzip -l "../imSidPlayer-${VERSION}-windows.zip" | grep -i "certs\|\.pem" || echo "Warning: certificates not found in zip"
-          fi
-        fi
-    
+
     - name: Upload Linux artifacts
-      if: runner.os == 'Linux'
       uses: actions/upload-artifact@v4
       with:
         name: imSidPlayer-linux${{ steps.get_version.outputs.is_release && format('-{0}', steps.get_version.outputs.version) || '' }}
         path: artifacts/linux/
         retention-days: 30
-    
+
+  build-windows:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/imsidplayer/imsidplayer-windows:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: 'recursive'
+        fetch-depth: 0
+
+    - name: Get version from tag
+      id: get_version
+      shell: bash
+      run: |
+        if [ "${{ github.ref_type }}" = "tag" ]; then
+          VERSION="${{ github.ref_name }}"
+          VERSION=${VERSION#v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          echo "is_release=true" >> $GITHUB_OUTPUT
+        else
+          VERSION="dev-${{ github.sha }}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=" >> $GITHUB_OUTPUT
+          echo "is_release=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Configure CMake
+      run: |
+        cmake -B build-win -S . \
+          -DCMAKE_SYSTEM_NAME=Windows \
+          -DCMAKE_C_COMPILER=$CC \
+          -DCMAKE_CXX_COMPILER=$CXX \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DENABLE_CLOUD_SAVE=ON \
+          -DPython3_EXECUTABLE=$(which python3) \
+          -DCMAKE_FIND_ROOT_PATH=/usr/x86_64-w64-mingw32 \
+          -DSDL2_DIR=/usr/x86_64-w64-mingw32/lib/cmake/SDL2
+
+    - name: Build
+      run: cmake --build build-win --config Release -j$(nproc)
+
+    - name: Prepare Windows artifacts (Install)
+      run: |
+        cmake --install build-win --prefix artifacts/windows
+        # Nettoyage des fichiers de dev inutiles dans le bundle
+        rm -rf artifacts/windows/include artifacts/windows/lib artifacts/windows/share
+
+    - name: Create Windows Zip (Release only)
+      if: steps.get_version.outputs.is_release == 'true'
+      run: |
+        VERSION="${{ steps.get_version.outputs.version }}"
+        apt-get update && apt-get install -y zip
+        cd artifacts/windows
+        zip -r "../imSidPlayer-${VERSION}-windows.zip" .
+        cd ../..
+
     - name: Upload Windows artifacts
-      if: runner.os == 'Windows'
       uses: actions/upload-artifact@v4
       with:
         name: imSidPlayer-windows${{ steps.get_version.outputs.is_release && format('-{0}', steps.get_version.outputs.version) || '' }}
         path: artifacts/
-        if-no-files-found: ignore
         retention-days: 30
 
   release:
-    needs: build
+    needs: [build-linux, build-windows]
     if: github.ref_type == 'tag' && github.event_name == 'push'
     runs-on: ubuntu-latest
-    # Only wait for Linux and Windows builds (macOS disabled)
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Fetch all history for tags
-      
-      - name: Debug context
-        run: |
-          echo "Ref type: ${{ github.ref_type }}"
-          echo "Ref name: ${{ github.ref_name }}"
-          echo "Event name: ${{ github.event_name }}"
-          echo "Ref: ${{ github.ref }}"
-      
       - name: Get version from tag
         id: get_version
         run: |
           VERSION="${{ github.ref_name }}"
-          # Remove 'v' prefix if present
           VERSION=${VERSION#v}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
-          echo "Version: $VERSION"
+
       - name: Download Linux artifact
         uses: actions/download-artifact@v4
         with:
           name: imSidPlayer-linux-${{ steps.get_version.outputs.version }}
-          path: release-artifacts/
-          if-no-files-found: warn
-      
+          path: release-artifacts/linux
+
       - name: Download Windows artifact
         uses: actions/download-artifact@v4
         with:
           name: imSidPlayer-windows-${{ steps.get_version.outputs.version }}
-          path: release-artifacts/
-          if-no-files-found: warn
-      
-      - name: Debug downloaded artifacts
-        run: |
-          echo "=== Listing release-artifacts structure ==="
-          find release-artifacts -type f -o -type d | head -20 || true
-          echo ""
-          echo "=== Contents of release-artifacts ==="
-          ls -laR release-artifacts/ || true
-      
+          path: release-artifacts/windows
+
       - name: Prepare release files
         run: |
           VERSION="${{ steps.get_version.outputs.version }}"
           mkdir -p release-files
           
-          echo "=== Searching for Linux binary ==="
-          # Find and copy Linux binary (check multiple possible locations)
-          # The artifact structure depends on how GitHub Actions downloads it
-          LINUX_BINARY=""
-          if [ -f "release-artifacts/imSidPlayer-$VERSION-linux" ]; then
-            LINUX_BINARY="release-artifacts/imSidPlayer-$VERSION-linux"
-          elif [ -f "release-artifacts/linux/imSidPlayer-$VERSION-linux" ]; then
-            LINUX_BINARY="release-artifacts/linux/imSidPlayer-$VERSION-linux"
-          elif [ -f "release-artifacts/artifacts/linux/imSidPlayer-$VERSION-linux" ]; then
-            LINUX_BINARY="release-artifacts/artifacts/linux/imSidPlayer-$VERSION-linux"
-          elif [ -f "release-artifacts/imSidPlayer" ]; then
-            LINUX_BINARY="release-artifacts/imSidPlayer"
-          elif [ -f "release-artifacts/linux/imSidPlayer" ]; then
-            LINUX_BINARY="release-artifacts/linux/imSidPlayer"
-          elif [ -f "release-artifacts/artifacts/linux/imSidPlayer" ]; then
-            LINUX_BINARY="release-artifacts/artifacts/linux/imSidPlayer"
-          fi
-          
-          if [ -n "$LINUX_BINARY" ]; then
-            echo "Found Linux binary: $LINUX_BINARY"
-            cp "$LINUX_BINARY" "release-files/imSidPlayer-$VERSION-linux"
+          # Linux binary
+          if [ -f "release-artifacts/linux/imSidPlayer-$VERSION-linux" ]; then
+            cp "release-artifacts/linux/imSidPlayer-$VERSION-linux" "release-files/imSidPlayer-$VERSION-linux"
             chmod +x "release-files/imSidPlayer-$VERSION-linux"
-          else
-            echo "Linux binary not found, searching..."
-            find release-artifacts -name "*imSidPlayer*" -type f || true
           fi
           
-          echo ""
-          echo "=== Searching for Windows zip ==="
-          # Find Windows zip (could be in artifacts/ or directly in release-artifacts/)
-          if [ -f "release-artifacts/imSidPlayer-$VERSION-windows.zip" ]; then
-            echo "Found: release-artifacts/imSidPlayer-$VERSION-windows.zip"
-            cp "release-artifacts/imSidPlayer-$VERSION-windows.zip" "release-files/imSidPlayer-$VERSION-windows.zip"
-          elif [ -f "release-artifacts/artifacts/imSidPlayer-$VERSION-windows.zip" ]; then
-            echo "Found: release-artifacts/artifacts/imSidPlayer-$VERSION-windows.zip"
-            cp "release-artifacts/artifacts/imSidPlayer-$VERSION-windows.zip" "release-files/imSidPlayer-$VERSION-windows.zip"
-          elif [ -d "release-artifacts/windows" ]; then
-            echo "Found: release-artifacts/windows directory, creating zip"
-            cd release-artifacts/windows
-            zip -r "../../release-files/imSidPlayer-$VERSION-windows.zip" . -x "*.zip"
-            cd ../..
-          elif [ -d "release-artifacts/artifacts/windows" ]; then
-            echo "Found: release-artifacts/artifacts/windows directory, creating zip"
-            cd release-artifacts/artifacts/windows
-            zip -r "../../../release-files/imSidPlayer-$VERSION-windows.zip" . -x "*.zip"
-            cd ../../..
-          else
-            echo "Windows zip not found, searching..."
-            find release-artifacts -name "*.zip" -o -name "*windows*" -type f -o -type d | head -10 || true
+          # Windows zip
+          if [ -f "release-artifacts/windows/imSidPlayer-$VERSION-windows.zip" ]; then
+            cp "release-artifacts/windows/imSidPlayer-$VERSION-windows.zip" "release-files/imSidPlayer-$VERSION-windows.zip"
           fi
-          
-          echo ""
-          echo "=== Release files prepared ==="
-          ls -lh release-files/ || echo "No files in release-files/"
-          
-          # Verify files exist before proceeding
-          if [ ! -f "release-files/imSidPlayer-$VERSION-linux" ] && [ ! -f "release-files/imSidPlayer-$VERSION-windows.zip" ]; then
-            echo "ERROR: No release files found!"
-            exit 1
-          fi
-      
-      - name: Verify files before release
-        run: |
-          echo "=== Files to attach ==="
-          ls -lh release-files/ || echo "No files found"
-          echo ""
-          echo "=== Checking for specific files ==="
-          if [ -f "release-files/imSidPlayer-${{ steps.get_version.outputs.version }}-linux" ]; then
-            echo "✓ Linux binary found"
-          else
-            echo "✗ Linux binary NOT found"
-          fi
-          if [ -f "release-files/imSidPlayer-${{ steps.get_version.outputs.version }}-windows.zip" ]; then
-            echo "✓ Windows zip found"
-          else
-            echo "✗ Windows zip NOT found"
-          fi
-          if [ ! -f "release-files/imSidPlayer-${{ steps.get_version.outputs.version }}-linux" ] && [ ! -f "release-files/imSidPlayer-${{ steps.get_version.outputs.version }}-windows.zip" ]; then
-            echo "ERROR: Required release files not found!"
-            exit 1
-          fi
-      
-      - name: Generate release notes
-        id: release_notes
-        run: |
-          CURRENT_TAG="${{ steps.get_version.outputs.tag }}"
-          
-          # Get all tags sorted by version
-          git fetch --tags --force
-          
-          # Get the previous tag (excluding current tag)
-          PREV_TAG=$(git tag --sort=-version:refname | grep -E '^v[0-9]' | grep -v "^${CURRENT_TAG}$" | head -1 || echo "")
-          
-          if [ -z "$PREV_TAG" ]; then
-            # First release, get all commits up to current tag
-            COMMITS=$(git log --pretty=format:"- %s (%h)" --reverse)
-            echo "First release - showing all commits"
-          else
-            # Get commits between previous tag and current tag
-            COMMITS=$(git log ${PREV_TAG}..${CURRENT_TAG} --pretty=format:"- %s (%h)" --reverse)
-            echo "Previous tag: $PREV_TAG"
-          fi
-          
-          if [ -z "$COMMITS" ]; then
-            COMMITS="- No changes"
-          fi
-          
-          echo "notes<<EOF" >> $GITHUB_OUTPUT
-          echo "$COMMITS" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          echo "Generated release notes with $(echo "$COMMITS" | wc -l) commits"
-      
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.get_version.outputs.tag }}
-          target_commitish: ${{ github.sha }}
           name: Release ${{ steps.get_version.outputs.tag }}
           body: |
             ## imSid Player ${{ steps.get_version.outputs.version }} (Alpha)
@@ -669,26 +200,11 @@ jobs:
             ### Linux
             - **[Download imSidPlayer-${{ steps.get_version.outputs.version }}-linux](https://github.com/${{ github.repository }}/releases/download/${{ steps.get_version.outputs.tag }}/imSidPlayer-${{ steps.get_version.outputs.version }}-linux)**
             
-            ```bash
-            chmod +x imSidPlayer-${{ steps.get_version.outputs.version }}-linux
-            ./imSidPlayer-${{ steps.get_version.outputs.version }}-linux
-            ```
-            
             ### Windows
             - **[Download imSidPlayer-${{ steps.get_version.outputs.version }}-windows.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.get_version.outputs.tag }}/imSidPlayer-${{ steps.get_version.outputs.version }}-windows.zip)**
             
-            Extract the zip file and run `imSidPlayer.exe`
-            
             ---
-            
-            ### Changes
-            
-            ${{ steps.release_notes.outputs.notes }}
           files: release-files/*
-          draft: false
           prerelease: true
-          generate_release_notes: false
-          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    
