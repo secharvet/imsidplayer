@@ -91,12 +91,11 @@ jobs:
           mingw-w64-x86_64-perl \
           python \
           python-pip \
-          python-jsonschema \
           zip
         
-        # Verify Python and pip are available
-        python --version
-        python -m pip --version || echo "pip not available, using system package"
+        # Install Python modules needed by MBed TLS
+        # Use --break-system-packages for CI environment (PEP 668 workaround)
+        python -m pip install --break-system-packages jsonschema || echo "Failed to install jsonschema"
         
         # Verify installations
         echo "=== Checking MinGW tools ==="
