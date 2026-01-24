@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
 project(imSidPlayer VERSION 1.0.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Générer compile_commands.json pour le LSP
@@ -240,7 +240,7 @@ endif()
 
 
 # MBed TLS - Pour le cloud save (HTTPS)
-option(ENABLE_CLOUD_SAVE "Enable cloud save functionality" OFF)
+option(ENABLE_CLOUD_SAVE "Enable cloud save functionality" ON)
 
 if(ENABLE_CLOUD_SAVE)
     set(MBEDTLS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/mbedtls)
@@ -249,16 +249,36 @@ if(ENABLE_CLOUD_SAVE)
         # Options de compilation MBed TLS (avant add_subdirectory)
         set(ENABLE_PROGRAMS OFF CACHE BOOL "Build programs" FORCE)
         set(ENABLE_TESTING OFF CACHE BOOL "Build tests" FORCE)
+        set(INSTALL_MBEDTLS_HEADERS OFF CACHE BOOL "Install MBed TLS headers" FORCE)
         # Activer la génération de fichiers (nécessaire pour error.c, ssl_debug_helpers_generated.c, etc.)
         set(GEN_FILES ON CACHE BOOL "Generate auto-generated files" FORCE)
+        
+        # Désactiver les avertissements fatals pour éviter les erreurs de format printf sur MinGW/Windows
+        set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "Treat warnings as errors" FORCE)
         
         # Les modules nécessaires pour npoint.io sont activés par défaut dans MBed TLS
         # On n'a pas besoin de les redéfinir, ils sont déjà dans mbedtls_config.h
         # Si besoin de désactiver RSA/DHM, on peut le faire via un fichier config personnalisé
         
+        # Désactiver les warnings d'attributs non supportés par Clang (gnu_printf)
+        # et les erreurs de format dans MBed TLS (pour MinGW)
+        if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+            set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-ignored-attributes -Wno-format -Wno-error=format" CACHE STRING "" FORCE)
+            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-ignored-attributes -Wno-format -Wno-error=format" CACHE STRING "" FORCE)
+        endif()
+        
         add_subdirectory(${MBEDTLS_DIR})
         
-        message(STATUS "Cloud save enabled - MBed TLS will be compiled from sources")
+        # Ajouter les flags après add_subdirectory pour les cibles MBed TLS
+        if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND TARGET mbedtls)
+            target_compile_options(mbedtls PRIVATE -Wno-format -Wno-error=format)
+            target_compile_options(mbedx509 PRIVATE -Wno-format -Wno-error=format)
+            if(TARGET tfpsacrypto)
+                target_compile_options(tfpsacrypto PRIVATE -Wno-format -Wno-error=format)
+            endif()
+        endif()
+               
+               message(STATUS "Cloud save enabled - MBed TLS will be compiled from sources")
     else()
         message(WARNING "MBed TLS not found at ${MBEDTLS_DIR}. Cloud save disabled.")
         message(STATUS "Please run: git submodule add https://github.com/Mbed-TLS/mbedtls.git third_party/mbedtls")
@@ -268,6 +288,12 @@ else()
     message(STATUS "Cloud save disabled (use -DENABLE_CLOUD_SAVE=ON to enable)")
 endif()
 
+
+# Support OpenMP (requis par libsidplayfp)
+find_package(OpenMP)
+if(OpenMP_CXX_FOUND)
+    message(STATUS "OpenMP found: linking with OpenMP support")
+endif()
 
 # Sources (ImGui est maintenant une lib séparée, plus besoin de l'inclure ici)
 set(SOURCES
@@ -389,6 +415,10 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     ${SIDPLAYFP_LIB}
 )
 
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(${PROJECT_NAME} PRIVATE OpenMP::OpenMP_CXX)
+endif()
+
 # Glaze (header-only, link interface)
 if(TARGET glaze::glaze)
     target_link_libraries(${PROJECT_NAME} PRIVATE glaze::glaze)
@@ -435,7 +465,59 @@ target_link_directories(${PROJECT_NAME} PRIVATE
     ${SDL2_LIBRARY_DIRS}
 )
 
-# Copier les fichiers FontAwesome (police et header) dans le répertoire de build
-# La police doit être accessible depuis l'exécutable (dans bin/)
-file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/fonts DESTINATION ${CMAKE_BINARY_DIR}/bin)
-file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/fonts DESTINATION ${CMAKE_BINARY_DIR})
+# Sur Windows MinGW, linkage par défaut (standard)
+if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    if(MINGW)
+        # target_link_options(${PROJECT_NAME} PRIVATE -static-libgcc -static-libstdc++ -static)
+        # S'assurer que les dépendances réseau sont bien linkées
+        target_link_libraries(${PROJECT_NAME} PRIVATE iphlpapi ws2_32 crypt32)
+    endif()
+endif()
+
+# --- Installation et Bundling ---
+
+if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    # Dossier de destination pour le bundle (relatif à CMAKE_INSTALL_PREFIX)
+    set(BUNDLE_DEST ".")
+
+    # 1. Exécutable
+    install(TARGETS ${PROJECT_NAME} DESTINATION ${BUNDLE_DEST})
+
+    # 2. Polices
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/fonts")
+        install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/fonts" DESTINATION ${BUNDLE_DEST})
+    endif()
+
+    # 3. Certificats (pour le Cloud Save)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/certs")
+        install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/certs" DESTINATION ${BUNDLE_DEST})
+    endif()
+
+    # 4. DLLs de runtime (Nécessaires même avec -static pour certaines libs comme OpenMP)
+    if(CMAKE_CROSSCOMPILING OR MINGW)
+        # Liste des DLLs de runtime essentielles
+        set(WIN_RUNTIME_DLLS
+            "libgomp-1.dll"
+            "libgcc_s_seh-1.dll"
+            "libwinpthread-1.dll"
+            "libstdc++-6.dll"
+        )
+
+        # Chemins de recherche pour les DLLs MinGW (Ubuntu 24.04 / 22.04)
+        set(MINGW_SEARCH_PATHS
+            "/usr/lib/gcc/x86_64-w64-mingw32/13-posix"
+            "/usr/lib/gcc/x86_64-w64-mingw32/10-posix"
+            "/usr/x86_64-w64-mingw32/bin"
+            "/usr/x86_64-w64-mingw32/lib"
+        )
+        
+        foreach(dll_name ${WIN_RUNTIME_DLLS})
+            set(DLL_FOUND_PATH "DLL_FOUND_PATH-NOTFOUND")
+            find_file(DLL_FOUND_PATH_${dll_name} NAMES ${dll_name} PATHS ${MINGW_SEARCH_PATHS} NO_DEFAULT_PATH)
+            if(DLL_FOUND_PATH_${dll_name})
+                install(FILES "${DLL_FOUND_PATH_${dll_name}}" DESTINATION ${BUNDLE_DEST})
+                message(STATUS "Bundle: ${dll_name} inclus depuis ${DLL_FOUND_PATH_${dll_name}}")
+            endif()
+        endforeach()
+    endif()
+endif()
