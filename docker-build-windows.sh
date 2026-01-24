@@ -6,21 +6,40 @@ set -e
 IMAGE_NAME="imsidplayer-windows"
 DOCKERFILE="Dockerfile.windows"
 
+# Vérifier que Docker est installé
+if ! command -v docker &> /dev/null; then
+    echo "❌ Docker n'est pas installé. Installez-le avec:"
+    echo "   sudo apt install docker.io"
+    echo "   ou"
+    echo "   sudo snap install docker"
+    exit 1
+fi
+
+# Vérifier que Docker fonctionne
+if ! docker info &> /dev/null; then
+    echo "❌ Docker n'est pas en cours d'exécution. Démarrez-le avec:"
+    echo "   sudo systemctl start docker"
+    echo "   ou"
+    echo "   sudo service docker start"
+    exit 1
+fi
+
 echo "=== Construction de l'image Docker Windows ==="
+echo "Cela peut prendre plusieurs minutes lors de la première construction..."
 docker build -f "$DOCKERFILE" -t "$IMAGE_NAME" .
 
-echo ""
-echo "=== Image construite avec succès ==="
-echo ""
-echo "Pour lancer un shell interactif dans le conteneur:"
-echo "  docker run -it -v \$(pwd):/workspace $IMAGE_NAME"
-echo ""
-echo "Pour compiler le projet:"
-echo "  docker run -it -v \$(pwd):/workspace $IMAGE_NAME bash -c '"
-echo "    export PATH=\"/mingw64/bin:/usr/bin:\$PATH\" &&"
-echo "    cd /workspace &&"
-echo "    mkdir -p build &&"
-echo "    cmake -B build -S . -G \"MinGW Makefiles\" -DCMAKE_BUILD_TYPE=Release -DENABLE_CLOUD_SAVE=ON &&"
-echo "    cmake --build build --config Release"
-echo "  '"
-echo ""
+if [ $? -eq 0 ]; then
+    echo ""
+    echo "✅ Image construite avec succès !"
+    echo ""
+    echo "Pour lancer un shell interactif dans le conteneur:"
+    echo "  ./docker-run-windows.sh"
+    echo ""
+    echo "Ou manuellement:"
+    echo "  docker run -it -v \$(pwd):/workspace $IMAGE_NAME"
+    echo ""
+else
+    echo ""
+    echo "❌ Échec de la construction de l'image"
+    exit 1
+fi
