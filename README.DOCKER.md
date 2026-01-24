@@ -2,6 +2,17 @@
 
 Ce guide explique comment utiliser Docker pour tester la compilation Windows localement, sans avoir besoin d'un système Windows.
 
+## Comment ça fonctionne ?
+
+**Ce n'est PAS Wine !** On utilise **MSYS2/MinGW** qui est un environnement de **compilation croisée** (cross-compilation) :
+
+- ✅ **Compilation croisée** : Compile des binaires Windows (.exe) natifs depuis Linux
+- ✅ **Pas d'émulation** : Les binaires sont compilés directement pour Windows, pas via Wine
+- ✅ **Outils natifs** : GCC/MinGW produit des exécutables Windows réels
+- ✅ **Même résultat** : Les binaires sont identiques à ceux compilés sur Windows
+
+Le conteneur Docker utilise l'image `msys2/msys2` qui contient l'environnement MinGW complet avec tous les outils nécessaires pour compiler des applications Windows.
+
 ## Prérequis
 
 - Docker installé et fonctionnel
