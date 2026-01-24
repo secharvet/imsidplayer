@@ -92,6 +92,10 @@ jobs:
           python \
           zip
         
+        # Install Python modules needed by MBed TLS
+        python -m pip install --upgrade pip
+        python -m pip install jsonschema
+        
         # Verify installations
         echo "=== Checking MinGW tools ==="
         which gcc
@@ -99,8 +103,12 @@ jobs:
         which cmake
         which pkg-config
         which make || which mingw32-make || echo "make not found, will install"
+        which perl
+        which python
         gcc --version
         pkg-config --version
+        perl --version
+        python --version
         
         # Make sure make is available (mingw-w64-x86_64-make installs mingw32-make)
         if ! command -v make &> /dev/null; then
