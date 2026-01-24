@@ -137,6 +137,12 @@ jobs:
           VENV_PYTHON_PATH="$(pwd)/venv/Scripts:"
         fi
         echo "PATH=${VENV_PYTHON_PATH}mingw64/bin:/usr/bin:$PATH" >> $GITHUB_ENV
+        # Export Python path explicitly for CMake
+        if [ -f "$(pwd)/venv/bin/python" ]; then
+          echo "PYTHON=$(pwd)/venv/bin/python" >> $GITHUB_ENV
+        elif [ -f "$(pwd)/venv/Scripts/python.exe" ]; then
+          echo "PYTHON=$(pwd)/venv/Scripts/python.exe" >> $GITHUB_ENV
+        fi
         export PATH="${VENV_PYTHON_PATH}mingw64/bin:/usr/bin:$PATH"
     
     - name: Inspect mingw64 directory
