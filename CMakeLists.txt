@@ -239,6 +239,34 @@ else()
 endif()
 
 
+# MBed TLS - Pour le cloud save (HTTPS)
+option(ENABLE_CLOUD_SAVE "Enable cloud save functionality" OFF)
+
+if(ENABLE_CLOUD_SAVE)
+    set(MBEDTLS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/mbedtls)
+    
+    if(EXISTS "${MBEDTLS_DIR}/CMakeLists.txt")
+        # Options de compilation MBed TLS (avant add_subdirectory)
+        set(ENABLE_PROGRAMS OFF CACHE BOOL "Build programs" FORCE)
+        set(ENABLE_TESTING OFF CACHE BOOL "Build tests" FORCE)
+        
+        # Les modules nécessaires pour npoint.io sont activés par défaut dans MBed TLS
+        # On n'a pas besoin de les redéfinir, ils sont déjà dans mbedtls_config.h
+        # Si besoin de désactiver RSA/DHM, on peut le faire via un fichier config personnalisé
+        
+        add_subdirectory(${MBEDTLS_DIR})
+        
+        message(STATUS "Cloud save enabled - MBed TLS will be compiled from sources")
+    else()
+        message(WARNING "MBed TLS not found at ${MBEDTLS_DIR}. Cloud save disabled.")
+        message(STATUS "Please run: git submodule add https://github.com/Mbed-TLS/mbedtls.git third_party/mbedtls")
+        set(ENABLE_CLOUD_SAVE OFF)
+    endif()
+else()
+    message(STATUS "Cloud save disabled (use -DENABLE_CLOUD_SAVE=ON to enable)")
+endif()
+
+
 # Sources (ImGui est maintenant une lib séparée, plus besoin de l'inclure ici)
 set(SOURCES
     src/main.cpp
@@ -260,6 +288,13 @@ set(SOURCES
     src/SongLengthDB.cpp
 )
 
+if(ENABLE_CLOUD_SAVE)
+    list(APPEND SOURCES
+        src/HTTPClient.cpp
+        src/CloudSyncManager.cpp
+    )
+endif()
+
 set(HEADERS
     include/SidPlayer.h
     include/Config.h
@@ -279,6 +314,13 @@ set(HEADERS
     include/SongLengthDB.h
 )
 
+if(ENABLE_CLOUD_SAVE)
+    list(APPEND HEADERS
+        include/HTTPClient.h
+        include/CloudSyncManager.h
+    )
+endif()
+
 # Exécutable principal
 # Sur Windows, utiliser WIN32 pour créer une application GUI sans console
 if(WIN32)
@@ -297,6 +339,28 @@ add_executable(md5_test
 target_link_libraries(md5_test PRIVATE quill::quill)
 target_include_directories(md5_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+# Exécutable de test HTTP (MBed TLS) - seulement si cloud save est activé
+if(ENABLE_CLOUD_SAVE)
+    add_executable(http_test
+        tests/http_test.cpp
+        src/HTTPClient.cpp
+        src/Logger.cpp
+        src/Utils.cpp
+        src/MD5.cpp
+    )
+    target_link_libraries(http_test PRIVATE 
+        quill::quill
+        mbedtls
+        mbedx509
+    )
+    target_include_directories(http_test PRIVATE 
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${MBEDTLS_DIR}/include
+    )
+    target_compile_definitions(http_test PRIVATE ENABLE_CLOUD_SAVE=1)
+    message(STATUS "HTTP test executable enabled: http_test")
+endif()
+
 # Include directories
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -304,6 +368,13 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${SIDPLAYFP_INCLUDE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/quill/include
 )
+
+# MBed TLS include directories
+if(ENABLE_CLOUD_SAVE AND TARGET mbedtls)
+    target_include_directories(${PROJECT_NAME} PRIVATE
+        ${MBEDTLS_DIR}/include
+    )
+endif()
 if(SDL2_IMAGE_FOUND)
     target_include_directories(${PROJECT_NAME} PRIVATE ${SDL2_IMAGE_INCLUDE_DIRS})
 endif()
@@ -324,6 +395,16 @@ endif()
 # Quill (logging library)
 if(TARGET quill::quill)
     target_link_libraries(${PROJECT_NAME} PRIVATE quill::quill)
+endif()
+
+# MBed TLS (cloud save)
+if(ENABLE_CLOUD_SAVE AND TARGET mbedtls)
+    # Dans MBed TLS 4.0, mbedtls inclut déjà les fonctionnalités cryptographiques
+    target_link_libraries(${PROJECT_NAME} PRIVATE 
+        mbedtls
+        mbedx509
+    )
+    target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_CLOUD_SAVE=1)
 endif()
 
 if(SDL2_IMAGE_FOUND)

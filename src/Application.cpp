@@ -3,6 +3,9 @@
 #include "Utils.h"
 #include "Config.h"
 #include "Logger.h"
+#ifdef ENABLE_CLOUD_SAVE
+#include "CloudSyncManager.h"
+#endif
 #include <iostream>
 #include <filesystem>
 #include <algorithm>
@@ -80,6 +83,29 @@ bool Application::initialize() {
     
     // Créer RatingManager (charge automatiquement les ratings au démarrage)
     m_ratingManager = std::make_unique<RatingManager>();
+    
+#ifdef ENABLE_CLOUD_SAVE
+    // Initialiser CloudSyncManager
+    auto& cloudSync = CloudSyncManager::getInstance();
+    if (cloudSync.initialize(m_ratingManager.get(), m_history.get())) {
+        // Charger les endpoints depuis Config
+        std::string ratingEndpoint = m_config.getCloudRatingEndpoint();
+        std::string historyEndpoint = m_config.getCloudHistoryEndpoint();
+        if (!ratingEndpoint.empty()) {
+            cloudSync.setRatingEndpoint(ratingEndpoint);
+        }
+        if (!historyEndpoint.empty()) {
+            cloudSync.setHistoryEndpoint(historyEndpoint);
+        }
+        // Activer si configuré
+        if (m_config.isCloudSaveEnabled()) {
+            cloudSync.setEnabled(true);
+        }
+        LOG_INFO("CloudSyncManager initialized");
+    } else {
+        LOG_WARNING("Failed to initialize CloudSyncManager");
+    }
+#endif
     
     // Créer UIManager
     m_uiManager = std::make_unique<UIManager>(m_player, m_playlist, *m_background, m_fileBrowser, *m_database, *m_history, *m_ratingManager);

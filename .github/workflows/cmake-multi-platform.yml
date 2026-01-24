@@ -212,6 +212,14 @@ jobs:
           echo "Warning: fonts directory not found"
         fi
         
+        # Copy certificates directory for cloud save
+        if [ -d "certs" ]; then
+          cp -r certs artifacts/linux/
+          echo "Certificates directory copied to Linux artifacts"
+        else
+          echo "Warning: certs directory not found"
+        fi
+        
         # Always create versioned file for releases
         if [ "${{ steps.get_version.outputs.is_release }}" = "true" ]; then
           cp artifacts/linux/imSidPlayer "artifacts/linux/imSidPlayer-${VERSION}-linux"
@@ -223,6 +231,10 @@ jobs:
         if [ -d "artifacts/linux/fonts" ]; then
           echo "Fonts in artifacts:"
           ls -lh artifacts/linux/fonts/
+        fi
+        if [ -d "artifacts/linux/certs" ]; then
+          echo "Certificates in artifacts:"
+          ls -lh artifacts/linux/certs/
         fi
     
     - name: Prepare Windows artifacts
@@ -349,6 +361,14 @@ jobs:
           echo "Warning: fonts directory not found"
         fi
         
+        # Copy certificates directory for cloud save
+        if [ -d "certs" ]; then
+          cp -r certs artifacts/windows/
+          echo "Certificates directory copied to Windows artifacts"
+        else
+          echo "Warning: certs directory not found"
+        fi
+        
         echo "=== Windows artifacts prepared ==="
         ls -lh artifacts/windows/
         echo ""
@@ -361,6 +381,13 @@ jobs:
         else
           echo "Warning: fonts directory not found in Windows artifacts"
         fi
+        echo ""
+        echo "=== Certificates in artifacts ==="
+        if [ -d "artifacts/windows/certs" ]; then
+          ls -lh artifacts/windows/certs/
+        else
+          echo "Warning: certs directory not found in Windows artifacts"
+        fi
         
         # Create versioned archive for releases
         if [ "${{ steps.get_version.outputs.is_release }}" = "true" ]; then
@@ -369,10 +396,12 @@ jobs:
           zip -r "../imSidPlayer-${VERSION}-windows.zip" . -x "*.zip"
           cd ../..
           echo "Created: imSidPlayer-${VERSION}-windows.zip"
-          # Verify fonts are in the zip
+          # Verify fonts and certs are in the zip
           if command -v unzip &> /dev/null; then
             echo "=== Verifying fonts in zip ==="
             unzip -l "../imSidPlayer-${VERSION}-windows.zip" | grep -i "fonts\|fa-solid" || echo "Warning: fonts not found in zip"
+            echo "=== Verifying certificates in zip ==="
+            unzip -l "../imSidPlayer-${VERSION}-windows.zip" | grep -i "certs\|\.pem" || echo "Warning: certificates not found in zip"
           fi
         fi
     

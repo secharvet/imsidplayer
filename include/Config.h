@@ -86,6 +86,18 @@ public:
         if (voice >= 0 && voice < 3) m_voiceActive[voice] = active;
     }
     
+#ifdef ENABLE_CLOUD_SAVE
+    // Cloud Save
+    bool isCloudSaveEnabled() const { return m_cloudSaveEnabled; }
+    void setCloudSaveEnabled(bool enabled) { m_cloudSaveEnabled = enabled; }
+    
+    std::string getCloudRatingEndpoint() const { return m_cloudRatingEndpoint; }
+    void setCloudRatingEndpoint(const std::string& endpoint) { m_cloudRatingEndpoint = endpoint; }
+    
+    std::string getCloudHistoryEndpoint() const { return m_cloudHistoryEndpoint; }
+    void setCloudHistoryEndpoint(const std::string& endpoint) { m_cloudHistoryEndpoint = endpoint; }
+#endif
+    
 private:
     Config() = default;
     ~Config() = default;
@@ -111,6 +123,13 @@ private:
     int m_windowHeight = 800;
     std::vector<PlaylistItem> m_playlist;
     bool m_voiceActive[3] = {true, true, true}; // Par défaut toutes actives
+    
+#ifdef ENABLE_CLOUD_SAVE
+    // Cloud Save
+    bool m_cloudSaveEnabled = false;
+    std::string m_cloudRatingEndpoint;
+    std::string m_cloudHistoryEndpoint;
+#endif
     
     // Parsing du fichier de config
     void parseLine(const std::string& line, int indent, std::vector<PlaylistItem>* currentList);

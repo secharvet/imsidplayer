@@ -190,6 +190,14 @@ bool Config::load(const std::string& filename) {
             m_voiceActive[1] = (value == "true" || value == "1");
         } else if (key == "voice_2_active") {
             m_voiceActive[2] = (value == "true" || value == "1");
+#ifdef ENABLE_CLOUD_SAVE
+        } else if (key == "cloud_save_enabled") {
+            m_cloudSaveEnabled = (value == "true" || value == "1");
+        } else if (key == "cloud_rating_endpoint") {
+            m_cloudRatingEndpoint = value;
+        } else if (key == "cloud_history_endpoint") {
+            m_cloudHistoryEndpoint = value;
+#endif
         } else if (key == "playlist") {
             // Le début de la playlist
             m_playlist.clear();
@@ -265,6 +273,12 @@ bool Config::save(const std::string& filename) {
     file << "voice_0_active: " << (m_voiceActive[0] ? "true" : "false") << "\n";
     file << "voice_1_active: " << (m_voiceActive[1] ? "true" : "false") << "\n";
     file << "voice_2_active: " << (m_voiceActive[2] ? "true" : "false") << "\n";
+    
+#ifdef ENABLE_CLOUD_SAVE
+    file << "cloud_save_enabled: " << (m_cloudSaveEnabled ? "true" : "false") << "\n";
+    file << "cloud_rating_endpoint: " << m_cloudRatingEndpoint << "\n";
+    file << "cloud_history_endpoint: " << m_cloudHistoryEndpoint << "\n";
+#endif
     
     file << "\nplaylist:\n";
     writePlaylist(file, m_playlist, 1);

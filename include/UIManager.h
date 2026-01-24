@@ -93,6 +93,7 @@ private:
     std::string m_selectedFilePath;
     bool m_isConfigTabActive;
     bool m_indexRequested;
+    bool m_showDebugWindow;  // Afficher/masquer la fenêtre de debug (toggle avec Alt)
     std::string m_searchQuery;  // Requête de recherche fuzzy
     std::vector<const SidMetadata*> m_searchResults;  // Résultats de recherche (max 10)
     int m_selectedSearchResult;  // Index du résultat sélectionné dans la liste (-1 = aucun, focus sur champ)

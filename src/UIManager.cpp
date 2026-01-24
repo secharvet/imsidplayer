@@ -5,6 +5,9 @@
 #include "FilterWidget.h"
 #include "IconsFontAwesome6.h"
 #include "Logger.h"
+#ifdef ENABLE_CLOUD_SAVE
+#include "CloudSyncManager.h"
+#endif
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
 #include "imgui_impl_sdlrenderer2.h"
@@ -28,7 +31,7 @@ namespace fs = std::filesystem;
 
 UIManager::UIManager(SidPlayer& player, PlaylistManager& playlist, BackgroundManager& background, FileBrowser& fileBrowser, DatabaseManager& database, HistoryManager& history, RatingManager& ratingManager)
     : m_player(player), m_playlist(playlist), m_background(background), m_fileBrowser(fileBrowser), m_database(database), m_history(history), m_ratingManager(ratingManager),
-      m_window(nullptr), m_renderer(nullptr), m_showFileDialog(false), m_isConfigTabActive(false), m_indexRequested(false),
+      m_window(nullptr), m_renderer(nullptr), m_showFileDialog(false), m_isConfigTabActive(false), m_indexRequested(false), m_showDebugWindow(false),
       m_selectedSearchResult(-1), m_searchListFocused(false), m_searchPending(false),
       m_databaseOperationInProgress(false), m_databaseOperationProgress(0.0f),
       m_filtersNeedUpdate(true), m_authorFilterWidget("Author", 200.0f), m_yearFilterWidget("Year", 150.0f),
@@ -184,9 +187,20 @@ void UIManager::render() {
     static long long storedBackgroundTime = 0, storedRenderDrawDataTime = 0, storedPresentTime = 0;
     static long long storedTotalFrameTime = 0;
     
-    // Fenêtre de debug (affichée si CTRL est pressé) - utilise les timings de la frame précédente
+    // Fenêtre de debug (toggle avec Alt) - utilise les timings de la frame précédente
     ImGuiIO& io = ImGui::GetIO();
-    if (io.KeyCtrl) {
+    // Détecter un appui unique sur Alt (pas maintenu) pour toggle
+    // Utiliser IsKeyPressed pour détecter un appui unique (retourne true seulement à la première frame où la touche est pressée)
+    static bool altWasPressed = false;
+    bool altPressed = io.KeyAlt;
+    // Détecter si Alt vient d'être pressé (transition de false à true)
+    if (altPressed && !altWasPressed) {
+        // Alt vient d'être pressé, toggle la fenêtre
+        m_showDebugWindow = !m_showDebugWindow;
+    }
+    altWasPressed = altPressed;
+    
+    if (m_showDebugWindow) {
         renderDebugWindow(storedNewFrameTime, storedMainPanelTime, storedPlaylistPanelTime, storedFileBrowserTime,
                          storedImguiRenderTime, storedClearTime, storedBackgroundTime, 
                          storedRenderDrawDataTime, storedPresentTime, storedTotalFrameTime);
@@ -1090,6 +1104,181 @@ void UIManager::renderConfigTab() {
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
+    
+#ifdef ENABLE_CLOUD_SAVE
+    // Section Cloud Save
+    ImGui::Text("Cloud Save");
+    ImGui::Separator();
+    
+    bool cloudSaveEnabled = config.isCloudSaveEnabled();
+    if (ImGui::Checkbox("Enable cloud save", &cloudSaveEnabled)) {
+        config.setCloudSaveEnabled(cloudSaveEnabled);
+        // Sauvegarder la config
+        fs::path configDir = getConfigDir();
+        std::string configPath = (configDir / "config.txt").string();
+        config.save(configPath);
+        
+        // Mettre à jour CloudSyncManager
+        CloudSyncManager::getInstance().setEnabled(cloudSaveEnabled);
+    }
+    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Synchronize ratings and history to cloud");
+    
+    if (cloudSaveEnabled) {
+        ImGui::Spacing();
+        
+        // Rating endpoint
+        char ratingEndpoint[512];
+        strncpy(ratingEndpoint, config.getCloudRatingEndpoint().c_str(), sizeof(ratingEndpoint) - 1);
+        ratingEndpoint[sizeof(ratingEndpoint) - 1] = '\0';
+        ImGui::Text("Rating endpoint:");
+        ImGui::PushItemWidth(-1);
+        if (ImGui::InputText("##rating_endpoint", ratingEndpoint, sizeof(ratingEndpoint))) {
+            config.setCloudRatingEndpoint(ratingEndpoint);
+            // Sauvegarder la config
+            fs::path configDir = getConfigDir();
+            std::string configPath = (configDir / "config.txt").string();
+            config.save(configPath);
+            
+            // Mettre à jour CloudSyncManager
+            CloudSyncManager::getInstance().setRatingEndpoint(ratingEndpoint);
+        }
+        ImGui::PopItemWidth();
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "npoint.io endpoint URL for ratings (e.g., https://api.npoint.io/...)");
+        
+        ImGui::Spacing();
+        
+        // History endpoint
+        char historyEndpoint[512];
+        strncpy(historyEndpoint, config.getCloudHistoryEndpoint().c_str(), sizeof(historyEndpoint) - 1);
+        historyEndpoint[sizeof(historyEndpoint) - 1] = '\0';
+        ImGui::Text("History endpoint:");
+        ImGui::PushItemWidth(-1);
+        if (ImGui::InputText("##history_endpoint", historyEndpoint, sizeof(historyEndpoint))) {
+            config.setCloudHistoryEndpoint(historyEndpoint);
+            // Sauvegarder la config
+            fs::path configDir = getConfigDir();
+            std::string configPath = (configDir / "config.txt").string();
+            config.save(configPath);
+            
+            // Mettre à jour CloudSyncManager
+            CloudSyncManager::getInstance().setHistoryEndpoint(historyEndpoint);
+        }
+        ImGui::PopItemWidth();
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "npoint.io endpoint URL for history (e.g., https://api.npoint.io/...)");
+        
+        ImGui::Spacing();
+        
+        // Status display
+        auto& cloudSync = CloudSyncManager::getInstance();
+        CloudSyncManager::SyncStatus ratingStatus = cloudSync.getRatingStatus();
+        CloudSyncManager::SyncStatus historyStatus = cloudSync.getHistoryStatus();
+        
+        ImGui::Text("Status:");
+        ImGui::SameLine();
+        const char* ratingStatusText = "Idle";
+        ImVec4 ratingStatusColor = ImVec4(0.7f, 0.7f, 0.7f, 1.0f);
+        switch (ratingStatus) {
+            case CloudSyncManager::SyncStatus::Idle:
+                ratingStatusText = "Idle";
+                ratingStatusColor = ImVec4(0.7f, 0.7f, 0.7f, 1.0f);
+                break;
+            case CloudSyncManager::SyncStatus::Syncing:
+                ratingStatusText = "Syncing";
+                ratingStatusColor = ImVec4(0.3f, 0.7f, 0.9f, 1.0f);
+                break;
+            case CloudSyncManager::SyncStatus::Success:
+                ratingStatusText = "Success";
+                ratingStatusColor = ImVec4(0.3f, 0.8f, 0.3f, 1.0f);
+                break;
+            case CloudSyncManager::SyncStatus::Error:
+                ratingStatusText = "Error";
+                ratingStatusColor = ImVec4(0.8f, 0.3f, 0.3f, 1.0f);
+                break;
+            case CloudSyncManager::SyncStatus::Disabled:
+                ratingStatusText = "Disabled";
+                ratingStatusColor = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
+                break;
+        }
+        ImGui::TextColored(ratingStatusColor, "Ratings: %s", ratingStatusText);
+        
+        ImGui::SameLine();
+        const char* historyStatusText = "Idle";
+        ImVec4 historyStatusColor = ImVec4(0.7f, 0.7f, 0.7f, 1.0f);
+        switch (historyStatus) {
+            case CloudSyncManager::SyncStatus::Idle:
+                historyStatusText = "Idle";
+                historyStatusColor = ImVec4(0.7f, 0.7f, 0.7f, 1.0f);
+                break;
+            case CloudSyncManager::SyncStatus::Syncing:
+                historyStatusText = "Syncing";
+                historyStatusColor = ImVec4(0.3f, 0.7f, 0.9f, 1.0f);
+                break;
+            case CloudSyncManager::SyncStatus::Success:
+                historyStatusText = "Success";
+                historyStatusColor = ImVec4(0.3f, 0.8f, 0.3f, 1.0f);
+                break;
+            case CloudSyncManager::SyncStatus::Error:
+                historyStatusText = "Error";
+                historyStatusColor = ImVec4(0.8f, 0.3f, 0.3f, 1.0f);
+                break;
+            case CloudSyncManager::SyncStatus::Disabled:
+                historyStatusText = "Disabled";
+                historyStatusColor = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
+                break;
+        }
+        ImGui::TextColored(historyStatusColor, "History: %s", historyStatusText);
+        
+        if (ratingStatus == CloudSyncManager::SyncStatus::Error || historyStatus == CloudSyncManager::SyncStatus::Error) {
+            ImGui::Spacing();
+            std::string lastError = cloudSync.getLastError();
+            if (!lastError.empty()) {
+                ImGui::TextColored(ImVec4(0.8f, 0.3f, 0.3f, 1.0f), "Error: %s", lastError.c_str());
+            }
+        }
+        
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        
+        // Boutons Push et Pull
+        ImGui::Text("Actions:");
+        if (ImGui::Button(ICON_FA_UPLOAD " Push All", ImVec2(120, 0))) {
+            // Vérifier que CloudSyncManager est initialisé
+            if (!cloudSync.isEnabled() && cloudSync.getRatingEndpoint().empty() && cloudSync.getHistoryEndpoint().empty()) {
+                // Essayer d'initialiser si pas encore fait
+                // Note: CloudSyncManager devrait être initialisé dans Application.cpp
+                LOG_WARNING("CloudSyncManager may not be initialized. Please ensure it's initialized in Application.cpp");
+            }
+            
+            // Récupérer les endpoints depuis la config (doivent être saisis manuellement)
+            std::string ratingEndpoint = config.getCloudRatingEndpoint();
+            std::string historyEndpoint = config.getCloudHistoryEndpoint();
+            
+            // Vérifier que les endpoints sont configurés
+            if (ratingEndpoint.empty() || historyEndpoint.empty()) {
+                LOG_WARNING("Please configure both rating and history endpoints in the fields above before pushing.");
+            } else {
+                // Push ratings et history
+                if (!ratingEndpoint.empty()) {
+                    cloudSync.pushRatings();
+                }
+                if (!historyEndpoint.empty()) {
+                    cloudSync.pushHistory();
+                }
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(ICON_FA_DOWNLOAD " Pull All", ImVec2(120, 0))) {
+            cloudSync.pullRatings();
+            cloudSync.pullHistory();
+        }
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Push: upload to cloud | Pull: download from cloud");
+    }
+    
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+#endif
     
     // Section Songlength database
     ImGui::Text("Songlength database");
@@ -2777,7 +2966,7 @@ void UIManager::renderDebugWindow(long long newFrameTime, long long mainPanelTim
     ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(400, 500), ImGuiCond_FirstUseEver);
     
-    if (ImGui::Begin("Debug Window (CTRL to show)", nullptr, ImGuiWindowFlags_None)) {
+    if (ImGui::Begin("Debug Window (Alt to toggle)", nullptr, ImGuiWindowFlags_None)) {
         // FPS
         ImGui::Text("FPS: %.1f", m_currentFPS);
         ImGui::Separator();
