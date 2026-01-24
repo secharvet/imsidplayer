@@ -93,9 +93,13 @@ jobs:
           python-pip \
           zip
         
-        # Install Python modules needed by MBed TLS
-        # Use --break-system-packages for CI environment (PEP 668 workaround)
-        python -m pip install --break-system-packages jsonschema || echo "Failed to install jsonschema"
+        # Create Python virtual environment for MBed TLS dependencies
+        python -m venv venv
+        source venv/bin/activate || venv/Scripts/activate
+        pip install --upgrade pip
+        pip install jsonschema
+        # Export venv Python path for MBed TLS scripts
+        echo "PYTHON=$(which python)" >> $GITHUB_ENV
         
         # Verify installations
         echo "=== Checking MinGW tools ==="
