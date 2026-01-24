@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <algorithm>
 #include <functional>
+#include <cstring>
 
 namespace fs = std::filesystem;
 
@@ -77,8 +78,11 @@ bool Application::initialize() {
     // Créer HistoryManager (charge automatiquement l'historique au démarrage)
     m_history = std::make_unique<HistoryManager>();
     
+    // Créer RatingManager (charge automatiquement les ratings au démarrage)
+    m_ratingManager = std::make_unique<RatingManager>();
+    
     // Créer UIManager
-    m_uiManager = std::make_unique<UIManager>(m_player, m_playlist, *m_background, m_fileBrowser, *m_database, *m_history);
+    m_uiManager = std::make_unique<UIManager>(m_player, m_playlist, *m_background, m_fileBrowser, *m_database, *m_history, *m_ratingManager);
     if (!m_uiManager->initialize(m_window, m_renderer)) {
         LOG_ERROR("Impossible d'initialiser UIManager");
         return false;
@@ -124,6 +128,45 @@ bool Application::initSDL() {
         return false;
     }
     
+    return true;
+}
+
+bool Application::recreateRenderer() {
+    LOG_INFO("Recréation du renderer SDL...");
+    
+    // Détruire l'ancien renderer
+    if (m_renderer) {
+        // Shutdown ImGui backend avant de détruire le renderer
+        if (m_uiManager) {
+            m_uiManager->shutdownRenderer();
+        }
+        SDL_DestroyRenderer(m_renderer);
+        m_renderer = nullptr;
+    }
+    
+    // Recréer le renderer
+    m_renderer = SDL_CreateRenderer(m_window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (!m_renderer) {
+        LOG_ERROR("Impossible de recréer le renderer SDL: {}", SDL_GetError());
+        return false;
+    }
+    
+    // Réinitialiser le backend ImGui avec le nouveau renderer
+    if (m_uiManager) {
+        if (!m_uiManager->reinitializeRenderer(m_renderer)) {
+            LOG_ERROR("Impossible de réinitialiser le backend ImGui");
+            SDL_DestroyRenderer(m_renderer);
+            m_renderer = nullptr;
+            return false;
+        }
+    }
+    
+    // Réinitialiser le background manager avec le nouveau renderer
+    if (m_background) {
+        m_background->setRenderer(m_renderer);
+    }
+    
+    LOG_INFO("Renderer recréé avec succès");
     return true;
 }
 
@@ -236,6 +279,33 @@ int Application::run() {
         // Traiter les événements
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
+            // Gérer les événements de fenêtre (notamment EXPOSED pour récupération après perte de contexte)
+            if (event.type == SDL_WINDOWEVENT) {
+                if (event.window.event == SDL_WINDOWEVENT_EXPOSED || 
+                    event.window.event == SDL_WINDOWEVENT_RESTORED) {
+                    // La fenêtre a été exposée ou restaurée, vérifier si le renderer est toujours valide
+                    // et le recréer si nécessaire
+                    if (m_renderer) {
+                        // Tester si le renderer est toujours valide en vérifiant une propriété simple
+                        SDL_ClearError();
+                        // Essayer de récupérer une propriété du renderer pour vérifier qu'il est valide
+                        int outputWidth = 0, outputHeight = 0;
+                        if (SDL_GetRendererOutputSize(m_renderer, &outputWidth, &outputHeight) < 0) {
+                            const char* error = SDL_GetError();
+                            if (error && strlen(error) > 0) {
+                                // Le renderer est invalide, le recréer
+                                LOG_WARNING("Renderer invalide détecté (événement fenêtre): {}, tentative de recréation...", error);
+                                if (!recreateRenderer()) {
+                                    LOG_ERROR("Échec de la recréation du renderer");
+                                    running = false;
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
             if (m_uiManager->handleEvent(event)) {
                 running = false;
             }
@@ -282,6 +352,27 @@ int Application::run() {
             }
         } else if (m_databaseOperation.load() != DatabaseOperation::Indexing) {
             indexingDone = false; // Reset pour la prochaine fois
+        }
+        
+        // Vérifier périodiquement si le renderer est toujours valide
+        // (toutes les 1000 frames environ, soit ~16 secondes à 60 FPS)
+        static int frameCount = 0;
+        frameCount++;
+        if (frameCount % 1000 == 0 && m_renderer) {
+            SDL_ClearError();
+            // Essayer de récupérer une propriété du renderer pour vérifier qu'il est valide
+            int outputWidth = 0, outputHeight = 0;
+            if (SDL_GetRendererOutputSize(m_renderer, &outputWidth, &outputHeight) < 0) {
+                const char* error = SDL_GetError();
+                if (error && strlen(error) > 0) {
+                    LOG_WARNING("Renderer invalide détecté (frame {}): {}, tentative de recréation...", frameCount, error);
+                    if (!recreateRenderer()) {
+                        LOG_ERROR("Échec de la recréation du renderer");
+                        running = false;
+                        continue;
+                    }
+                }
+            }
         }
         
         m_uiManager->render();

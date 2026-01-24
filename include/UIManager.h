@@ -7,6 +7,7 @@
 #include "FileBrowser.h"
 #include "DatabaseManager.h"
 #include "HistoryManager.h"
+#include "RatingManager.h"
 #include "FilterWidget.h"
 #include <SDL2/SDL.h>
 #include <string>
@@ -14,7 +15,7 @@
 
 class UIManager {
 public:
-    UIManager(SidPlayer& player, PlaylistManager& playlist, BackgroundManager& background, FileBrowser& fileBrowser, DatabaseManager& database, HistoryManager& history);
+    UIManager(SidPlayer& player, PlaylistManager& playlist, BackgroundManager& background, FileBrowser& fileBrowser, DatabaseManager& database, HistoryManager& history, RatingManager& ratingManager);
     
     // Initialiser ImGui (polices, styles)
     bool initialize(SDL_Window* window, SDL_Renderer* renderer);
@@ -27,6 +28,10 @@ public:
     
     // Nettoyage
     void shutdown();
+    
+    // Gestion du renderer (pour récupération après perte de contexte)
+    void shutdownRenderer();
+    bool reinitializeRenderer(SDL_Renderer* renderer);
     
     // Getters/Setters
     bool isConfigTabActive() const { return m_isConfigTabActive; }
@@ -60,6 +65,7 @@ private:
     FileBrowser& m_fileBrowser;
     DatabaseManager& m_database;
     HistoryManager& m_history;
+    RatingManager& m_ratingManager;
     
     // État des opérations de base de données (mis à jour depuis Application)
     bool m_databaseOperationInProgress;

@@ -26,8 +26,8 @@
 
 namespace fs = std::filesystem;
 
-UIManager::UIManager(SidPlayer& player, PlaylistManager& playlist, BackgroundManager& background, FileBrowser& fileBrowser, DatabaseManager& database, HistoryManager& history)
-    : m_player(player), m_playlist(playlist), m_background(background), m_fileBrowser(fileBrowser), m_database(database), m_history(history),
+UIManager::UIManager(SidPlayer& player, PlaylistManager& playlist, BackgroundManager& background, FileBrowser& fileBrowser, DatabaseManager& database, HistoryManager& history, RatingManager& ratingManager)
+    : m_player(player), m_playlist(playlist), m_background(background), m_fileBrowser(fileBrowser), m_database(database), m_history(history), m_ratingManager(ratingManager),
       m_window(nullptr), m_renderer(nullptr), m_showFileDialog(false), m_isConfigTabActive(false), m_indexRequested(false),
       m_selectedSearchResult(-1), m_searchListFocused(false), m_searchPending(false),
       m_databaseOperationInProgress(false), m_databaseOperationProgress(0.0f),
@@ -229,6 +229,19 @@ void UIManager::render() {
     auto t17 = std::chrono::high_resolution_clock::now();
     auto presentTime = std::chrono::duration_cast<std::chrono::microseconds>(t17 - t16).count();
     
+    // Vérifier les erreurs SDL après le present
+    // Si une erreur est détectée, elle sera gérée par Application::run() qui vérifie périodiquement
+    const char* sdlError = SDL_GetError();
+    if (sdlError && strlen(sdlError) > 0) {
+        // Ne logger qu'une fois toutes les 1000 frames pour éviter le spam
+        static int errorLogCounter = 0;
+        if (errorLogCounter++ % 1000 == 0) {
+            LOG_WARNING("Erreur SDL détectée après RenderPresent: {}", sdlError);
+        }
+        // Effacer l'erreur pour éviter qu'elle ne soit reportée en continu
+        SDL_ClearError();
+    }
+    
     auto frameEnd = std::chrono::high_resolution_clock::now();
     auto totalFrameTime = std::chrono::duration_cast<std::chrono::microseconds>(frameEnd - frameStart).count();
     
@@ -270,9 +283,26 @@ bool UIManager::handleEvent(const SDL_Event& event) {
 }
 
 void UIManager::shutdown() {
-    ImGui_ImplSDLRenderer2_Shutdown();
+    shutdownRenderer();
     ImGui_ImplSDL2_Shutdown();
     ImGui::DestroyContext();
+}
+
+void UIManager::shutdownRenderer() {
+    ImGui_ImplSDLRenderer2_Shutdown();
+}
+
+bool UIManager::reinitializeRenderer(SDL_Renderer* renderer) {
+    m_renderer = renderer;
+    
+    // Réinitialiser le backend ImGui SDLRenderer2
+    if (!ImGui_ImplSDLRenderer2_Init(renderer)) {
+        LOG_ERROR("Échec de la réinitialisation du backend ImGui SDLRenderer2");
+        return false;
+    }
+    
+    LOG_INFO("Backend ImGui SDLRenderer2 réinitialisé avec succès");
+    return true;
 }
 
 void UIManager::renderMainPanel() {
@@ -882,14 +912,14 @@ void UIManager::renderPlayerControls() {
         // Widget de notation par étoiles
         const SidMetadata* metadata = m_database.getMetadata(m_player.getCurrentFile());
         if (metadata) {
-            int currentRating = m_history.getRating(metadata->metadataHash);
+            int currentRating = m_ratingManager.getRating(metadata->metadataHash);
             int prevRating = currentRating;
             
             ImGui::Text("Rating:");
             if (renderStarRating("##trackRating", &currentRating, 5)) {
                 // Le rating a changé, sauvegarder
                 if (currentRating != prevRating) {
-                    m_history.updateRating(metadata->metadataHash, currentRating);
+                    m_ratingManager.updateRating(metadata->metadataHash, currentRating);
                     LOG_INFO("Rating mis à jour: {} étoiles pour {}", currentRating, metadata->title);
                 }
             }
@@ -1312,7 +1342,7 @@ void UIManager::renderPlaylistTree() {
                 const SidMetadata* metadata = m_database.getMetadata(node->filepath);
                 int fileRating = 0;
                 if (metadata && metadata->metadataHash != 0) {
-                    fileRating = m_history.getRating(metadata->metadataHash);
+                    fileRating = m_ratingManager.getRating(metadata->metadataHash);
                 }
                 
                 if (ImGui::Selectable(label.c_str(), isSelected)) {
@@ -1799,8 +1829,8 @@ bool UIManager::matchesFilters(PlaylistNode* node) const {
     
     // Vérifier le filtre rating
     if (m_filterRating > 0) {
-        // Récupérer le rating depuis l'historique
-        int fileRating = m_history.getRating(metadata->metadataHash);
+        // Récupérer le rating depuis RatingManager
+        int fileRating = m_ratingManager.getRating(metadata->metadataHash);
         
         if (m_filterRatingOperator) {
             // Opérateur >= : le rating du fichier doit être >= au filtre
@@ -2461,7 +2491,7 @@ void UIManager::renderHistoryTab() {
                 // Recréer la copie avant de trier
                 sortedEntries = originalEntries;
                 
-                std::sort(sortedEntries.begin(), sortedEntries.end(), [&sortSpecs](const HistoryEntry& a, const HistoryEntry& b) {
+                std::sort(sortedEntries.begin(), sortedEntries.end(), [this, &sortSpecs](const HistoryEntry& a, const HistoryEntry& b) {
                     for (int n = 0; n < sortSpecs->SpecsCount; n++) {
                         const ImGuiTableColumnSortSpecs* sortSpec = &sortSpecs->Specs[n];
                         int delta = 0;
@@ -2477,7 +2507,8 @@ void UIManager::renderHistoryTab() {
                                 delta = (int)a.playCount - (int)b.playCount;
                                 break;
                             case 3: // Rating
-                                delta = a.rating - b.rating;
+                                // Récupérer les ratings depuis RatingManager
+                                delta = m_ratingManager.getRating(a.metadataHash) - m_ratingManager.getRating(b.metadataHash);
                                 break;
                             case 4: // Date/Heure
                                 delta = a.timestamp.compare(b.timestamp);
@@ -2577,7 +2608,8 @@ void UIManager::renderHistoryTab() {
             
             // Colonne Rating
             ImGui::TableSetColumnIndex(3);
-            int rating = entry.rating;
+            // Récupérer le rating depuis RatingManager au lieu de entry.rating
+            int rating = m_ratingManager.getRating(entry.metadataHash);
             // Réduire la taille des étoiles dans l'historique en utilisant PushFont avec taille réduite
             ImFont* currentFont = ImGui::GetFont();
             float originalFontSize = ImGui::GetFontSize();

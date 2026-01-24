@@ -254,6 +254,7 @@ set(SOURCES
     src/DatabaseManager.cpp
     src/FilterWidget.cpp
     src/HistoryManager.cpp
+    src/RatingManager.cpp
     src/Logger.cpp
     src/MD5.cpp
     src/SongLengthDB.cpp
@@ -272,6 +273,7 @@ set(HEADERS
     include/DatabaseManager.h
     include/FilterWidget.h
     include/HistoryManager.h
+    include/RatingManager.h
     include/Logger.h
     include/MD5.h
     include/SongLengthDB.h

@@ -188,6 +188,21 @@ BackgroundImage* BackgroundManager::getCurrentImage() {
     return nullptr;
 }
 
+void BackgroundManager::setRenderer(SDL_Renderer* renderer) {
+    // Décharger toutes les textures existantes car elles sont liées à l'ancien renderer
+    for (auto& img : m_images) {
+        unloadImageTexture(img);
+    }
+    
+    // Mettre à jour le pointeur du renderer
+    m_renderer = renderer;
+    
+    // Recharger la texture de l'image courante si elle existe
+    if (m_currentIndex >= 0 && m_currentIndex < (int)m_images.size()) {
+        loadImageTexture(m_images[m_currentIndex]);
+    }
+}
+
 void BackgroundManager::render(int windowWidth, int windowHeight) {
     if (!m_showBackground || m_currentIndex < 0 || m_currentIndex >= (int)m_images.size()) {
         return;

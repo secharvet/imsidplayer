@@ -40,6 +40,9 @@ public:
     const std::vector<BackgroundImage>& getImages() const { return m_images; }
     BackgroundImage* getCurrentImage();
     
+    // Définir le renderer (pour récupération après perte de contexte)
+    void setRenderer(SDL_Renderer* renderer);
+    
     // Rendu de l'image de fond
     void render(int windowWidth, int windowHeight);
     

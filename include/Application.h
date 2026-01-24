@@ -9,6 +9,7 @@
 #include "UIManager.h"
 #include "DatabaseManager.h"
 #include "HistoryManager.h"
+#include "RatingManager.h"
 #include <SDL2/SDL.h>
 #include <string>
 #include <memory>
@@ -56,6 +57,7 @@ private:
     std::unique_ptr<UIManager> m_uiManager;
     std::unique_ptr<DatabaseManager> m_database;
     std::unique_ptr<HistoryManager> m_history;
+    std::unique_ptr<RatingManager> m_ratingManager;
     
     // Configuration
     std::string m_configPath;
@@ -75,6 +77,9 @@ private:
     bool initBackground();
     bool loadConfig();
     void saveConfig();
+    
+    // Gestion du renderer (pour récupération après perte de contexte)
+    bool recreateRenderer();
     
     // Gestion des événements
     bool handleEvent(const SDL_Event& event);
