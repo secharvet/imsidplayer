@@ -1,53 +1,89 @@
-# Dockerfile pour tester la compilation Windows (MSYS2/MinGW) localement
-# 
-# IMPORTANT: Ce n'est PAS Wine ! C'est de la compilation croisée.
-# MSYS2/MinGW compile directement des binaires Windows (.exe) natifs depuis Linux.
-# Les binaires produits sont identiques à ceux compilés sur Windows.
-#
-# Usage: docker build -f Dockerfile.windows -t imsidplayer-windows .
-#        docker run -it -v $(pwd):/workspace imsidplayer-windows bash
+# Dockerfile pour tester la compilation Windows (MinGW) localement via cross-compilation
+# Utilise Ubuntu 24.04 pour avoir GCC 13 (support C++23)
 
-FROM msys2/msys2:latest
+FROM ubuntu:24.04
 
-# Mettre à jour le système et installer les dépendances avec retry
-RUN pacman -Syu --noconfirm || (sleep 10 && pacman -Syu --noconfirm) && \
-    pacman -S --noconfirm --needed \
-      mingw-w64-x86_64-gcc \
-      mingw-w64-x86_64-cmake \
-      mingw-w64-x86_64-make \
-      mingw-w64-x86_64-SDL2 \
-      mingw-w64-x86_64-SDL2_image \
-      mingw-w64-x86_64-libsidplayfp \
-      mingw-w64-x86_64-pkg-config \
-      mingw-w64-x86_64-perl \
-      python \
-      python-pip \
-      zip \
-      git \
-      base-devel || (sleep 10 && pacman -S --noconfirm --needed \
-      mingw-w64-x86_64-gcc \
-      mingw-w64-x86_64-cmake \
-      mingw-w64-x86_64-make \
-      mingw-w64-x86_64-SDL2 \
-      mingw-w64-x86_64-SDL2_image \
-      mingw-w64-x86_64-libsidplayfp \
-      mingw-w64-x86_64-pkg-config \
-      mingw-w64-x86_64-perl \
-      python \
-      python-pip \
-      zip \
-      git \
-      base-devel)
+# Éviter les prompts interactifs
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Créer un script d'environnement pour faciliter l'utilisation
-RUN echo 'export PATH="/mingw64/bin:/usr/bin:$PATH"' >> /etc/profile.d/mingw.sh && \
-    echo 'export SIDPLAYFP_ROOT=/mingw64' >> /etc/profile.d/mingw.sh
+# Installer les outils de cross-compilation MinGW officiels et dépendances
+RUN apt-get update && apt-get install -y \
+    gcc-mingw-w64-x86-64 \
+    g++-mingw-w64-x86-64 \
+    cmake \
+    make \
+    pkg-config \
+    perl \
+    python3 \
+    python3-pip \
+    python3-venv \
+    zip \
+    git \
+    wget \
+    build-essential \
+    autotools-dev \
+    automake \
+    libtool \
+    nasm \
+    && rm -rf /var/lib/apt/lists/*
 
-# Vérifier que les outils sont installés
-RUN which gcc && which g++ && which cmake && which pkg-config && which perl && which python
+# Forcer MinGW à utiliser le modèle de threading posix (nécessaire pour std::thread, std::mutex, etc.)
+RUN update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix && \
+    update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+
+# Vérifier les versions installées
+RUN echo "=== Cross-compilers installés ===" && \
+    x86_64-w64-mingw32-gcc --version | head -1 && \
+    x86_64-w64-mingw32-g++ --version | head -1
+
+# Répertoires pour les bibliothèques compilées pour MinGW
+ENV MINGW_PREFIX=/usr/x86_64-w64-mingw32
+RUN mkdir -p ${MINGW_PREFIX}
+
+# Compiler SDL2 pour MinGW (Cross-compilation)
+RUN cd /tmp && \
+    wget -q https://github.com/libsdl-org/SDL/releases/download/release-2.32.0/SDL2-2.32.0.tar.gz -O sdl2.tar.gz && \
+    tar -xzf sdl2.tar.gz && \
+    cd SDL2-* && \
+    mkdir build && cd build && \
+    cmake .. \
+      -DCMAKE_SYSTEM_NAME=Windows \
+      -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
+      -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
+      -DCMAKE_INSTALL_PREFIX=${MINGW_PREFIX} \
+      -DSDL_SHARED=OFF \
+      -DSDL_STATIC=ON \
+      -DSDL_STATIC_PIC=ON \
+      -DSDL_TEST=OFF && \
+    make -j$(nproc) && \
+    make install
+
+# Compiler SDL2_image pour MinGW (Cross-compilation)
+RUN cd /tmp && \
+    wget -q https://github.com/libsdl-org/SDL_image/releases/download/release-2.8.0/SDL2_image-2.8.0.tar.gz -O sdl2_image.tar.gz && \
+    tar -xzf sdl2_image.tar.gz && \
+    cd SDL2_image-* && \
+    ./configure --host=x86_64-w64-mingw32 --prefix=${MINGW_PREFIX} --disable-shared --enable-static CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ --with-sdl-prefix=${MINGW_PREFIX} && \
+    make -j$(nproc) && \
+    make install
+
+# Compiler libsidplayfp pour MinGW (Cross-compilation)
+RUN cd /tmp && \
+    wget -q https://github.com/libsidplayfp/libsidplayfp/releases/download/v2.5.0/libsidplayfp-2.5.0.tar.gz -O libsidplayfp.tar.gz && \
+    tar -xzf libsidplayfp.tar.gz && \
+    cd libsidplayfp-* && \
+    ./configure --host=x86_64-w64-mingw32 --prefix=${MINGW_PREFIX} --disable-shared --enable-static CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ && \
+    make -j$(nproc) && \
+    make install
+
+# Créer un script d'environnement pour MinGW
+RUN echo 'export PATH="/usr/x86_64-w64-mingw32/bin:/usr/bin:$PATH"' >> /etc/profile.d/mingw.sh && \
+    echo 'export CC=x86_64-w64-mingw32-gcc' >> /etc/profile.d/mingw.sh && \
+    echo 'export CXX=x86_64-w64-mingw32-g++' >> /etc/profile.d/mingw.sh && \
+    echo 'export SIDPLAYFP_ROOT=/usr/x86_64-w64-mingw32' >> /etc/profile.d/mingw.sh
 
 # Définir le répertoire de travail
 WORKDIR /workspace
 
 # Commande par défaut
-CMD ["/usr/bin/bash"]
+CMD ["/bin/bash"]

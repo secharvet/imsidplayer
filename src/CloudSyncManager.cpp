@@ -52,40 +52,52 @@ bool CloudSyncManager::initialize(RatingManager* ratingManager, HistoryManager* 
     fs::path caPath;
     
     // Essayer plusieurs emplacements possibles
-    std::vector<fs::path> possiblePaths;
+    std::vector<fs::path> searchDirs;
     
-    // 1. Répertoire source du projet (depuis __FILE__ qui est dans src/)
-    fs::path sourceDir = fs::path(__FILE__).parent_path().parent_path(); // Remonte à la racine du projet
-    // Essayer d'abord le bundle (inclut Root R1 + WE1)
-    possiblePaths.push_back(sourceDir / "certs" / "google_trust_services_bundle.pem");
-    // Puis le certificat racine seul
-    possiblePaths.push_back(sourceDir / "certs" / "google_trust_services_root_ca.pem");
+    // 1. Répertoire courant
+    searchDirs.push_back(fs::current_path());
     
-    // 2. Répertoire parent du répertoire d'exécution (si exécuté depuis build/)
-    fs::path execDir = fs::current_path();
-    if (execDir.filename() == "build" || execDir.filename() == "bin") {
-        possiblePaths.push_back(execDir.parent_path() / "certs" / "google_trust_services_root_ca.pem");
-    }
+    // 2. Répertoire parent et grand-parent (si exécuté depuis build/bin)
+    searchDirs.push_back(fs::current_path().parent_path());
+    searchDirs.push_back(fs::current_path().parent_path().parent_path());
     
     // 3. Répertoire de config utilisateur
-    possiblePaths.push_back(getConfigDir() / "certs" / "google_trust_services_root_ca.pem");
+    searchDirs.push_back(getConfigDir());
     
-    // 4. Répertoire courant (fallback)
-    possiblePaths.push_back(fs::current_path() / "certs" / "google_trust_services_root_ca.pem");
+    // 4. Emplacement standard Linux
+    searchDirs.push_back("/usr/local/share/imsidplayer");
+    searchDirs.push_back("/usr/share/imsidplayer");
     
-    for (const auto& path : possiblePaths) {
-        try {
-            if (fs::exists(path)) {
-                caPath = fs::canonical(path);
-                break;
-            }
-        } catch (const std::exception& e) {
-            // Ignorer les erreurs de canonical et continuer
-            continue;
+    std::vector<std::string> certFiles = {
+        "google_trust_services_bundle.pem",
+        "google_trust_services_root_ca.pem"
+    };
+    
+    for (const auto& dir : searchDirs) {
+        for (const auto& file : certFiles) {
+            fs::path path = dir / "certs" / file;
+            try {
+                if (fs::exists(path)) {
+                    caPath = fs::canonical(path);
+                    LOG_DEBUG("Found Root CA at: {}", caPath.string());
+                    goto found_ca;
+                }
+            } catch (...) {}
+            
+            // Essayer aussi sans le sous-dossier "certs"
+            path = dir / file;
+            try {
+                if (fs::exists(path)) {
+                    caPath = fs::canonical(path);
+                    LOG_DEBUG("Found Root CA at: {}", caPath.string());
+                    goto found_ca;
+                }
+            } catch (...) {}
         }
     }
     
-    if (fs::exists(caPath)) {
+found_ca:
+    if (!caPath.empty() && fs::exists(caPath)) {
         if (!m_httpClient->loadRootCA(caPath.string())) {
             LOG_WARNING("Failed to load Root CA, cloud sync will use insecure mode");
         } else {
@@ -93,10 +105,6 @@ bool CloudSyncManager::initialize(RatingManager* ratingManager, HistoryManager* 
         }
     } else {
         LOG_WARNING("Root CA not found in any of the searched locations, cloud sync will use insecure mode");
-        LOG_DEBUG("Searched paths:");
-        for (const auto& path : possiblePaths) {
-            LOG_DEBUG("  - {}", path.string());
-        }
     }
     
     m_running = true;
@@ -122,8 +130,6 @@ void CloudSyncManager::shutdown() {
         m_httpClient->cleanup();
         m_httpClient.reset();
     }
-    
-    LOG_INFO("CloudSyncManager shutdown");
 }
 
 void CloudSyncManager::setEnabled(bool enabled) {
@@ -275,81 +281,158 @@ void CloudSyncManager::syncWorker() {
 }
 
 bool CloudSyncManager::uploadRatings() {
-    if (m_ratingEndpoint.empty() || !m_httpClient) {
+    std::lock_guard<std::mutex> httpLock(m_httpMutex);
+    if (m_ratingEndpoint.empty() || !m_httpClient || !m_ratingManager) {
+        LOG_ERROR("Cannot upload ratings: endpoint empty, httpClient null or manager null");
         return false;
     }
     
-    // Lire le fichier rating.json local
-    RatingManager ratingManager;
-    fs::path configDir = getConfigDir();
-    std::string ratingPath = (configDir / "rating.json").string();
+    // Convertir les données en mémoire en JSON au lieu de lire le fichier
+    RatingData data;
+    const auto& ratings = m_ratingManager->getAllRatings();
+    for (const auto& [hash, rating] : ratings) {
+        data.ratings.push_back(RatingEntry(hash, rating));
+    }
     
-    std::string localJson = readLocalFile(ratingPath);
-    if (localJson.empty()) {
-        std::lock_guard<std::mutex> lock(m_errorMutex);
-        m_lastError = "Failed to read local rating.json";
+    auto result = glz::write_json(data);
+    if (!result.has_value()) {
+        LOG_ERROR("Failed to serialize ratings for upload");
         return false;
     }
+    
+    std::string localJson = result.value();
     
     // Upload vers npoint.io
     std::string url = buildNpointURL(m_ratingEndpoint);
+    LOG_DEBUG("Uploading ratings to {}", url);
     auto response = m_httpClient->post(url, localJson);
     
     if (response.statusCode == 200 || response.statusCode == 201) {
-        LOG_INFO("Ratings uploaded successfully to cloud");
+        LOG_INFO("Ratings uploaded successfully to cloud ({} bytes)", localJson.length());
         return true;
     } else {
         std::lock_guard<std::mutex> lock(m_errorMutex);
-        m_lastError = "HTTP " + std::to_string(response.statusCode) + ": " + response.body;
+        m_lastError = "HTTP " + std::to_string(response.statusCode) + " during upload: " + response.body;
+        if (response.statusCode == 0) m_lastError += " (Network error: " + m_httpClient->getLastError() + ")";
         LOG_ERROR("Failed to upload ratings: {}", m_lastError);
         return false;
     }
 }
 
 bool CloudSyncManager::uploadHistory() {
-    if (m_historyEndpoint.empty() || !m_httpClient) {
+    std::lock_guard<std::mutex> httpLock(m_httpMutex);
+    if (m_historyEndpoint.empty() || !m_httpClient || !m_historyManager) {
+        LOG_ERROR("Cannot upload history: endpoint empty, httpClient null or manager null");
         return false;
     }
     
-    // Lire le fichier history.json local
-    fs::path configDir = getConfigDir();
-    std::string historyPath = (configDir / "history.json").string();
-    
-    std::string localJson = readLocalFile(historyPath);
-    if (localJson.empty()) {
-        std::lock_guard<std::mutex> lock(m_errorMutex);
-        m_lastError = "Failed to read local history.json";
+    // Convertir les données en mémoire en JSON
+    const auto& entries = m_historyManager->getEntries();
+    auto result = glz::write_json(entries);
+    if (!result.has_value()) {
+        LOG_ERROR("Failed to serialize history for upload");
         return false;
     }
+    
+    std::string localJson = result.value();
     
     // Upload vers npoint.io
     std::string url = buildNpointURL(m_historyEndpoint);
+    LOG_DEBUG("Uploading history to {}", url);
     auto response = m_httpClient->post(url, localJson);
     
     if (response.statusCode == 200 || response.statusCode == 201) {
-        LOG_INFO("History uploaded successfully to cloud");
+        LOG_INFO("History uploaded successfully to cloud ({} bytes)", localJson.length());
         return true;
     } else {
         std::lock_guard<std::mutex> lock(m_errorMutex);
-        m_lastError = "HTTP " + std::to_string(response.statusCode) + ": " + response.body;
+        m_lastError = "HTTP " + std::to_string(response.statusCode) + " during upload: " + response.body;
+        if (response.statusCode == 0) m_lastError += " (Network error: " + m_httpClient->getLastError() + ")";
         LOG_ERROR("Failed to upload history: {}", m_lastError);
         return false;
     }
 }
 
+bool CloudSyncManager::mergeRatings(const std::string& cloudJson, const std::string& localJson) {
+    RatingData cloudData;
+    auto cloudError = glz::read_json(cloudData, cloudJson);
+    if (cloudError) {
+        LOG_ERROR("Failed to parse cloud ratings for merge: {}", glz::format_error(cloudError, cloudJson));
+        return false;
+    }
+    
+    // Si pas de ratings locaux, le cloud écrase tout
+    if (localJson.empty() || localJson == "{}" || localJson == "{\"ratings\":[]}") {
+        return writeLocalFile((getConfigDir() / "rating.json").string(), cloudJson);
+    }
+    
+    RatingData localData;
+    auto localError = glz::read_json(localData, localJson);
+    if (localError) {
+        LOG_ERROR("Failed to parse local ratings for merge: {}", glz::format_error(localError, localJson));
+        // En cas d'erreur locale, on préfère le cloud par sécurité
+        return writeLocalFile((getConfigDir() / "rating.json").string(), cloudJson);
+    }
+    
+    // Créer une map pour la fusion
+    std::map<uint32_t, int> mergedMap;
+    
+    // Charger d'abord les locaux
+    for (const auto& entry : localData.ratings) {
+        mergedMap[entry.metadataHash] = entry.rating;
+    }
+    
+    // Le cloud écrase les locaux si présent
+    for (const auto& entry : cloudData.ratings) {
+        mergedMap[entry.metadataHash] = entry.rating;
+    }
+    
+    // Reconvertir en RatingData
+    RatingData mergedData;
+    for (const auto& [hash, rating] : mergedMap) {
+        mergedData.ratings.push_back(RatingEntry(hash, rating));
+    }
+    
+    // Trier
+    std::sort(mergedData.ratings.begin(), mergedData.ratings.end(),
+        [](const RatingEntry& a, const RatingEntry& b) {
+            return a.metadataHash < b.metadataHash;
+        });
+        
+    // Sérialiser et sauvegarder
+    std::string mergedJson;
+    auto result = glz::write_json(mergedData);
+    if (result.has_value()) {
+        mergedJson = result.value();
+        return writeLocalFile((getConfigDir() / "rating.json").string(), mergedJson);
+    }
+    
+    return false;
+}
+
 bool CloudSyncManager::downloadRatings() {
+    std::lock_guard<std::mutex> httpLock(m_httpMutex);
     if (m_ratingEndpoint.empty() || !m_httpClient) {
+        LOG_ERROR("Cannot download ratings: endpoint empty or httpClient null");
         return false;
     }
     
     // Télécharger depuis npoint.io
     std::string url = buildNpointURL(m_ratingEndpoint);
+    LOG_DEBUG("Downloading ratings from {}", url);
     auto response = m_httpClient->get(url);
     
     if (response.statusCode != 200) {
         std::lock_guard<std::mutex> lock(m_errorMutex);
-        m_lastError = "HTTP " + std::to_string(response.statusCode) + ": " + response.body;
+        m_lastError = "HTTP " + std::to_string(response.statusCode) + " during download: " + response.body;
+        if (response.statusCode == 0) m_lastError += " (Network error: " + m_httpClient->getLastError() + ")";
+        LOG_ERROR("Failed to download ratings: {}", m_lastError);
         return false;
+    }
+    
+    if (response.body.empty() || response.body == "null") {
+        LOG_INFO("Cloud ratings are empty, nothing to download");
+        return true;
     }
     
     // Lire le fichier local
@@ -357,16 +440,9 @@ bool CloudSyncManager::downloadRatings() {
     std::string ratingPath = (configDir / "rating.json").string();
     std::string localJson = readLocalFile(ratingPath);
     
-    // Fusionner (cloud écrase local)
-    if (!localJson.empty()) {
-        // TODO: Implémenter la fusion des ratings
-        // Pour l'instant, on écrase simplement avec le cloud
-    }
-    
-    // Sauvegarder le résultat fusionné
-    if (!writeLocalFile(ratingPath, response.body)) {
-        std::lock_guard<std::mutex> lock(m_errorMutex);
-        m_lastError = "Failed to write merged rating.json";
+    // Fusionner
+    if (!mergeRatings(response.body, localJson)) {
+        LOG_ERROR("Failed to merge ratings");
         return false;
     }
     
@@ -380,18 +456,28 @@ bool CloudSyncManager::downloadRatings() {
 }
 
 bool CloudSyncManager::downloadHistory() {
+    std::lock_guard<std::mutex> httpLock(m_httpMutex);
     if (m_historyEndpoint.empty() || !m_httpClient) {
+        LOG_ERROR("Cannot download history: endpoint empty or httpClient null");
         return false;
     }
     
     // Télécharger depuis npoint.io
     std::string url = buildNpointURL(m_historyEndpoint);
+    LOG_DEBUG("Downloading history from {}", url);
     auto response = m_httpClient->get(url);
     
     if (response.statusCode != 200) {
         std::lock_guard<std::mutex> lock(m_errorMutex);
-        m_lastError = "HTTP " + std::to_string(response.statusCode) + ": " + response.body;
+        m_lastError = "HTTP " + std::to_string(response.statusCode) + " during download: " + response.body;
+        if (response.statusCode == 0) m_lastError += " (Network error: " + m_httpClient->getLastError() + ")";
+        LOG_ERROR("Failed to download history: {}", m_lastError);
         return false;
+    }
+    
+    if (response.body.empty() || response.body == "null") {
+        LOG_INFO("Cloud history is empty, nothing to download");
+        return true;
     }
     
     // Lire le fichier local
@@ -399,17 +485,77 @@ bool CloudSyncManager::downloadHistory() {
     std::string historyPath = (configDir / "history.json").string();
     std::string localJson = readLocalFile(historyPath);
     
-    // Fusionner (cloud écrase local pour les doublons)
-    if (!localJson.empty()) {
-        // TODO: Implémenter la fusion de l'history
-        // Pour l'instant, on écrase simplement avec le cloud
-    }
-    
-    // Sauvegarder le résultat fusionné
-    if (!writeLocalFile(historyPath, response.body)) {
-        std::lock_guard<std::mutex> lock(m_errorMutex);
-        m_lastError = "Failed to write merged history.json";
-        return false;
+    // Si pas d'historique local, le cloud écrase tout
+    if (localJson.empty() || localJson == "[]" || localJson == "null") {
+        if (!writeLocalFile(historyPath, response.body)) {
+            LOG_ERROR("Failed to write history.json");
+            return false;
+        }
+    } else {
+        // Fusionner l'historique
+        std::vector<HistoryEntry> cloudEntries;
+        auto cloudError = glz::read_json(cloudEntries, response.body);
+        
+        std::vector<HistoryEntry> localEntries;
+        auto localError = glz::read_json(localEntries, localJson);
+        
+        if (!cloudError && !localError) {
+            std::map<uint32_t, HistoryEntry> mergedMap;
+            
+            // Charger les locaux
+            for (const auto& entry : localEntries) {
+                mergedMap[entry.metadataHash] = entry;
+            }
+            
+            // Le cloud écrase/ajoute
+            for (const auto& entry : cloudEntries) {
+                auto it = mergedMap.find(entry.metadataHash);
+                if (it != mergedMap.end()) {
+                    // Si déjà présent, prendre le timestamp le plus récent
+                    if (entry.timestamp > it->second.timestamp) {
+                        it->second.timestamp = entry.timestamp;
+                    }
+                    // Cumuler les lectures
+                    it->second.playCount = std::max(it->second.playCount, entry.playCount);
+                    // Garder le meilleur rating
+                    it->second.rating = std::max(it->second.rating, entry.rating);
+                } else {
+                    mergedMap[entry.metadataHash] = entry;
+                }
+            }
+            
+            // Reconvertir en vector
+            std::vector<HistoryEntry> mergedEntries;
+            for (const auto& [hash, entry] : mergedMap) {
+                mergedEntries.push_back(entry);
+            }
+            
+            // Trier par timestamp décroissant
+            std::sort(mergedEntries.begin(), mergedEntries.end(),
+                [](const HistoryEntry& a, const HistoryEntry& b) {
+                    return a.timestamp > b.timestamp;
+                });
+                
+            // Limiter la taille (MAX_ENTRIES = 1000)
+            if (mergedEntries.size() > 1000) {
+                mergedEntries.resize(1000);
+            }
+            
+            std::string mergedJson;
+            auto result = glz::write_json(mergedEntries);
+            if (result.has_value()) {
+                if (!writeLocalFile(historyPath, result.value())) {
+                    LOG_ERROR("Failed to write merged history.json");
+                    return false;
+                }
+            }
+        } else {
+            // En cas d'erreur de parsing, écraser avec le cloud par sécurité
+            if (!writeLocalFile(historyPath, response.body)) {
+                LOG_ERROR("Failed to write history.json (fallback)");
+                return false;
+            }
+        }
     }
     
     // Recharger HistoryManager (utiliser l'instance existante)
@@ -418,16 +564,6 @@ bool CloudSyncManager::downloadHistory() {
     }
     
     LOG_INFO("History downloaded and merged from cloud");
-    return true;
-}
-
-bool CloudSyncManager::mergeRatings(const std::string& cloudJson, const std::string& localJson) {
-    // TODO: Implémenter la fusion des ratings
-    // Le rating cloud écrase le rating local si présent
-    // Les ratings locaux non présents dans le cloud sont conservés
-    
-    // Pour l'instant, on retourne simplement le cloud (écrase tout)
-    // L'implémentation complète sera faite avec Glaze pour parser/fusionner les JSON
     return true;
 }
 
@@ -509,6 +645,7 @@ bool CloudSyncManager::pullHistory() {
 }
 
 std::string CloudSyncManager::createNpointEndpoint(const std::string& initialData) {
+    std::lock_guard<std::mutex> httpLock(m_httpMutex);
     if (!m_httpClient) {
         LOG_ERROR("HTTPClient not initialized, cannot create npoint.io endpoint");
         std::lock_guard<std::mutex> lock(m_errorMutex);

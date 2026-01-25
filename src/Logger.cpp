@@ -49,6 +49,7 @@ void Logger::initialize(const std::string& logFilePath) {
         quill::FileEventNotifier{});
     
     // Créer le logger par défaut
+    // Note: On ne passe PAS de sink par défaut ici pour éviter que Quill n'en crée un lui-même (comme la console)
     s_defaultLogger = quill::Frontend::create_or_get_logger(
         "default",
         std::move(file_sink),

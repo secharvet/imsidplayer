@@ -102,9 +102,26 @@ docker run -it -v $(pwd):/workspace imsidplayer-windows bash -c '
 - ✅ Déboguer les problèmes de build plus facilement
 - ✅ Environnement isolé et reproductible
 
+## Test de compilation
+
+Pour tester que tout fonctionne et produire l'exe :
+
+```bash
+./docker-test-windows.sh
+```
+
+Ce script va :
+1. Construire l'image si nécessaire
+2. Compiler le projet
+3. Vérifier que `imSidPlayer.exe` a été créé
+4. Afficher les informations sur le binaire
+
+Le fichier `imSidPlayer.exe` sera dans `build/bin/` sur votre machine hôte.
+
 ## Notes
 
 - L'image est basée sur `msys2/msys2:latest` qui contient MSYS2/MinGW
 - Toutes les dépendances sont pré-installées dans l'image
 - Le répertoire source est monté en volume, donc les modifications sont visibles immédiatement
 - Les binaires compilés seront dans `build/bin/` sur votre machine hôte
+- Le binaire `.exe` peut être exécuté directement sur Windows

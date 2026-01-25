@@ -40,12 +40,12 @@ private:
 #undef LOG_ERROR
 #endif
 
-#define LOG_TRACE(...) QUILL_LOG_TRACE(Logger::getDefaultLogger(), __VA_ARGS__)
-#define LOG_DEBUG(...) QUILL_LOG_DEBUG(Logger::getDefaultLogger(), __VA_ARGS__)
-#define LOG_INFO(...) QUILL_LOG_INFO(Logger::getDefaultLogger(), __VA_ARGS__)
-#define LOG_WARNING(...) QUILL_LOG_WARNING(Logger::getDefaultLogger(), __VA_ARGS__)
-#define LOG_ERROR(...) QUILL_LOG_ERROR(Logger::getDefaultLogger(), __VA_ARGS__)
-#define LOG_CRITICAL_MSG(...) QUILL_LOG_CRITICAL(Logger::getDefaultLogger(), __VA_ARGS__)
+#define LOG_TRACE(...) if (Logger::getDefaultLogger()) QUILL_LOG_TRACE(Logger::getDefaultLogger(), __VA_ARGS__)
+#define LOG_DEBUG(...) if (Logger::getDefaultLogger()) QUILL_LOG_DEBUG(Logger::getDefaultLogger(), __VA_ARGS__)
+#define LOG_INFO(...) if (Logger::getDefaultLogger()) QUILL_LOG_INFO(Logger::getDefaultLogger(), __VA_ARGS__)
+#define LOG_WARNING(...) if (Logger::getDefaultLogger()) QUILL_LOG_WARNING(Logger::getDefaultLogger(), __VA_ARGS__)
+#define LOG_ERROR(...) if (Logger::getDefaultLogger()) QUILL_LOG_ERROR(Logger::getDefaultLogger(), __VA_ARGS__)
+#define LOG_CRITICAL_MSG(...) if (Logger::getDefaultLogger()) QUILL_LOG_CRITICAL(Logger::getDefaultLogger(), __VA_ARGS__)
 
 #endif // LOGGER_H
 

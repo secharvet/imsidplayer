@@ -2,6 +2,12 @@
 #include "Logger.h"
 #include <iostream>
 
+#ifdef _WIN32
+#include <windows.h>
+#include <fcntl.h>
+#include <io.h>
+#endif
+
 int main(int argc, char* argv[]) {
     // Initialiser le logger en premier (avant Application)
     Logger::initialize();

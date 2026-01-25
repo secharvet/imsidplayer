@@ -1,7 +1,6 @@
 #include "SidPlayer.h"
 #include <sidplayfp/SidInfo.h>
 #include <sidplayfp/SidTuneInfo.h>
-#include <iostream>
 #include <cstring>
 #include <cstdlib>
 #include <algorithm>

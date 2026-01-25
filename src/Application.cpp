@@ -121,8 +121,14 @@ bool Application::initialize() {
 }
 
 bool Application::initSDL() {
+#ifdef _WIN32
+    // Préférer le driver OpenGL sous Windows/Wine pour éviter les erreurs de swapchain D3D
+    // et améliorer la stabilité lors du redimensionnement de la fenêtre.
+    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl");
+#endif
+
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
-        std::cerr << "Erreur SDL: " << SDL_GetError() << std::endl;
+        LOG_CRITICAL_MSG("Erreur SDL: {}", SDL_GetError());
         return false;
     }
     
@@ -305,22 +311,19 @@ int Application::run() {
         // Traiter les événements
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
-            // Gérer les événements de fenêtre (notamment EXPOSED pour récupération après perte de contexte)
+            // Gérer les événements de fenêtre
             if (event.type == SDL_WINDOWEVENT) {
                 if (event.window.event == SDL_WINDOWEVENT_EXPOSED || 
-                    event.window.event == SDL_WINDOWEVENT_RESTORED) {
-                    // La fenêtre a été exposée ou restaurée, vérifier si le renderer est toujours valide
-                    // et le recréer si nécessaire
+                    event.window.event == SDL_WINDOWEVENT_RESTORED ||
+                    event.window.event == SDL_WINDOWEVENT_SHOWN) {
+                    // Vérifier la validité du renderer sur ces événements critiques
                     if (m_renderer) {
-                        // Tester si le renderer est toujours valide en vérifiant une propriété simple
                         SDL_ClearError();
-                        // Essayer de récupérer une propriété du renderer pour vérifier qu'il est valide
                         int outputWidth = 0, outputHeight = 0;
                         if (SDL_GetRendererOutputSize(m_renderer, &outputWidth, &outputHeight) < 0) {
                             const char* error = SDL_GetError();
                             if (error && strlen(error) > 0) {
-                                // Le renderer est invalide, le recréer
-                                LOG_WARNING("Renderer invalide détecté (événement fenêtre): {}, tentative de recréation...", error);
+                                LOG_WARNING("Renderer invalide détecté ({}), tentative de recréation...", error);
                                 if (!recreateRenderer()) {
                                     LOG_ERROR("Échec de la recréation du renderer");
                                     running = false;
@@ -485,6 +488,11 @@ void Application::shutdown() {
     // Arrêter le thread de base de données si en cours
     waitForDatabaseThread();
     
+#ifdef ENABLE_CLOUD_SAVE
+    // Arrêter le CloudSyncManager explicitement avant le Logger
+    CloudSyncManager::getInstance().shutdown();
+#endif
+
     if (m_uiManager) {
         m_uiManager->shutdown();
         m_uiManager.reset();

@@ -77,8 +77,10 @@ bool UIManager::initialize(SDL_Window* window, SDL_Renderer* renderer) {
     std::vector<fs::path> fontPaths = {
         fs::current_path() / "fonts" / "fa-solid-900.ttf",
         fs::current_path().parent_path() / "fonts" / "fa-solid-900.ttf",
+        fs::current_path().parent_path().parent_path() / "fonts" / "fa-solid-900.ttf",
         fs::current_path() / "fa-solid-900.ttf",
-        fs::current_path().parent_path() / "fa-solid-900.ttf"
+        fs::current_path().parent_path() / "fa-solid-900.ttf",
+        fs::current_path().parent_path().parent_path() / "fa-solid-900.ttf"
     };
     
     fs::path fontPath;

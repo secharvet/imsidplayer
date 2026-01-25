@@ -7,7 +7,6 @@
 #include <sstream>
 #include <algorithm>
 #include <cctype>
-#include <iostream>
 
 #ifdef _WIN32
     #include <winsock2.h>
@@ -311,11 +310,12 @@ int HTTPClient::verifyCertificate(const std::string& hostname) {
 
 std::string HTTPClient::buildHTTPRequest(const std::string& method, 
                                          const std::string& path,
+                                         const std::string& host,
                                          const std::string& body) {
     std::ostringstream request;
     
     request << method << " " << path << " HTTP/1.1\r\n";
-    request << "Host: api.npoint.io\r\n";
+    request << "Host: " << host << "\r\n";
     request << "User-Agent: imSidPlayer/1.0\r\n";
     request << "Accept: application/json\r\n";
     request << "Connection: close\r\n";
@@ -663,7 +663,7 @@ HTTPClient::Response HTTPClient::get(const std::string& url) {
                 return response;
             }
             
-            std::string request = buildHTTPRequest("GET", path);
+            std::string request = buildHTTPRequest("GET", path, host);
             if (sendRequest(request) != 0) {
                 disconnect();
                 return response;
@@ -708,7 +708,7 @@ HTTPClient::Response HTTPClient::post(const std::string& url, const std::string&
             return response;
         }
         
-        std::string request = buildHTTPRequest("POST", path, jsonData);
+        std::string request = buildHTTPRequest("POST", path, host, jsonData);
         if (sendRequest(request) != 0) {
             disconnect();
             return response;
@@ -752,7 +752,7 @@ HTTPClient::Response HTTPClient::put(const std::string& url, const std::string& 
             return response;
         }
         
-        std::string request = buildHTTPRequest("PUT", path, jsonData);
+        std::string request = buildHTTPRequest("PUT", path, host, jsonData);
         if (sendRequest(request) != 0) {
             disconnect();
             return response;
@@ -796,7 +796,7 @@ HTTPClient::Response HTTPClient::patch(const std::string& url, const std::string
             return response;
         }
         
-        std::string request = buildHTTPRequest("PATCH", path, jsonData);
+        std::string request = buildHTTPRequest("PATCH", path, host, jsonData);
         if (sendRequest(request) != 0) {
             disconnect();
             return response;

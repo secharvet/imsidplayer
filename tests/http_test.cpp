@@ -89,48 +89,22 @@ int main(int argc, char* argv[]) {
         std::cout << "  → Body: " << getResponse.body.substr(0, 500) << std::endl;
     }
     
-    // Test 4: POST (mise à jour)
-    std::cout << "\n[TEST 4] Test POST (mise à jour)..." << std::endl;
-    std::string testJson = R"({"ratings":[{"metadataHash":99999,"rating":5},{"metadataHash":88888,"rating":4}]})";
-    std::cout << "  → JSON à envoyer: " << testJson << std::endl;
-    std::cout << "  → Envoi de POST vers " << testEndpoint << std::endl;
+    /* 
+    // TEST 4: POST (MISE À JOUR) - DÉSACTIVÉ POUR ÉVITER D'ÉCRASER LES DONNÉES RÉELLES
+    std::cout << "\n[TEST 4] Test POST (mise à jour) - DÉSACTIVÉ" << std::endl;
+    */
     
-    auto postResponse = client.post(testEndpoint, testJson);
-    
-    std::cout << "  → Code de statut: " << postResponse.statusCode << std::endl;
-    std::cout << "  → Taille du body: " << postResponse.body.length() << " bytes" << std::endl;
-    
-    if (!client.getLastError().empty() && client.getLastError() != "No error") {
-        std::cout << "  ⚠️  Erreur HTTPClient: " << client.getLastError() << std::endl;
-    }
-    
-    if (postResponse.statusCode == 200 || postResponse.statusCode == 201) {
-        std::cout << "  ✅ POST réussi" << std::endl;
-        std::cout << "  → Body: " << postResponse.body.substr(0, 200) << std::endl;
-    } else {
-        std::cout << "  ❌ POST échoué (code: " << postResponse.statusCode << ")" << std::endl;
-        std::cout << "  → Body: " << postResponse.body.substr(0, 500) << std::endl;
-    }
-    
-    // Test 5: GET après POST (vérification)
-    std::cout << "\n[TEST 5] Test GET après POST (vérification)..." << std::endl;
-    std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Attendre un peu
-    
+    // Test 5: GET (vérification)
+    std::cout << "\n[TEST 5] Test GET (vérification)..." << std::endl;
     auto getResponse2 = client.get(testEndpoint);
     
     std::cout << "  → Code de statut: " << getResponse2.statusCode << std::endl;
     std::cout << "  → Taille du body: " << getResponse2.body.length() << " bytes" << std::endl;
     
     if (getResponse2.statusCode == 200) {
-        std::cout << "  ✅ GET après POST réussi" << std::endl;
-        if (getResponse2.body.find("99999") != std::string::npos) {
-            std::cout << "  ✅ Les données POST ont été sauvegardées (metadataHash 99999 trouvé)" << std::endl;
-        } else {
-            std::cout << "  ⚠️  Les données POST ne semblent pas avoir été sauvegardées" << std::endl;
-        }
-        std::cout << "  → Body (premiers 300 chars): " << getResponse2.body.substr(0, 300) << std::endl;
+        std::cout << "  ✅ GET réussi" << std::endl;
     } else {
-        std::cout << "  ❌ GET après POST échoué (code: " << getResponse2.statusCode << ")" << std::endl;
+        std::cout << "  ❌ GET échoué (code: " << getResponse2.statusCode << ")" << std::endl;
     }
     
     // Test 6: Affichage des headers

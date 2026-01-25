@@ -29,7 +29,7 @@ fi
 cd build
 
 echo "Configuration avec CMake..."
-cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE
+cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DENABLE_CLOUD_SAVE=ON
 
 echo ""
 echo "Compilation..."

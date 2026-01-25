@@ -6,7 +6,6 @@
 #include <sidplayfp/SidTuneInfo.h>
 #include <fstream>
 #include <algorithm>
-#include <iostream>
 #include <sstream>
 #include <unordered_set>
 #include <glaze/glaze.hpp>

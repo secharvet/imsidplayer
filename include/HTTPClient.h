@@ -48,6 +48,7 @@ public:
     // Construction et envoi de requêtes HTTP
     std::string buildHTTPRequest(const std::string& method, 
                                  const std::string& path,
+                                 const std::string& host,
                                  const std::string& body = "");
     int sendRequest(const std::string& request);
     Response parseResponse();

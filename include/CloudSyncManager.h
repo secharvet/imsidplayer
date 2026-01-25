@@ -121,6 +121,7 @@ private:
     
     // HTTP Client
     std::unique_ptr<HTTPClient> m_httpClient;
+    mutable std::mutex m_httpMutex;
     
     // Callback UI
     std::function<void()> m_onStatusChanged;
