@@ -12,7 +12,7 @@
 
 namespace fs = std::filesystem;
 
-DatabaseManager::DatabaseManager() {
+DatabaseManager::DatabaseManager() : m_cacheValid(false) {
     fs::path configDir = getConfigDir();
     m_databasePath = (configDir / "database.json").string();
 }
@@ -20,6 +20,8 @@ DatabaseManager::DatabaseManager() {
 bool DatabaseManager::load() {
     if (!fs::exists(m_databasePath)) {
         LOG_INFO("Database does not exist yet, creating a new database");
+        m_rootFolders.clear();
+        m_cacheValid = false;
         return true; // Pas d'erreur, juste pas de fichier existant
     }
     
@@ -36,27 +38,108 @@ bool DatabaseManager::load() {
         file.seekg(0, std::ios::beg);
         jsonStr.assign((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
         
-        auto error = glz::read_json(m_metadata, jsonStr);
-        if (error) {
-            std::string errorMsg = glz::format_error(error, jsonStr);
-            LOG_ERROR("Error reading database: {}", errorMsg);
-            return false;
-        }
+        // Essayer d'abord la nouvelle structure hiérarchique
+        std::vector<RootFolderEntry> newStructure;
+        auto error = glz::read_json(newStructure, jsonStr);
         
-        // Reconstruire les index (filepath et metadataHash)
-        m_filepathIndex.clear();
-        m_hashIndex.clear();
-        size_t hashIndexedCount = 0;
-        for (size_t i = 0; i < m_metadata.size(); ++i) {
-            m_filepathIndex[m_metadata[i].filepath] = i;
-            if (m_metadata[i].metadataHash != 0) {
-                m_hashIndex[m_metadata[i].metadataHash] = i;
-                hashIndexedCount++;
+        if (error) {
+            // Si ça échoue, essayer l'ancienne structure plate (migration)
+            LOG_INFO("Trying to load old flat structure for migration...");
+            std::vector<SidMetadata> oldMetadata;
+            auto oldError = glz::read_json(oldMetadata, jsonStr);
+            if (oldError) {
+                std::string errorMsg = glz::format_error(error, jsonStr);
+                LOG_ERROR("Error reading database: {}", errorMsg);
+                return false;
+            }
+            
+            // Migrer l'ancienne structure vers la nouvelle
+            LOG_INFO("Migrating old database structure to new hierarchical format...");
+            std::unordered_map<std::string, size_t> rootFolderMap; // rootFolder -> index dans m_rootFolders
+            
+            for (const auto& meta : oldMetadata) {
+                std::string rootFolder = meta.rootFolder.empty() ? "" : meta.rootFolder;
+                std::string rootPath = "";
+                
+                // Extraire le rootPath depuis le filepath
+                if (!meta.filepath.empty()) {
+                    fs::path filePath(meta.filepath);
+                    // Chercher le rootFolder dans le chemin
+                    if (!rootFolder.empty()) {
+                        fs::path current = filePath;
+                        while (current.has_parent_path() && current.parent_path() != current) {
+                            if (current.filename().string() == rootFolder) {
+                                rootPath = current.string();
+                                break;
+                            }
+                            current = current.parent_path();
+                        }
+                    }
+                    // Si rootPath non trouvé, utiliser le parent du fichier
+                    if (rootPath.empty()) {
+                        rootPath = filePath.parent_path().string();
+                    }
+                }
+                
+                // Trouver ou créer l'entrée RootFolderEntry
+                size_t rootIndex;
+                if (rootFolderMap.find(rootFolder) != rootFolderMap.end()) {
+                    rootIndex = rootFolderMap[rootFolder];
+                } else {
+                    RootFolderEntry entry;
+                    entry.rootPath = rootPath;
+                    entry.rootFolder = rootFolder;
+                    rootIndex = m_rootFolders.size();
+                    m_rootFolders.push_back(entry);
+                    rootFolderMap[rootFolder] = rootIndex;
+                }
+                
+                // Créer une copie avec filepath relatif
+                SidMetadata relMeta = meta;
+                if (!rootPath.empty() && !relMeta.filepath.empty()) {
+                    fs::path absPath(relMeta.filepath);
+                    fs::path root(rootPath);
+                    try {
+                        relMeta.filepath = fs::relative(absPath, root).string();
+                    } catch (...) {
+                        // Si relative échoue, garder le chemin absolu
+                    }
+                }
+                relMeta.rootFolder = ""; // Plus besoin dans chaque entrée
+                m_rootFolders[rootIndex].sidList.push_back(relMeta);
+            }
+            
+            LOG_INFO("Migration completed: {} root folders, {} total files", m_rootFolders.size(), oldMetadata.size());
+        } else {
+            // Nouvelle structure chargée avec succès
+            m_rootFolders = newStructure;
+            
+            // Reconstruire les chemins absolus depuis les chemins relatifs
+            for (auto& rootEntry : m_rootFolders) {
+                if (rootEntry.rootPath.empty()) {
+                    // Si rootPath est vide, essayer de le déduire depuis le premier filepath
+                    if (!rootEntry.sidList.empty() && !rootEntry.sidList[0].filepath.empty()) {
+                        fs::path firstFile(rootEntry.sidList[0].filepath);
+                        if (firstFile.is_absolute()) {
+                            // C'est encore un chemin absolu (ancien format), extraire rootPath
+                            rootEntry.rootPath = firstFile.parent_path().string();
+                            // Garder le filepath tel quel pour l'instant
+                        }
+                    }
+                }
             }
         }
         
-        LOG_INFO("Database loaded: {} files indexed, {} with valid hash, {} filepath entries, {} hash entries", 
-                 m_metadata.size(), hashIndexedCount, m_filepathIndex.size(), m_hashIndex.size());
+        // Reconstruire le cache et les index
+        rebuildCacheAndIndexes();
+        
+        size_t totalFiles = 0;
+        for (const auto& root : m_rootFolders) {
+            totalFiles += root.sidList.size();
+        }
+        
+        LOG_INFO("Database loaded: {} root folders, {} total files, {} filepath entries, {} hash entries", 
+                 m_rootFolders.size(), totalFiles, m_filepathIndex.size(), m_hashIndex.size());
         return true;
     } catch (const std::exception& e) {
         LOG_ERROR("Error loading database: {}", e.what());
@@ -66,12 +149,44 @@ bool DatabaseManager::load() {
 
 bool DatabaseManager::save() {
     try {
-        auto result = glz::write_json(m_metadata);
-        if (!result) {
-            LOG_ERROR("Error writing database");
+        // Toujours invalider le cache avant de sauvegarder pour forcer la reconstruction
+        // avec les dernières modifications
+        m_cacheValid = false;
+        
+        // Préparer la structure hiérarchique avec chemins relatifs
+        std::vector<RootFolderEntry> saveStructure = m_rootFolders;
+        
+        // Convertir les chemins absolus en relatifs pour chaque entrée
+        for (auto& rootEntry : saveStructure) {
+            if (rootEntry.rootPath.empty()) {
+                continue; // Pas de rootPath, garder les filepath tels quels
+            }
+            
+            fs::path rootPath(rootEntry.rootPath);
+            for (auto& meta : rootEntry.sidList) {
+                // Si le filepath est absolu, le convertir en relatif
+                if (!meta.filepath.empty()) {
+                    fs::path filePath(meta.filepath);
+                    if (filePath.is_absolute()) {
+                        try {
+                            meta.filepath = fs::relative(filePath, rootPath).string();
+                        } catch (...) {
+                            // Si relative échoue, garder le chemin absolu
+                        }
+                    }
+                }
+                // Supprimer rootFolder de chaque entrée (déjà dans RootFolderEntry)
+                meta.rootFolder = "";
+            }
+        }
+        
+        // Utiliser prettify pour formater le JSON avec retours à la ligne (lisible)
+        std::string jsonStr;
+        auto error = glz::write<glz::opts{.prettify = true}>(saveStructure, jsonStr);
+        if (error) {
+            LOG_ERROR("Error writing database: {}", glz::format_error(error, jsonStr));
             return false;
         }
-        std::string jsonStr = result.value();
         
         std::ofstream file(m_databasePath);
         if (!file) {
@@ -80,12 +195,85 @@ bool DatabaseManager::save() {
         }
         
         file << jsonStr;
-        LOG_INFO("Database saved: {} files", m_metadata.size());
+        
+        size_t totalFiles = 0;
+        for (const auto& root : saveStructure) {
+            totalFiles += root.sidList.size();
+        }
+        
+        LOG_INFO("Database saved: {} root folders, {} total files", saveStructure.size(), totalFiles);
         return true;
     } catch (const std::exception& e) {
         LOG_ERROR("Error saving database: {}", e.what());
         return false;
     }
+}
+
+void DatabaseManager::rebuildCacheAndIndexes() const {
+    m_metadataCache.clear();
+    m_filepathIndex.clear();
+    m_hashIndex.clear();
+    
+    // Parcourir tous les RootFolderEntry et reconstruire les chemins absolus
+    for (const auto& rootEntry : m_rootFolders) {
+        fs::path rootPath(rootEntry.rootPath);
+        
+        for (const auto& meta : rootEntry.sidList) {
+            // Reconstruire le chemin absolu
+            SidMetadata fullMeta = meta;
+            if (!rootPath.empty() && !meta.filepath.empty()) {
+                fs::path filePath(meta.filepath);
+                if (filePath.is_relative()) {
+                    // Chemin relatif : le combiner avec rootPath
+                    fullMeta.filepath = (rootPath / filePath).string();
+                } else {
+                    // Déjà absolu, garder tel quel
+                    fullMeta.filepath = meta.filepath;
+                }
+            }
+            // Restaurer rootFolder pour compatibilité
+            fullMeta.rootFolder = rootEntry.rootFolder;
+            
+            size_t index = m_metadataCache.size();
+            m_metadataCache.push_back(fullMeta);
+            
+            // Indexer par filepath (absolu)
+            if (!fullMeta.filepath.empty()) {
+                m_filepathIndex[fullMeta.filepath] = index;
+            }
+            
+            // Indexer par metadataHash
+            if (fullMeta.metadataHash != 0) {
+                m_hashIndex[fullMeta.metadataHash] = index;
+            }
+        }
+    }
+    
+    m_cacheValid = true;
+}
+
+bool DatabaseManager::clear() {
+    // Vider la base de données en mémoire
+    m_rootFolders.clear();
+    m_metadataCache.clear();
+    m_filepathIndex.clear();
+    m_hashIndex.clear();
+    m_cacheValid = false;
+    
+    // Supprimer le fichier sur disque
+    if (fs::exists(m_databasePath)) {
+        try {
+            fs::remove(m_databasePath);
+            LOG_INFO("Database file deleted: {}", m_databasePath);
+            return true;
+        } catch (const std::exception& e) {
+            LOG_ERROR("Failed to delete database file {}: {}", m_databasePath, e.what());
+            return false;
+        }
+    }
+    
+    LOG_INFO("Database cleared (file did not exist)");
+    return true;
 }
 
 int DatabaseManager::indexPlaylist(PlaylistManager& playlist, std::function<void(const std::string&, int, int)> progressCallback) {
@@ -101,7 +289,36 @@ int DatabaseManager::indexPlaylist(PlaylistManager& playlist, std::function<void
             progressCallback(node->filepath, i + 1, total);
         }
         
-        if (indexFile(node->filepath)) {
+        // Déterminer le rootFolder : remonter jusqu'au premier enfant direct de m_root
+        // (c'est le dossier déposé par drag & drop)
+        std::string rootFolder = "";
+        PlaylistNode* current = node->parent;
+        while (current && current->parent) {
+            // Si le parent de current est m_root (parent == nullptr), alors current est le rootFolder
+            if (current->parent->parent == nullptr) {
+                // current->parent est m_root, donc current est le rootFolder
+                if (current->isFolder) {
+                    rootFolder = current->name;
+                }
+                break;
+            }
+            current = current->parent;
+        }
+        
+        // Si on n'a pas trouvé de rootFolder, essayer une approche alternative :
+        // extraire le rootFolder depuis le filepath en cherchant le nom du dossier déposé
+        if (rootFolder.empty() && !node->filepath.empty()) {
+            // Chercher dans les enfants directs de m_root pour trouver lequel correspond au chemin
+            // Cette approche est un fallback si la remontée dans l'arbre a échoué
+            fs::path filePath(node->filepath);
+            for (const auto& part : filePath.parent_path()) {
+                // Vérifier si ce composant correspond à un enfant direct de m_root
+                // (cette logique nécessiterait d'avoir accès à m_root, ce qui n'est pas le cas ici)
+                // Pour l'instant, on laisse rootFolder vide et on le déterminera autrement
+            }
+        }
+        
+        if (indexFile(node->filepath, rootFolder)) {
             indexed++;
         }
     }
@@ -110,33 +327,84 @@ int DatabaseManager::indexPlaylist(PlaylistManager& playlist, std::function<void
     return indexed;
 }
 
-bool DatabaseManager::indexFile(const std::string& filepath) {
+bool DatabaseManager::indexFile(const std::string& filepath, const std::string& rootFolder) {
     if (!fs::exists(filepath)) {
         return false;
     }
     
-    // Vérifier d'abord si le fichier est déjà indexé par filepath
+    // OPTIMISATION : Utiliser les index pour des recherches O(1) au lieu de O(n)
+    // Maintenir les index à jour pendant l'indexation
+    if (!m_cacheValid) {
+        rebuildCacheAndIndexes();
+    }
+    
+    // Recherche O(1) par filepath
     auto filepathIt = m_filepathIndex.find(filepath);
     if (filepathIt != m_filepathIndex.end()) {
-        // Fichier déjà indexé, vérifier s'il a changé
-        SidMetadata& existing = m_metadata[filepathIt->second];
+        // Fichier déjà indexé, trouver dans quelle RootFolderEntry il se trouve
+        const SidMetadata& cachedMeta = m_metadataCache[filepathIt->second];
+        std::string existingRootFolder = cachedMeta.rootFolder;
         
-        if (!existing.isFileChanged()) {
-            // Fichier à jour, pas besoin de réindexer
-            // Le MD5 est déjà présent (conservé)
-            return false;
+        // Trouver la RootFolderEntry correspondante
+        for (auto& rootEntry : m_rootFolders) {
+            if (rootEntry.rootFolder == existingRootFolder) {
+                // Trouver le fichier dans sidList (on connaît déjà l'index)
+                size_t cacheIndex = filepathIt->second;
+                // Reconstruire le chemin relatif depuis le cache
+                fs::path rootPath(rootEntry.rootPath);
+                fs::path cachedPath(cachedMeta.filepath);
+                
+                // Trouver l'entrée correspondante dans sidList
+                for (auto& meta : rootEntry.sidList) {
+                    fs::path metaPath = meta.filepath.empty() ? fs::path() :
+                                       (meta.filepath[0] == '/' ? fs::path(meta.filepath) : rootPath / meta.filepath);
+                    
+                    if (metaPath.string() == filepath) {
+                        // Fichier trouvé, vérifier s'il a changé
+                        if (!meta.isFileChanged()) {
+                            // Fichier à jour, mettre à jour rootFolder si fourni
+                            if (!rootFolder.empty() && rootEntry.rootFolder.empty()) {
+                                rootEntry.rootFolder = rootFolder;
+                            }
+                            return false;
+                        }
+                        
+                        // Fichier a changé : réindexer et recalculer le MD5
+                        meta = extractMetadata(filepath);
+                        if (meta.filepath.empty()) {
+                            return false;
+                        }
+                        
+                        // Convertir en chemin relatif
+                        if (!rootEntry.rootPath.empty()) {
+                            try {
+                                fs::path absPath(meta.filepath);
+                                fs::path root(rootEntry.rootPath);
+                                meta.filepath = fs::relative(absPath, root).string();
+                            } catch (...) {
+                                // Si relative échoue, garder le chemin absolu
+                            }
+                        }
+                        
+                        // Mettre à jour rootFolder si fourni
+                        if (!rootFolder.empty() && rootEntry.rootFolder.empty()) {
+                            rootEntry.rootFolder = rootFolder;
+                        }
+                        
+                        // Recalculer le MD5 car le fichier a changé
+                        meta.md5Hash = calculateFileMD5(filepath);
+                        meta.rootFolder = ""; // Plus besoin dans chaque entrée
+                        
+                        // Mettre à jour le cache et les index
+                        m_metadataCache[cacheIndex] = cachedMeta; // Mettre à jour avec nouvelles données
+                        m_metadataCache[cacheIndex].filepath = filepath;
+                        m_metadataCache[cacheIndex].rootFolder = rootEntry.rootFolder;
+                        return true; // Fichier réindexé
+                    }
+                }
+                break;
+            }
         }
-        
-        // Fichier a changé : réindexer et recalculer le MD5
-        existing = extractMetadata(filepath);
-        if (existing.filepath.empty()) {
-            return false;
-        }
-        
-        // Recalculer le MD5 car le fichier a changé
-        existing.md5Hash = calculateFileMD5(filepath);
-        
-        return true; // Fichier réindexé
     }
     
     // Extraire les métadonnées pour obtenir le metadataHash
@@ -145,86 +413,246 @@ bool DatabaseManager::indexFile(const std::string& filepath) {
         return false; // Erreur lors de l'extraction
     }
     
-    // Vérifier si déjà indexé par metadataHash (même morceau, chemin différent)
+    // Déterminer le rootPath depuis le filepath
+    fs::path filePath(filepath);
+    std::string rootPathStr = "";
+    if (!rootFolder.empty()) {
+        // Chercher le rootFolder dans le chemin
+        fs::path current = filePath;
+        while (current.has_parent_path() && current.parent_path() != current) {
+            if (current.filename().string() == rootFolder) {
+                rootPathStr = current.string();
+                break;
+            }
+            current = current.parent_path();
+        }
+    }
+    // Si rootPath non trouvé, utiliser le parent du fichier
+    if (rootPathStr.empty()) {
+        rootPathStr = filePath.parent_path().string();
+    }
+    
+    // Trouver ou créer la RootFolderEntry correspondante
+    size_t rootIndex = SIZE_MAX;
+    for (size_t i = 0; i < m_rootFolders.size(); ++i) {
+        if (m_rootFolders[i].rootFolder == rootFolder) {
+            rootIndex = i;
+            break;
+        }
+    }
+    
+    if (rootIndex == SIZE_MAX) {
+        // Créer une nouvelle RootFolderEntry
+        RootFolderEntry newRoot;
+        newRoot.rootPath = rootPathStr;
+        newRoot.rootFolder = rootFolder;
+        rootIndex = m_rootFolders.size();
+        m_rootFolders.push_back(newRoot);
+    }
+    
+    RootFolderEntry& rootEntry = m_rootFolders[rootIndex];
+    
+    // OPTIMISATION : Recherche O(1) par metadataHash au lieu de O(n)
     auto hashIt = m_hashIndex.find(metadata.metadataHash);
     if (hashIt != m_hashIndex.end()) {
-        // Le morceau existe déjà dans la base (même métadonnées)
-        SidMetadata& existing = m_metadata[hashIt->second];
+        // Même morceau trouvé (O(1) !)
+        const SidMetadata& existingCached = m_metadataCache[hashIt->second];
+        std::string existingRootFolder = existingCached.rootFolder;
         
-        // Mettre à jour le filepath si différent (fichier déplacé)
-        if (existing.filepath != filepath) {
-            // Retirer l'ancien filepath de l'index
-            m_filepathIndex.erase(existing.filepath);
-            // Mettre à jour le filepath et ajouter le nouveau
-            existing.filepath = filepath;
-            m_filepathIndex[filepath] = hashIt->second;
+        // Si le rootFolder est différent (ou l'un est vide et l'autre non), créer une nouvelle entrée (dupliquer)
+        bool shouldDuplicate = false;
+        if (!rootFolder.empty() && !existingRootFolder.empty()) {
+            shouldDuplicate = (existingRootFolder != rootFolder);
+        } else if (!rootFolder.empty() && existingRootFolder.empty()) {
+            shouldDuplicate = true;
+        } else if (rootFolder.empty() && !existingRootFolder.empty()) {
+            shouldDuplicate = true;
         }
         
-        // Vérifier si le fichier a changé (taille, date)
-        if (existing.isFileChanged()) {
-            // Réindexer car le fichier a changé
-            existing = extractMetadata(filepath);
-            if (existing.filepath.empty()) {
-                return false;
+        if (shouldDuplicate) {
+            // Créer une nouvelle entrée pour ce rootFolder différent
+            metadata.md5Hash = calculateFileMD5(filepath);
+            // Convertir en chemin relatif
+            SidMetadata relMeta = metadata;
+            if (!rootEntry.rootPath.empty()) {
+                try {
+                    fs::path absPath(relMeta.filepath);
+                    fs::path root(rootEntry.rootPath);
+                    relMeta.filepath = fs::relative(absPath, root).string();
+                } catch (...) {
+                    // Si relative échoue, garder le chemin absolu
+                }
             }
+            relMeta.rootFolder = ""; // Plus besoin dans chaque entrée
+            rootEntry.sidList.push_back(relMeta);
             
-            // Recalculer le MD5 car le fichier a changé
-            existing.md5Hash = calculateFileMD5(filepath);
+            // Mettre à jour les index
+            size_t newIndex = m_metadataCache.size();
+            SidMetadata fullMeta = relMeta;
+            fullMeta.filepath = filepath; // Chemin absolu pour le cache
+            fullMeta.rootFolder = rootEntry.rootFolder;
+            m_metadataCache.push_back(fullMeta);
+            m_filepathIndex[filepath] = newIndex;
+            // Ne pas mettre à jour m_hashIndex car on veut garder la première occurrence comme référence
             
-            return true; // Fichier réindexé
+            return true;
         }
         
-        // Fichier identique mais chemin différent : conserver le MD5 existant
-        // Si le MD5 n'existe pas encore, le calculer maintenant
-        if (existing.md5Hash.empty()) {
-            existing.md5Hash = calculateFileMD5(filepath);
+        // Même rootFolder : trouver dans la RootFolderEntry et mettre à jour
+        if (existingRootFolder == rootFolder) {
+            // Trouver l'entrée dans sidList
+            for (auto& existingMeta : rootEntry.sidList) {
+                if (existingMeta.metadataHash == metadata.metadataHash) {
+                    // Mettre à jour le filepath si différent
+                    fs::path existingPath;
+                    if (existingMeta.filepath.empty()) {
+                        existingPath = fs::path();
+                    } else if (!existingMeta.filepath.empty() && existingMeta.filepath[0] == '/') {
+                        existingPath = fs::path(existingMeta.filepath);
+                    } else if (!rootEntry.rootPath.empty()) {
+                        existingPath = fs::path(rootEntry.rootPath) / existingMeta.filepath;
+                    }
+                    
+                    if (existingPath.string() != filepath) {
+                        // Convertir le nouveau filepath en relatif
+                        if (!rootEntry.rootPath.empty()) {
+                            try {
+                                fs::path absPath(filepath);
+                                fs::path root(rootEntry.rootPath);
+                                existingMeta.filepath = fs::relative(absPath, root).string();
+                            } catch (...) {
+                                existingMeta.filepath = filepath; // Garder absolu si relative échoue
+                            }
+                        } else {
+                            existingMeta.filepath = filepath;
+                        }
+                    }
+                    
+                    // Vérifier si le fichier a changé
+                    if (existingMeta.isFileChanged()) {
+                        existingMeta = extractMetadata(filepath);
+                        if (existingMeta.filepath.empty()) {
+                            return false;
+                        }
+                        // Convertir en relatif
+                        if (!rootEntry.rootPath.empty()) {
+                            try {
+                                fs::path absPath(existingMeta.filepath);
+                                fs::path root(rootEntry.rootPath);
+                                existingMeta.filepath = fs::relative(absPath, root).string();
+                            } catch (...) {
+                                // Garder absolu si relative échoue
+                            }
+                        }
+                        existingMeta.md5Hash = calculateFileMD5(filepath);
+                    } else if (existingMeta.md5Hash.empty()) {
+                        existingMeta.md5Hash = calculateFileMD5(filepath);
+                    }
+                    
+                    existingMeta.rootFolder = ""; // Plus besoin
+                    
+                    // Mettre à jour le cache
+                    m_metadataCache[hashIt->second].filepath = filepath;
+                    m_filepathIndex[filepath] = hashIt->second;
+                    
+                    return true;
+                }
+            }
         }
         
-        return false; // Déjà indexé et à jour
+        // Même morceau mais rootFolder différent : déjà géré par shouldDuplicate
+        return false;
     }
     
     // Nouveau morceau : ajouter les métadonnées et calculer le MD5
     metadata.md5Hash = calculateFileMD5(filepath);
-    size_t index = m_metadata.size();
-    m_metadata.push_back(metadata);
-    m_filepathIndex[filepath] = index;
-    m_hashIndex[metadata.metadataHash] = index;
+    // Convertir en chemin relatif
+    SidMetadata relMeta = metadata;
+    if (!rootEntry.rootPath.empty()) {
+        try {
+            fs::path absPath(relMeta.filepath);
+            fs::path root(rootEntry.rootPath);
+            relMeta.filepath = fs::relative(absPath, root).string();
+        } catch (...) {
+            // Si relative échoue, garder le chemin absolu
+        }
+    }
+    relMeta.rootFolder = ""; // Plus besoin dans chaque entrée
+    rootEntry.sidList.push_back(relMeta);
+    
+    // Mettre à jour les index en temps réel (O(1))
+    size_t newIndex = m_metadataCache.size();
+    SidMetadata fullMeta = relMeta;
+    fullMeta.filepath = filepath; // Chemin absolu pour le cache
+    fullMeta.rootFolder = rootEntry.rootFolder;
+    m_metadataCache.push_back(fullMeta);
+    m_filepathIndex[filepath] = newIndex;
+    m_hashIndex[metadata.metadataHash] = newIndex;
     
     return true;
 }
 
 bool DatabaseManager::isIndexed(const std::string& filepath) const {
+    if (!m_cacheValid) {
+        rebuildCacheAndIndexes();
+    }
     auto it = m_filepathIndex.find(filepath);
     if (it != m_filepathIndex.end()) {
         // Vérifier si le fichier a changé
-        const SidMetadata& metadata = m_metadata[it->second];
+        const SidMetadata& metadata = m_metadataCache[it->second];
         return !metadata.isFileChanged();
     }
     return false;
 }
 
 bool DatabaseManager::isIndexedByMetadataHash(uint32_t metadataHash) const {
+    if (!m_cacheValid) {
+        rebuildCacheAndIndexes();
+    }
     auto it = m_hashIndex.find(metadataHash);
     return it != m_hashIndex.end();
 }
 
 const SidMetadata* DatabaseManager::getMetadata(const std::string& filepath) const {
+    if (!m_cacheValid) {
+        rebuildCacheAndIndexes();
+    }
     auto it = m_filepathIndex.find(filepath);
     if (it != m_filepathIndex.end()) {
-        return &m_metadata[it->second];
+        return &m_metadataCache[it->second];
     }
     return nullptr;
 }
 
 const SidMetadata* DatabaseManager::getMetadataByHash(uint32_t metadataHash) const {
+    if (!m_cacheValid) {
+        rebuildCacheAndIndexes();
+    }
     auto it = m_hashIndex.find(metadataHash);
     if (it == m_hashIndex.end()) {
         return nullptr;
     }
-    return &m_metadata[it->second];
+    return &m_metadataCache[it->second];
+}
+
+std::vector<SidMetadata> DatabaseManager::getAllMetadata() const {
+    if (!m_cacheValid) {
+        rebuildCacheAndIndexes();
+    }
+    return m_metadataCache;
+}
+
+size_t DatabaseManager::getCount() const {
+    if (!m_cacheValid) {
+        rebuildCacheAndIndexes();
+    }
+    return m_metadataCache.size();
 }
 
 std::unordered_set<uint32_t> DatabaseManager::getIndexedMetadataHashes() const {
+    if (!m_cacheValid) {
+        rebuildCacheAndIndexes();
+    }
     std::unordered_set<uint32_t> hashes;
     for (const auto& pair : m_hashIndex) {
         hashes.insert(pair.first);
@@ -235,6 +663,10 @@ std::unordered_set<uint32_t> DatabaseManager::getIndexedMetadataHashes() const {
 std::vector<const SidMetadata*> DatabaseManager::search(const std::string& query) const {
     if (query.empty()) {
         return {};
+    }
+    
+    if (!m_cacheValid) {
+        rebuildCacheAndIndexes();
     }
     
     auto startTime = std::chrono::high_resolution_clock::now();
@@ -248,9 +680,9 @@ std::vector<const SidMetadata*> DatabaseManager::search(const std::string& query
     const bool useFuzzy = queryLower.length() >= 3; // Fuzzy seulement si query >= 3 caractères
     const size_t maxResults = 25; // Limité à 25 résultats
     size_t exactMatches = 0;
-    
+
     // Première passe : recherche exacte uniquement (rapide)
-    for (const auto& metadata : m_metadata) {
+    for (const auto& metadata : m_metadataCache) {
         double score = 0.0;
         bool hasExactMatch = false;
         
@@ -325,7 +757,7 @@ std::vector<const SidMetadata*> DatabaseManager::search(const std::string& query
         }
         
         // Fuzzy search uniquement sur les éléments non trouvés
-        for (const auto& metadata : m_metadata) {
+        for (const auto& metadata : m_metadataCache) {
             if (alreadyFound.find(&metadata) != alreadyFound.end()) {
                 continue; // Déjà trouvé en exact match
             }
@@ -426,7 +858,7 @@ std::vector<const SidMetadata*> DatabaseManager::search(const std::string& query
             }
             
             if (score > 0.0) {
-                scoredResults.push_back({&metadata, score});
+                scoredResults.push_back(std::make_pair(&metadata, score));
             }
         }
     }
@@ -446,7 +878,7 @@ std::vector<const SidMetadata*> DatabaseManager::search(const std::string& query
     // Log seulement si la recherche prend du temps (> 50ms)
     if (totalTime > 50) {
         LOG_DEBUG("[SEARCH] query='{}': {} ms (DB: {}, exact: {}, fuzzy: {}, results: {})",
-                  query, totalTime, m_metadata.size(), exactMatches, 
+                  query, totalTime, m_metadataCache.size(), exactMatches, 
                   useFuzzy ? "yes" : "no", results.size());
     }
     
@@ -480,25 +912,10 @@ SidMetadata DatabaseManager::extractMetadata(const std::string& filepath) {
  * une implémentation personnalisée optimisée pour la recherche rapide dans une grande base de données.
  * 
  * Principe de fonctionnement :
- * 1. Vérifie d'abord si la query est une sous-chaîne exacte (match parfait = 1.0)
- * 2. Sinon, vérifie si tous les caractères de la query sont présents dans l'ordre
- *    (algorithme de "subsequence matching" optimisé)
- * 3. Calcule un score basé sur :
- *    - La proportion de caractères trouvés (60% du score)
- *    - La longueur de la séquence consécutive la plus longue (40% du score)
- * 
- * Complexité : O(n) où n = longueur de la chaîne à rechercher
- * (beaucoup plus rapide que Levenshtein qui est O(n*m))
- * 
- * Exemple :
- *   query = "david"
- *   str = "David Major - Cova"
- *   → Tous les caractères 'd','a','v','i','d' sont trouvés dans l'ordre
- *   → Score élevé (proche de 1.0)
- * 
- * @param str La chaîne dans laquelle chercher (ex: titre, auteur)
- * @param query La chaîne à rechercher (doit être en minuscules)
- * @return Score entre 0.0 (aucun match) et 1.0 (match parfait)
+ * 1. Recherche exacte rapide (O(n)) : vérifie si la query est contenue dans title/author
+ * 2. Si pas de résultats exacts et query >= 3 caractères : fuzzy match (O(n*m))
+ * 3. Scoring : exact match = 100, fuzzy match = score de similarité (0-100)
+ * 4. Tri par score décroissant et limitation à 25 résultats
  */
 double DatabaseManager::fuzzyMatchFast(const std::string& str, const std::string& query) {
     if (str.empty() || query.empty()) return 0.0;
@@ -537,4 +954,3 @@ double DatabaseManager::fuzzyMatchFast(const std::string& str, const std::string
     // Aucun match
     return 0.0;
 }
-

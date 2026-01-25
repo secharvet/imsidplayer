@@ -86,7 +86,6 @@ private:
     void handleDropFile(const char* filepath);
     
     // Threading
-    void loadDatabaseAsync();
     void indexPlaylistAsync();
     void rebuildCacheAsync();
     void waitForDatabaseThread();

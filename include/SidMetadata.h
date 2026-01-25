@@ -27,9 +27,11 @@ struct SidMetadata {
     std::string md5Hash;            // Hash MD5 du fichier (pour matching avec Songlengths.md5)
     int64_t fileSize;               // Taille du fichier
     int64_t lastModified;           // Date de modification (timestamp)
+    uint16_t hvscNum;               // Numéro de version HVSC (ex: 84)
+    std::string rootFolder;         // Dossier racine (nom du dossier déposé, ex: "HVSCallofthem24")
     
     // Constructeur par défaut
-    SidMetadata() : numberOfSongs(0), defaultSong(1), clockSpeed(0), metadataHash(0), fileSize(0), lastModified(0) {}
+    SidMetadata() : numberOfSongs(0), defaultSong(1), clockSpeed(0), metadataHash(0), fileSize(0), lastModified(0), hvscNum(0) {}
     
     // Extraire les métadonnées depuis un SidTune
     static SidMetadata fromSidTune(const std::string& filepath, SidTune* tune);
@@ -37,7 +39,8 @@ struct SidMetadata {
     // Vérifier si le fichier a changé depuis l'indexation
     bool isFileChanged() const;
     
-    // Générer un hash 32-bit basé sur les métadonnées (rapide)
+    // Générer un hash 32-bit basé sur les métadonnées (title+author+released+sidModel+clockSpeed)
+    // SANS le path pour la compatibilité avec les ratings existants
     static uint32_t generateMetadataHash(const std::string& title, const std::string& author, 
                                          const std::string& released, const std::string& sidModel, 
                                          int clockSpeed);
@@ -61,7 +64,9 @@ struct glz::meta<SidMetadata> {
         "metadataHash", &T::metadataHash,
         "md5Hash", &T::md5Hash,
         "fileSize", &T::fileSize,
-        "lastModified", &T::lastModified
+        "lastModified", &T::lastModified,
+        "hvscNum", &T::hvscNum,
+        "rootFolder", &T::rootFolder
     );
 };
 

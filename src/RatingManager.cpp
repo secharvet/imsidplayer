@@ -22,7 +22,7 @@ bool RatingManager::load(const std::string& filepath) {
     
     if (!fs::exists(m_filepath)) {
         m_ratings.clear();
-        return true; // Pas d'erreur si le fichier n'existe pas
+        return true; 
     }
     
     try {
@@ -46,21 +46,19 @@ bool RatingManager::load(const std::string& filepath) {
             return false;
         }
         
-        // Convertir le vecteur en map pour accès rapide
         m_ratings.clear();
         for (const auto& entry : data.ratings) {
-            // Valider le rating (0-5)
             int rating = entry.rating;
             if (rating < 0) rating = 0;
             if (rating > 5) rating = 5;
             
-            // Ne garder que les ratings > 0
-            if (rating > 0) {
-                m_ratings[entry.metadataHash] = rating;
+            // On garde même si rating est 0, si playCount > 0
+            if (rating > 0 || entry.playCount > 0) {
+                m_ratings[entry.metadataHash] = {rating, entry.playCount};
             }
         }
         
-        LOG_INFO("Ratings loaded: {} entries", m_ratings.size());
+        LOG_INFO("Ratings/Stats loaded: {} entries", m_ratings.size());
         return true;
     } catch (const std::exception& e) {
         LOG_ERROR("Exception while loading ratings: {}", e.what());
@@ -72,21 +70,18 @@ bool RatingManager::save(const std::string& filepath) {
     std::string savePath = filepath.empty() ? m_filepath : filepath;
     
     try {
-        // Créer le répertoire si nécessaire
         fs::path dir = fs::path(savePath).parent_path();
         if (!dir.empty() && !fs::exists(dir)) {
             fs::create_directories(dir);
         }
         
-        // Convertir la map en vecteur pour la sérialisation
         RatingData data;
-        for (const auto& pair : m_ratings) {
-            if (pair.second > 0) {  // Ne sauvegarder que les ratings > 0
-                data.ratings.push_back(RatingEntry(pair.first, pair.second));
+        for (const auto& [hash, info] : m_ratings) {
+            if (info.rating > 0 || info.playCount > 0) {
+                data.ratings.push_back(RatingEntry(hash, info.rating, info.playCount));
             }
         }
         
-        // Trier par metadataHash pour cohérence
         std::sort(data.ratings.begin(), data.ratings.end(),
             [](const RatingEntry& a, const RatingEntry& b) {
                 return a.metadataHash < b.metadataHash;
@@ -112,32 +107,38 @@ bool RatingManager::save(const std::string& filepath) {
 }
 
 bool RatingManager::updateRating(uint32_t metadataHash, int rating) {
-    // Limiter le rating entre 0 et 5
     if (rating < 0) rating = 0;
     if (rating > 5) rating = 5;
     
-    if (rating == 0) {
-        // Supprimer le rating si on met 0
-        auto it = m_ratings.find(metadataHash);
-        if (it != m_ratings.end()) {
-            m_ratings.erase(it);
-            save(); // Sauvegarder immédiatement
-            return true;
-        }
-        return false; // Pas de rating à supprimer
+    auto& info = m_ratings[metadataHash];
+    info.rating = rating;
+    
+    // Si tout est à zéro, on peut supprimer l'entrée pour gagner de la place
+    if (info.rating == 0 && info.playCount == 0) {
+        m_ratings.erase(metadataHash);
     }
     
-    // Mettre à jour ou ajouter le rating
-    m_ratings[metadataHash] = rating;
-    save(); // Sauvegarder immédiatement
+    save();
     return true;
 }
 
 int RatingManager::getRating(uint32_t metadataHash) const {
     auto it = m_ratings.find(metadataHash);
     if (it != m_ratings.end()) {
-        return it->second;
+        return it->second.rating;
     }
-    
-    return 0; // Pas de rating par défaut
+    return 0;
+}
+
+uint32_t RatingManager::getPlayCount(uint32_t metadataHash) const {
+    auto it = m_ratings.find(metadataHash);
+    if (it != m_ratings.end()) {
+        return it->second.playCount;
+    }
+    return 0;
+}
+
+void RatingManager::incrementPlayCount(uint32_t metadataHash) {
+    m_ratings[metadataHash].playCount++;
+    save();
 }

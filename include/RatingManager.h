@@ -9,10 +9,12 @@
 // Structure pour une entrée de rating
 struct RatingEntry {
     uint32_t metadataHash;
-    int rating;  // 0-5 étoiles
+    int rating;      // 0-5 étoiles
+    uint32_t playCount; // Nombre de fois que le morceau a été joué
     
-    RatingEntry() : metadataHash(0), rating(0) {}
-    RatingEntry(uint32_t hash, int r) : metadataHash(hash), rating(r) {}
+    RatingEntry() : metadataHash(0), rating(0), playCount(0) {}
+    RatingEntry(uint32_t hash, int r, uint32_t count = 0) 
+        : metadataHash(hash), rating(r), playCount(count) {}
 };
 
 // Spécialisation Glaze pour RatingEntry
@@ -21,7 +23,8 @@ struct glz::meta<RatingEntry> {
     using T = RatingEntry;
     static constexpr auto value = glz::object(
         "metadataHash", &T::metadataHash,
-        "rating", &T::rating
+        "rating", &T::rating,
+        "playCount", &T::playCount
     );
 };
 
@@ -55,14 +58,22 @@ public:
     // Obtenir le rating d'un morceau par son metadataHash
     int getRating(uint32_t metadataHash) const;
     
+    // Gérer le playCount
+    uint32_t getPlayCount(uint32_t metadataHash) const;
+    void incrementPlayCount(uint32_t metadataHash);
+    
     // Obtenir tous les ratings (pour debug ou autres usages)
-    const std::map<uint32_t, int>& getAllRatings() const { return m_ratings; }
+    struct InternalData {
+        int rating;
+        uint32_t playCount;
+    };
+    const std::map<uint32_t, InternalData>& getAllData() const { return m_ratings; }
     
     // Obtenir le chemin du fichier de ratings
     std::string getRatingFilePath() const;
     
 private:
-    std::map<uint32_t, int> m_ratings;  // metadataHash -> rating
+    std::map<uint32_t, InternalData> m_ratings;  // metadataHash -> {rating, playCount}
     std::string m_filepath;
 };
 

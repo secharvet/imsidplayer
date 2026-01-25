@@ -8,18 +8,16 @@
 #include <cstdint>
 #include <glaze/glaze.hpp>
 
-// Entrée d'historique de lecture
+// Entrée d'historique de lecture (format léger pour append rapide)
 struct HistoryEntry {
     std::string timestamp;      // Date/heure ISO (ex: "2024-01-15T14:30:45")
     std::string title;          // Titre du morceau
-    std::string author;          // Auteur
+    std::string author;         // Auteur
     uint32_t metadataHash;      // Hash 32-bit des métadonnées
-    uint32_t playCount;         // Nombre de fois que le morceau a été joué
-    int rating;                 // Note (0-5 étoiles)
     
-    HistoryEntry() : metadataHash(0), playCount(1), rating(0) {}
+    HistoryEntry() : metadataHash(0) {}
     HistoryEntry(const std::string& t, const std::string& a, uint32_t hash)
-        : title(t), author(a), metadataHash(hash), playCount(1), rating(0) {
+        : title(t), author(a), metadataHash(hash) {
         // Générer timestamp ISO
         auto now = std::chrono::system_clock::now();
         auto time_t = std::chrono::system_clock::to_time_t(now);
@@ -30,7 +28,7 @@ struct HistoryEntry {
     }
 };
 
-// Spécialisation Glaze pour HistoryEntry
+// Spécialisation Glaze pour HistoryEntry (utilisée pour le Cloud Sync uniquement)
 template <>
 struct glz::meta<HistoryEntry> {
     using T = HistoryEntry;
@@ -38,9 +36,7 @@ struct glz::meta<HistoryEntry> {
         "timestamp", &T::timestamp,
         "title", &T::title,
         "author", &T::author,
-        "metadataHash", &T::metadataHash,
-        "playCount", &T::playCount,
-        "rating", &T::rating
+        "metadataHash", &T::metadataHash
     );
 };
 
@@ -48,23 +44,20 @@ class HistoryManager {
 public:
     HistoryManager();
     
-    // Charger l'historique depuis un fichier JSON (filepath vide = utiliser le chemin par défaut)
+    // Charger l'historique depuis le fichier texte (format line-based)
     bool load(const std::string& filepath = "");
     
-    // Sauvegarder l'historique dans un fichier JSON (filepath vide = utiliser le chemin par défaut)
+    // Sauvegarder tout l'historique (pour rotation ou merge)
     bool save(const std::string& filepath = "");
     
-    // Ajouter une entrée à l'historique (sauvegarde automatique)
+    // Ajouter une entrée à l'historique (append rapide)
     void addEntry(const std::string& title, const std::string& author, uint32_t metadataHash);
     
-    // Mettre à jour le rating d'une entrée par son metadataHash
-    bool updateRating(uint32_t metadataHash, int rating);
-    
-    // Obtenir le rating d'une entrée par son metadataHash
-    int getRating(uint32_t metadataHash) const;
-    
-    // Obtenir toutes les entrées (triées par date, plus récent en premier)
+    // Obtenir toutes les entrées
     const std::vector<HistoryEntry>& getEntries() const { return m_entries; }
+    
+    // Remplacer toutes les entrées (utile après un merge cloud)
+    void setEntries(std::vector<HistoryEntry>&& entries);
     
     // Obtenir le chemin du fichier d'historique
     std::string getHistoryFilePath() const;
@@ -72,8 +65,11 @@ public:
 private:
     std::vector<HistoryEntry> m_entries;
     std::string m_filepath;
-    static const size_t MAX_ENTRIES = 1000; // Limiter à 1000 entrées max
+    static const size_t MAX_ENTRIES = 10000; // Limite portée à 10 000
+    
+    // Helpers pour format line-based
+    std::string entryToLine(const HistoryEntry& entry) const;
+    HistoryEntry lineToEntry(const std::string& line) const;
 };
 
 #endif // HISTORY_MANAGER_H
-

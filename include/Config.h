@@ -66,17 +66,6 @@ public:
     void setWindowPos(int x, int y) { m_windowX = x; m_windowY = y; }
     void setWindowSize(int w, int h) { m_windowWidth = w; m_windowHeight = h; }
     
-    // Playlist (structure hiérarchique)
-    struct PlaylistItem {
-        std::string name;
-        std::string path;
-        bool isFolder;
-        std::vector<PlaylistItem> children;
-    };
-    
-    const std::vector<PlaylistItem>& getPlaylist() const { return m_playlist; }
-    void setPlaylist(const std::vector<PlaylistItem>& playlist) { m_playlist = playlist; }
-    
     // État des voix (Voice 1, 2, 3 actives)
     bool isVoiceActive(int voice) const {
         if (voice >= 0 && voice < 3) return m_voiceActive[voice];
@@ -121,7 +110,6 @@ private:
     int m_windowY = 100;
     int m_windowWidth = 1200;
     int m_windowHeight = 800;
-    std::vector<PlaylistItem> m_playlist;
     bool m_voiceActive[3] = {true, true, true}; // Par défaut toutes actives
     
 #ifdef ENABLE_CLOUD_SAVE
@@ -130,10 +118,6 @@ private:
     std::string m_cloudRatingEndpoint;
     std::string m_cloudHistoryEndpoint;
 #endif
-    
-    // Parsing du fichier de config
-    void parseLine(const std::string& line, int indent, std::vector<PlaylistItem>* currentList);
-    void writePlaylist(std::ofstream& file, const std::vector<PlaylistItem>& items, int indent = 0);
 };
 
 #endif // CONFIG_H

@@ -85,7 +85,8 @@ SidMetadata SidMetadata::fromSidTune(const std::string& filepath, SidTune* tune)
         }
     }
     
-    // Générer le hash basé sur les métadonnées (rapide, 32-bit)
+    // Générer le hash basé sur les métadonnées (title+author+released+sidModel+clockSpeed)
+    // SANS le path pour la compatibilité avec les ratings existants
     metadata.metadataHash = generateMetadataHash(
         metadata.title, 
         metadata.author, 
@@ -130,6 +131,8 @@ uint32_t SidMetadata::generateMetadataHash(const std::string& title, const std::
                                             const std::string& released, const std::string& sidModel, 
                                             int clockSpeed) {
     // Hash FNV-1a 32-bit (rapide et efficace)
+    // Utilise title+author+released+sidModel+clockSpeed (SANS le path)
+    // pour la compatibilité avec les ratings existants
     uint32_t hash = 2166136261u; // FNV offset basis
     
     auto hashString = [&hash](const std::string& str) {
@@ -139,7 +142,7 @@ uint32_t SidMetadata::generateMetadataHash(const std::string& title, const std::
         }
     };
     
-    // Combiner toutes les métadonnées
+    // Combiner toutes les métadonnées (SANS le path)
     hashString(title);
     hashString(author);
     hashString(released);

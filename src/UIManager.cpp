@@ -34,7 +34,9 @@ UIManager::UIManager(SidPlayer& player, PlaylistManager& playlist, BackgroundMan
       m_window(nullptr), m_renderer(nullptr), m_showFileDialog(false), m_isConfigTabActive(false), m_indexRequested(false), m_showDebugWindow(false),
       m_selectedSearchResult(-1), m_searchListFocused(false), m_searchPending(false),
       m_databaseOperationInProgress(false), m_databaseOperationProgress(0.0f),
-      m_filtersNeedUpdate(true), m_authorFilterWidget("Author", 200.0f), m_yearFilterWidget("Year", 150.0f),
+      m_filtersNeedUpdate(true), 
+      m_authorFilterWidget("Author", 200.0f), 
+      m_yearFilterWidget("Year", 150.0f),
       m_filterRating(0), m_filterRatingOperator(true),  // 0 = pas de filtre, true = >= par défaut
       m_filtersActive(false),
       m_shouldFocusPlaylist(false),
@@ -937,6 +939,11 @@ void UIManager::renderPlayerControls() {
                 if (currentRating != prevRating) {
                     m_ratingManager.updateRating(metadata->metadataHash, currentRating);
                     LOG_INFO("Rating mis à jour: {} étoiles pour {}", currentRating, metadata->title);
+                    
+#ifdef ENABLE_CLOUD_SAVE
+                    // Push automatique vers le cloud
+                    CloudSyncManager::getInstance().queueRatingSync();
+#endif
                 }
             }
             
@@ -1851,8 +1858,17 @@ void UIManager::recordHistoryEntry(const std::string& filepath) {
     const SidMetadata* metadata = m_database.getMetadata(filepath);
     if (!metadata) return; // Pas de métadonnées = pas d'historique
     
-    // Enregistrer dans l'historique
+    // Enregistrer dans l'historique (append rapide)
     m_history.addEntry(metadata->title, metadata->author, metadata->metadataHash);
+    
+    // Incrémenter le playCount dans le RatingManager
+    m_ratingManager.incrementPlayCount(metadata->metadataHash);
+
+#ifdef ENABLE_CLOUD_SAVE
+    // On ne push PAS l'historique ici (trop lourd), 
+    // mais on peut push le playCount via le RatingSync qui est léger
+    CloudSyncManager::getInstance().queueRatingSync();
+#endif
 }
 
 void UIManager::rebuildFilepathToHashCache() {
@@ -1891,7 +1907,6 @@ void UIManager::updateFilterLists() {
     
     m_availableAuthors.clear();
     m_availableYears.clear();
-    
     // Pour les auteurs : extraire depuis la base de données
     std::unordered_set<std::string> authorsSet;
     
@@ -1978,10 +1993,10 @@ bool UIManager::matchesFilters(PlaylistNode* node) const {
         
         authorMatches = (authorLower.find(filterLower) != std::string::npos);
         if (!authorMatches) {
-            return false; // Auteur ne matche pas, pas besoin de vérifier l'année
+            return false; // Auteur ne matche pas, pas besoin de vérifier le reste
         }
     }
-    
+
     // Vérifier le filtre année
     // Le champ released peut contenir une date complète (ex: "1985", "1985-01-01", "1985/01/01")
     // On extrait l'année (les 4 premiers chiffres) pour la comparaison
@@ -2528,6 +2543,7 @@ void UIManager::renderExplorerTab() {
     if (ImGui::Button(ICON_FA_TRASH " Clear", ImVec2(buttonWidth, 0))) {
         m_playlist.clear();
         m_playlist.setCurrentNode(nullptr);
+        m_database.clear();  // Supprimer la base de données en mémoire et sur disque
         invalidateNavigationCache();
         invalidateFlatList();  // Invalider la liste plate car la playlist change
     }
@@ -2695,7 +2711,7 @@ void UIManager::renderHistoryTab() {
                                 delta = a.author.compare(b.author);
                                 break;
                             case 2: // Plays
-                                delta = (int)a.playCount - (int)b.playCount;
+                                delta = (int)m_ratingManager.getPlayCount(a.metadataHash) - (int)m_ratingManager.getPlayCount(b.metadataHash);
                                 break;
                             case 3: // Rating
                                 // Récupérer les ratings depuis RatingManager
@@ -2795,7 +2811,7 @@ void UIManager::renderHistoryTab() {
             
             // Colonne Nombre de plays
             ImGui::TableSetColumnIndex(2);
-            ImGui::Text("%u", entry.playCount);
+            ImGui::Text("%u", m_ratingManager.getPlayCount(entry.metadataHash));
             
             // Colonne Rating
             ImGui::TableSetColumnIndex(3);

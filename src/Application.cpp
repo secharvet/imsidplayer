@@ -44,8 +44,14 @@ bool Application::initialize() {
         LOG_WARNING("Background initialization failed, continuing without backgrounds");
     }
     
-    // Initialiser les composants
-    m_playlist.loadFromConfig(m_config);
+    // Créer DatabaseManager et charger la DB en premier
+    m_database = std::make_unique<DatabaseManager>();
+    if (m_database->load()) {
+        LOG_INFO("Database loaded: {} files", m_database->getCount());
+    }
+    
+    // Reconstruire la playlist depuis la DB
+    m_playlist.rebuildFromDatabase(*m_database);
     
     // Charger Songlengths.md5 si configuré
     if (!m_config.getSonglengthsPath().empty()) {
@@ -75,9 +81,6 @@ bool Application::initialize() {
     // Restaurer l'état du loop
     m_player.setLoop(m_config.isLoopEnabled());
     
-    // Créer DatabaseManager
-    m_database = std::make_unique<DatabaseManager>();
-    
     // Créer HistoryManager (charge automatiquement l'historique au démarrage)
     m_history = std::make_unique<HistoryManager>();
     
@@ -100,6 +103,8 @@ bool Application::initialize() {
         // Activer si configuré
         if (m_config.isCloudSaveEnabled()) {
             cloudSync.setEnabled(true);
+            // Pull automatique au démarrage pour récupérer les dernières notes
+            cloudSync.pullRatings();
         }
         LOG_INFO("CloudSyncManager initialized");
     } else {
@@ -114,8 +119,8 @@ bool Application::initialize() {
         return false;
     }
     
-    // Lancer le chargement de la base de données en thread
-    loadDatabaseAsync();
+    // Lancer la reconstruction du cache en arrière-plan
+    rebuildCacheAsync();
     
     return true;
 }
@@ -460,8 +465,42 @@ void Application::handleDropFile(const char* filepath) {
     
     // C'est un fichier ou dossier SID
     if (fs::is_directory(path)) {
+        // Détection automatique de HVSC (présence de Songlengths.md5)
+        fs::path slPath;
+        
+        // 1. Chercher à la racine du dossier déposé
+        if (fs::exists(path / "Songlengths.md5")) slPath = path / "Songlengths.md5";
+        else if (fs::exists(path / "songlengths.md5")) slPath = path / "songlengths.md5";
+        // 2. Chercher dans le sous-dossier DOCUMENTS (standard HVSC)
+        else if (fs::exists(path / "DOCUMENTS" / "Songlengths.md5")) slPath = path / "DOCUMENTS" / "Songlengths.md5";
+        else if (fs::exists(path / "DOCUMENTS" / "songlengths.md5")) slPath = path / "DOCUMENTS" / "songlengths.md5";
+        else if (fs::exists(path / "documents" / "Songlengths.md5")) slPath = path / "documents" / "Songlengths.md5";
+        else if (fs::exists(path / "documents" / "songlengths.md5")) slPath = path / "documents" / "songlengths.md5";
+
+        if (!slPath.empty()) {
+            try {
+                slPath = fs::canonical(slPath);
+                LOG_INFO("HVSC Collection detected! Found Songlengths.md5 at: {}", slPath.string());
+                SongLengthDB& db = SongLengthDB::getInstance();
+                if (db.load(slPath.string())) {
+                    m_config.setSonglengthsPath(slPath.string());
+                    // Forcer la sauvegarde immédiate de la config
+                    fs::path configDir = getConfigDir();
+                    m_config.save((configDir / "config.txt").string());
+                    LOG_INFO("Songlengths.md5 loaded and config updated.");
+                }
+            } catch (const std::exception& e) {
+                LOG_WARNING("Error resolving Songlengths path: {}", e.what());
+            }
+        }
+
         m_playlist.addDirectory(path);
+        
         LOG_INFO("Dossier ajouté à la playlist: {}", path.filename().string());
+        
+        // Lancer l'indexation asynchrone pour ne pas bloquer l'UI (surtout pour HVSC)
+        indexPlaylistAsync();
+
         // Marquer que les filtres doivent être mis à jour et rafraîchir l'arbre
         if (m_uiManager) {
             m_uiManager->markFiltersNeedUpdate();
@@ -472,6 +511,9 @@ void Application::handleDropFile(const char* filepath) {
         std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
         if (ext == ".sid") {
             m_playlist.addFile(path);
+            m_database->indexFile(path.string(), ""); // Pas de rootFolder pour un fichier unique
+            m_database->save();
+            
             LOG_INFO("Fichier ajouté à la playlist: {}", path.filename().string());
             // Marquer que les filtres doivent être mis à jour et rafraîchir l'arbre
             if (m_uiManager) {
@@ -489,8 +531,15 @@ void Application::shutdown() {
     waitForDatabaseThread();
     
 #ifdef ENABLE_CLOUD_SAVE
+    // Synchronisation finale avant de quitter
+    auto& cloudSync = CloudSyncManager::getInstance();
+    if (cloudSync.isEnabled()) {
+        LOG_INFO("Final cloud synchronization before exit...");
+        cloudSync.pushRatings();
+        cloudSync.pushHistory();
+    }
     // Arrêter le CloudSyncManager explicitement avant le Logger
-    CloudSyncManager::getInstance().shutdown();
+    cloudSync.shutdown();
 #endif
 
     if (m_uiManager) {
@@ -520,44 +569,6 @@ void Application::shutdown() {
     
     // Arrêter le logger en dernier
     Logger::shutdown();
-}
-
-void Application::loadDatabaseAsync() {
-    waitForDatabaseThread();
-    
-    m_databaseOperation = DatabaseOperation::Loading;
-    m_databaseProgress = 0.0f;
-    m_databaseCurrent = 0;
-    m_databaseTotal = 1;
-    {
-        std::lock_guard<std::mutex> lock(m_databaseStatusMutex);
-        m_databaseStatusMessage = "Loading database...";
-    }
-    
-    // Mettre à jour l'UI
-    if (m_uiManager) {
-        m_uiManager->setDatabaseOperationInProgress(true, "Loading database...", 0.0f);
-    }
-    
-    m_databaseThread = std::thread([this]() {
-        if (m_database) {
-            auto startTime = std::chrono::high_resolution_clock::now();
-            bool loaded = m_database->load();
-            auto endTime = std::chrono::high_resolution_clock::now();
-            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
-            if (loaded) {
-                LOG_INFO("Database loaded in {} ms, {} files indexed", duration.count(), m_database->getCount());
-            } else {
-                LOG_WARNING("Database loading failed or database is empty");
-            }
-        }
-        m_databaseProgress = 1.0f;
-        
-        // Mettre à jour l'UI
-        if (m_uiManager) {
-            m_uiManager->setDatabaseOperationInProgress(false);
-        }
-    });
 }
 
 void Application::indexPlaylistAsync() {
@@ -601,7 +612,22 @@ void Application::indexPlaylistAsync() {
                 m_uiManager->setDatabaseOperationInProgress(true, statusMsg, m_databaseProgress.load());
             }
             
-            if (m_database->indexFile(node->filepath)) {
+            // Déterminer le rootFolder : remonter jusqu'au premier enfant direct de m_root
+            std::string rootFolder = "";
+            PlaylistNode* current = node->parent;
+            while (current && current->parent) {
+                // Si le parent de current est m_root (parent == nullptr), alors current est le rootFolder
+                if (current->parent->parent == nullptr) {
+                    // current->parent est m_root, donc current est le rootFolder
+                    if (current->isFolder) {
+                        rootFolder = current->name;
+                    }
+                    break;
+                }
+                current = current->parent;
+            }
+            
+            if (m_database->indexFile(node->filepath, rootFolder)) {
                 indexed++;
             }
         }

@@ -287,11 +287,11 @@ bool CloudSyncManager::uploadRatings() {
         return false;
     }
     
-    // Convertir les données en mémoire en JSON au lieu de lire le fichier
+    // Convertir les données en mémoire en JSON
     RatingData data;
-    const auto& ratings = m_ratingManager->getAllRatings();
-    for (const auto& [hash, rating] : ratings) {
-        data.ratings.push_back(RatingEntry(hash, rating));
+    const auto& ratings = m_ratingManager->getAllData();
+    for (const auto& [hash, info] : ratings) {
+        data.ratings.push_back(RatingEntry(hash, info.rating, info.playCount));
     }
     
     auto result = glz::write_json(data);
@@ -375,22 +375,27 @@ bool CloudSyncManager::mergeRatings(const std::string& cloudJson, const std::str
     }
     
     // Créer une map pour la fusion
-    std::map<uint32_t, int> mergedMap;
+    std::map<uint32_t, RatingEntry> mergedMap;
     
     // Charger d'abord les locaux
     for (const auto& entry : localData.ratings) {
-        mergedMap[entry.metadataHash] = entry.rating;
+        mergedMap[entry.metadataHash] = entry;
     }
     
     // Le cloud écrase les locaux si présent
     for (const auto& entry : cloudData.ratings) {
-        mergedMap[entry.metadataHash] = entry.rating;
+        auto& existing = mergedMap[entry.metadataHash];
+        existing.metadataHash = entry.metadataHash;
+        existing.rating = entry.rating;
+        // Cumuler ou prendre le max pour le playCount ? 
+        // Prenons le max pour éviter de gonfler artificiellement en cas de multiples pulls
+        existing.playCount = std::max(existing.playCount, entry.playCount);
     }
     
     // Reconvertir en RatingData
     RatingData mergedData;
-    for (const auto& [hash, rating] : mergedMap) {
-        mergedData.ratings.push_back(RatingEntry(hash, rating));
+    for (const auto& [hash, entry] : mergedMap) {
+        mergedData.ratings.push_back(entry);
     }
     
     // Trier
@@ -457,8 +462,8 @@ bool CloudSyncManager::downloadRatings() {
 
 bool CloudSyncManager::downloadHistory() {
     std::lock_guard<std::mutex> httpLock(m_httpMutex);
-    if (m_historyEndpoint.empty() || !m_httpClient) {
-        LOG_ERROR("Cannot download history: endpoint empty or httpClient null");
+    if (m_historyEndpoint.empty() || !m_httpClient || !m_historyManager) {
+        LOG_ERROR("Cannot download history: endpoint empty, httpClient null or manager null");
         return false;
     }
     
@@ -475,93 +480,54 @@ bool CloudSyncManager::downloadHistory() {
         return false;
     }
     
-    if (response.body.empty() || response.body == "null") {
+    if (response.body.empty() || response.body == "null" || response.body == "[]") {
         LOG_INFO("Cloud history is empty, nothing to download");
         return true;
     }
     
-    // Lire le fichier local
-    fs::path configDir = getConfigDir();
-    std::string historyPath = (configDir / "history.json").string();
-    std::string localJson = readLocalFile(historyPath);
+    // Parser le JSON du cloud
+    std::vector<HistoryEntry> cloudEntries;
+    auto cloudError = glz::read_json(cloudEntries, response.body);
+    if (cloudError) {
+        LOG_ERROR("Failed to parse cloud history: {}", glz::format_error(cloudError, response.body));
+        return false;
+    }
+
+    // Fusionner avec l'historique local en mémoire
+    const auto& localEntries = m_historyManager->getEntries();
     
-    // Si pas d'historique local, le cloud écrase tout
-    if (localJson.empty() || localJson == "[]" || localJson == "null") {
-        if (!writeLocalFile(historyPath, response.body)) {
-            LOG_ERROR("Failed to write history.json");
-            return false;
-        }
-    } else {
-        // Fusionner l'historique
-        std::vector<HistoryEntry> cloudEntries;
-        auto cloudError = glz::read_json(cloudEntries, response.body);
-        
-        std::vector<HistoryEntry> localEntries;
-        auto localError = glz::read_json(localEntries, localJson);
-        
-        if (!cloudError && !localError) {
-            std::map<uint32_t, HistoryEntry> mergedMap;
-            
-            // Charger les locaux
-            for (const auto& entry : localEntries) {
-                mergedMap[entry.metadataHash] = entry;
-            }
-            
-            // Le cloud écrase/ajoute
-            for (const auto& entry : cloudEntries) {
-                auto it = mergedMap.find(entry.metadataHash);
-                if (it != mergedMap.end()) {
-                    // Si déjà présent, prendre le timestamp le plus récent
-                    if (entry.timestamp > it->second.timestamp) {
-                        it->second.timestamp = entry.timestamp;
-                    }
-                    // Cumuler les lectures
-                    it->second.playCount = std::max(it->second.playCount, entry.playCount);
-                    // Garder le meilleur rating
-                    it->second.rating = std::max(it->second.rating, entry.rating);
-                } else {
-                    mergedMap[entry.metadataHash] = entry;
-                }
-            }
-            
-            // Reconvertir en vector
-            std::vector<HistoryEntry> mergedEntries;
-            for (const auto& [hash, entry] : mergedMap) {
-                mergedEntries.push_back(entry);
-            }
-            
-            // Trier par timestamp décroissant
-            std::sort(mergedEntries.begin(), mergedEntries.end(),
-                [](const HistoryEntry& a, const HistoryEntry& b) {
-                    return a.timestamp > b.timestamp;
-                });
-                
-            // Limiter la taille (MAX_ENTRIES = 1000)
-            if (mergedEntries.size() > 1000) {
-                mergedEntries.resize(1000);
-            }
-            
-            std::string mergedJson;
-            auto result = glz::write_json(mergedEntries);
-            if (result.has_value()) {
-                if (!writeLocalFile(historyPath, result.value())) {
-                    LOG_ERROR("Failed to write merged history.json");
-                    return false;
-                }
-            }
-        } else {
-            // En cas d'erreur de parsing, écraser avec le cloud par sécurité
-            if (!writeLocalFile(historyPath, response.body)) {
-                LOG_ERROR("Failed to write history.json (fallback)");
-                return false;
-            }
-        }
+    // On utilise une map pour dédoublonner par (timestamp + hash) ou juste hash ?
+    // Pour l'historique, le timestamp est important.
+    std::map<std::string, HistoryEntry> mergedMap;
+    
+    // Charger les locaux
+    for (const auto& entry : localEntries) {
+        mergedMap[entry.timestamp + std::to_string(entry.metadataHash)] = entry;
     }
     
-    // Recharger HistoryManager (utiliser l'instance existante)
-    if (m_historyManager) {
-        m_historyManager->load();
+    // Ajouter les cloud (écrase si même timestamp+hash, ce qui est normal)
+    for (const auto& entry : cloudEntries) {
+        mergedMap[entry.timestamp + std::to_string(entry.metadataHash)] = entry;
     }
+    
+    // Reconvertir en vector et trier par timestamp décroissant
+    std::vector<HistoryEntry> mergedEntries;
+    for (auto& [key, entry] : mergedMap) {
+        mergedEntries.push_back(std::move(entry));
+    }
+    
+    std::sort(mergedEntries.begin(), mergedEntries.end(),
+        [](const HistoryEntry& a, const HistoryEntry& b) {
+            return a.timestamp > b.timestamp;
+        });
+        
+    // Limiter la taille
+    if (mergedEntries.size() > 10000) {
+        mergedEntries.resize(10000);
+    }
+    
+    // Mettre à jour le manager (qui sauvegardera au format .txt)
+    m_historyManager->setEntries(std::move(mergedEntries));
     
     LOG_INFO("History downloaded and merged from cloud");
     return true;

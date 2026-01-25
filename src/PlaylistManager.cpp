@@ -1,5 +1,6 @@
 #include "PlaylistManager.h"
 #include "Config.h"
+#include "DatabaseManager.h"
 #include <algorithm>
 #include <iostream>
 #include <functional>
@@ -9,15 +10,8 @@ PlaylistManager::PlaylistManager()
 }
 
 void PlaylistManager::loadFromConfig(const Config& config) {
-    m_root->children.clear();
-    m_currentNode = nullptr;
-    
-    const auto& loadedPlaylist = config.getPlaylist();
-    for (const auto& item : loadedPlaylist) {
-        m_root->children.push_back(convertFromConfigItem(item, m_root.get()));
-    }
-    
-    // Trouver le nœud correspondant au fichier courant
+    // On ne charge plus la playlist depuis la config, elle est reconstruite depuis la DB
+    // On restaure seulement le morceau en cours si possible
     if (!config.getCurrentFile().empty() && std::filesystem::exists(config.getCurrentFile())) {
         m_currentNode = findNodeByPath(config.getCurrentFile());
         if (m_currentNode) {
@@ -26,12 +20,227 @@ void PlaylistManager::loadFromConfig(const Config& config) {
     }
 }
 
-void PlaylistManager::saveToConfig(Config& config) const {
-    std::vector<Config::PlaylistItem> configPlaylist;
-    for (const auto& child : m_root->children) {
-        configPlaylist.push_back(convertToConfigItem(child.get()));
+void PlaylistManager::rebuildFromDatabase(const DatabaseManager& db) {
+    m_root->children.clear();
+    m_currentNode = nullptr;
+    
+    const auto& metadataList = db.getAllMetadata();
+    if (metadataList.empty()) return;
+
+    // Grouper les fichiers par rootFolder
+    std::unordered_map<std::string, std::vector<const SidMetadata*>> filesByRoot;
+    for (const auto& meta : metadataList) {
+        std::string root = meta.rootFolder.empty() ? "" : meta.rootFolder;
+        filesByRoot[root].push_back(&meta);
     }
-    config.setPlaylist(configPlaylist);
+
+    // Pour chaque rootFolder, créer un nœud racine et ajouter les fichiers
+    for (const auto& [rootFolder, files] : filesByRoot) {
+        PlaylistNode* rootNode = m_root.get();
+        
+        // Si rootFolder est spécifié, créer un nœud racine pour ce dossier
+        if (!rootFolder.empty()) {
+            // Vérifier si ce dossier racine existe déjà
+            PlaylistNode* existingRoot = nullptr;
+            for (auto& child : m_root->children) {
+                if (child->isFolder && child->name == rootFolder) {
+                    existingRoot = child.get();
+                    break;
+                }
+            }
+            
+            if (!existingRoot) {
+                auto newRoot = std::make_unique<PlaylistNode>(rootFolder, "", true);
+                newRoot->parent = m_root.get();
+                existingRoot = newRoot.get();
+                m_root->children.push_back(std::move(newRoot));
+            }
+            rootNode = existingRoot;
+        }
+        
+        // Ajouter les fichiers de ce rootFolder
+        for (const auto* meta : files) {
+            fs::path p(meta->filepath);
+            std::vector<std::string> components;
+            for (const auto& part : p) {
+                if (!part.empty() && part != "/" && part != "\\") {
+                    components.push_back(part.string());
+                }
+            }
+            
+            // Si rootFolder est spécifié, trouver où commence le chemin relatif
+            // On cherche le rootFolder dans les composants (insensible à la casse)
+            size_t startIdx = 0;
+            if (!rootFolder.empty()) {
+                bool found = false;
+                for (size_t i = 0; i < components.size(); ++i) {
+                    std::string compLower = components[i];
+                    std::transform(compLower.begin(), compLower.end(), compLower.begin(), ::tolower);
+                    std::string rootLower = rootFolder;
+                    std::transform(rootLower.begin(), rootLower.end(), rootLower.begin(), ::tolower);
+                    
+                    if (compLower == rootLower) {
+                        startIdx = i + 1;
+                        found = true;
+                        break;
+                    }
+                }
+                
+                // Si rootFolder non trouvé, utiliser une approche différente :
+                // Pour tous les fichiers du même rootFolder, trouver le préfixe commun
+                // et commencer après ce préfixe
+                if (!found && files.size() > 1) {
+                    // Trouver le préfixe commun de tous les chemins de ce rootFolder
+                    std::string commonPrefix = meta->filepath;
+                    size_t lastSlash = commonPrefix.find_last_of("/\\");
+                    if (lastSlash != std::string::npos) {
+                        commonPrefix = commonPrefix.substr(0, lastSlash + 1);
+                    }
+                    
+                    for (const auto* otherMeta : files) {
+                        if (otherMeta == meta) continue;
+                        size_t j = 0;
+                        while (j < commonPrefix.size() && j < otherMeta->filepath.size() && 
+                               (std::tolower(commonPrefix[j]) == std::tolower(otherMeta->filepath[j]) || 
+                                ((commonPrefix[j] == '/' || commonPrefix[j] == '\\') && 
+                                 (otherMeta->filepath[j] == '/' || otherMeta->filepath[j] == '\\')))) {
+                            j++;
+                        }
+                        commonPrefix = commonPrefix.substr(0, j);
+                        size_t recalSlash = commonPrefix.find_last_of("/\\");
+                        if (recalSlash != std::string::npos) {
+                            commonPrefix = commonPrefix.substr(0, recalSlash + 1);
+                        } else {
+                            commonPrefix = "";
+                            break;
+                        }
+                    }
+                    
+                    // Maintenant, trouver où commence commonPrefix dans le chemin actuel
+                    if (!commonPrefix.empty()) {
+                        fs::path commonPath(commonPrefix);
+                        size_t commonComponents = 0;
+                        for (const auto& part : commonPath) {
+                            if (!part.empty() && part != "/" && part != "\\") {
+                                commonComponents++;
+                            }
+                        }
+                        startIdx = commonComponents;
+                        found = true;
+                    }
+                }
+                
+                // Si toujours pas trouvé, chercher "C64Music" ou dossiers HVSC typiques
+                if (!found) {
+                    for (size_t i = 0; i < components.size(); ++i) {
+                        std::string compLower = components[i];
+                        std::transform(compLower.begin(), compLower.end(), compLower.begin(), ::tolower);
+                        // Si on trouve "c64music" ou un dossier qui ressemble à une collection, commencer après
+                        if (compLower == "c64music" || compLower.find("music") != std::string::npos) {
+                            startIdx = i;
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+                
+                // Si toujours pas trouvé, commencer après les 3 premiers composants (home/user/path)
+                // pour éviter d'afficher tout le chemin système
+                if (!found && components.size() > 3) {
+                    startIdx = 3;
+                } else if (!found) {
+                    // Dernier recours : commencer juste avant le nom de fichier
+                    startIdx = components.size() > 1 ? components.size() - 1 : 0;
+                }
+            }
+            
+            PlaylistNode* current = rootNode;
+            // Parcourir les dossiers (sauf le dernier qui est le fichier)
+            // Si startIdx est au-delà de la taille, on ajoute juste le fichier
+            if (startIdx < components.size() - 1) {
+                for (size_t i = startIdx; i < components.size() - 1; ++i) {
+                    const std::string& folderName = components[i];
+                    PlaylistNode* foundFolder = nullptr;
+                    for (auto& child : current->children) {
+                        if (child->isFolder && child->name == folderName) {
+                            foundFolder = child.get();
+                            break;
+                        }
+                    }
+                    if (!foundFolder) {
+                        auto newFolder = std::make_unique<PlaylistNode>(folderName, "", true);
+                        newFolder->parent = current;
+                        foundFolder = newFolder.get();
+                        current->children.push_back(std::move(newFolder));
+                    }
+                    current = foundFolder;
+                }
+            }
+
+            std::string fileName = components.back();
+            auto fileNode = std::make_unique<PlaylistNode>(fileName, meta->filepath, false);
+            fileNode->parent = current;
+            current->children.push_back(std::move(fileNode));
+        }
+    }
+    
+    // Trier toute l'arborescence
+    sortNode(m_root.get());
+    
+    // Restaurer le morceau courant après reconstruction
+    std::string currentFile = Config::getInstance().getCurrentFile();
+    if (!currentFile.empty()) {
+        m_currentNode = findNodeByPath(currentFile);
+    }
+}
+
+void PlaylistManager::saveToConfig(Config& config) const {
+    // Ne fait plus rien : la playlist n'est plus sauvegardée dans config.txt
+}
+
+void PlaylistManager::addFilePathToTree(const std::string& filepath) {
+    fs::path p(filepath);
+    if (!fs::exists(p)) return;
+
+    // Décomposer le chemin en composants
+    std::vector<std::string> components;
+    for (const auto& part : p) {
+        if (!part.empty() && part != "/" && part != "\\") {
+            components.push_back(part.string());
+        }
+    }
+
+    PlaylistNode* current = m_root.get();
+    
+    // Parcourir les dossiers parents
+    for (size_t i = 0; i < components.size() - 1; ++i) {
+        const std::string& folderName = components[i];
+        
+        // Chercher si le dossier existe déjà parmi les enfants
+        PlaylistNode* foundFolder = nullptr;
+        for (auto& child : current->children) {
+            if (child->isFolder && child->name == folderName) {
+                foundFolder = child.get();
+                break;
+            }
+        }
+        
+        if (!foundFolder) {
+            // Créer le dossier s'il n'existe pas
+            auto newFolder = std::make_unique<PlaylistNode>(folderName, "", true);
+            newFolder->parent = current;
+            foundFolder = newFolder.get();
+            current->children.push_back(std::move(newFolder));
+        }
+        
+        current = foundFolder;
+    }
+
+    // Ajouter le fichier
+    std::string fileName = components.back();
+    auto fileNode = std::make_unique<PlaylistNode>(fileName, filepath, false);
+    fileNode->parent = current;
+    current->children.push_back(std::move(fileNode));
 }
 
 PlaylistNode* PlaylistManager::findNodeByPath(const std::string& filepath) {
@@ -41,8 +250,8 @@ PlaylistNode* PlaylistManager::findNodeByPath(const std::string& filepath) {
         
         if (!node->isFolder && !node->filepath.empty()) {
             try {
-                std::filesystem::path nodePath = std::filesystem::canonical(node->filepath);
-                std::filesystem::path target = std::filesystem::canonical(targetPath);
+                fs::path nodePath = fs::canonical(node->filepath);
+                fs::path target = fs::canonical(targetPath);
                 if (nodePath == target) {
                     return node;
                 }
@@ -65,29 +274,39 @@ PlaylistNode* PlaylistManager::findNodeByPath(const std::string& filepath) {
     return findRecursive(m_root.get(), filepath);
 }
 
-void PlaylistManager::addFile(const std::filesystem::path& path) {
-    std::string ext = path.extension().string();
-    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-    if (ext == ".sid") {
-        auto fileNode = std::make_unique<PlaylistNode>(
-            path.filename().string(), 
-            path.string(), 
-            false);
-        fileNode->parent = m_root.get();
-        m_root->children.push_back(std::move(fileNode));
-        sortNode(m_root.get());
-    }
+void PlaylistManager::addFile(const fs::path& path) {
+    // Note: l'ajout manuel via drag & drop devrait idéalement passer par la DB
+    // pour que ce soit permanent. Pour l'instant on l'ajoute à l'arbre.
+    addFilePathToTree(path.string());
+    sortNode(m_root.get());
 }
 
-void PlaylistManager::addDirectory(const std::filesystem::path& path) {
-    auto rootFolderNode = std::make_unique<PlaylistNode>(
-        path.filename().string(), "", true);
-    rootFolderNode->parent = m_root.get();
-    PlaylistNode* rootFolderPtr = rootFolderNode.get();
+void PlaylistManager::addDirectory(const fs::path& path) {
+    // Créer un nœud racine avec le nom du dossier déposé
+    std::string rootName = path.filename().string();
+    if (rootName.empty()) {
+        rootName = path.string(); // Fallback si filename() est vide
+    }
     
-    addDirectoryRecursive(path, rootFolderPtr);
+    // Vérifier si ce dossier existe déjà à la racine
+    PlaylistNode* existingRoot = nullptr;
+    for (auto& child : m_root->children) {
+        if (child->isFolder && child->name == rootName) {
+            existingRoot = child.get();
+            break;
+        }
+    }
     
-    m_root->children.push_back(std::move(rootFolderNode));
+    if (!existingRoot) {
+        // Créer le dossier racine
+        auto rootNode = std::make_unique<PlaylistNode>(rootName, "", true);
+        rootNode->parent = m_root.get();
+        existingRoot = rootNode.get();
+        m_root->children.push_back(std::move(rootNode));
+    }
+    
+    // Ajouter récursivement le contenu du dossier dans ce nœud racine
+    addDirectoryRecursive(path, existingRoot);
     sortNode(m_root.get());
 }
 
@@ -143,26 +362,6 @@ void PlaylistManager::clear() {
     m_currentNode = nullptr;
 }
 
-std::unique_ptr<PlaylistNode> PlaylistManager::convertFromConfigItem(const Config::PlaylistItem& item, PlaylistNode* parent) {
-    auto node = std::make_unique<PlaylistNode>(item.name, item.path, item.isFolder);
-    node->parent = parent;
-    for (const auto& child : item.children) {
-        node->children.push_back(convertFromConfigItem(child, node.get()));
-    }
-    return node;
-}
-
-Config::PlaylistItem PlaylistManager::convertToConfigItem(const PlaylistNode* node) const {
-    Config::PlaylistItem item;
-    item.name = node->name;
-    item.path = node->filepath;
-    item.isFolder = node->isFolder;
-    for (const auto& child : node->children) {
-        item.children.push_back(convertToConfigItem(child.get()));
-    }
-    return item;
-}
-
 void PlaylistManager::sortNode(PlaylistNode* node) {
     std::sort(node->children.begin(), node->children.end(),
         [](const std::unique_ptr<PlaylistNode>& a, const std::unique_ptr<PlaylistNode>& b) {
@@ -178,7 +377,7 @@ void PlaylistManager::sortNode(PlaylistNode* node) {
     }
 }
 
-void PlaylistManager::addDirectoryRecursive(const std::filesystem::path& dir, PlaylistNode* parent) {
+void PlaylistManager::addDirectoryRecursive(const fs::path& dir, PlaylistNode* parent) {
     try {
         for (const auto& entry : std::filesystem::directory_iterator(dir)) {
             if (entry.is_directory()) {
@@ -211,20 +410,18 @@ std::unique_ptr<PlaylistNode> PlaylistManager::createFilteredTree(
     std::function<bool(PlaylistNode*)> filterFunc) const {
     if (!sourceNode) return nullptr;
     
-    // Pour les fichiers : créer une copie seulement s'ils matchent le filtre
     if (!sourceNode->isFolder) {
         if (filterFunc(sourceNode)) {
             auto filteredNode = std::make_unique<PlaylistNode>(
                 sourceNode->name, 
                 sourceNode->filepath, 
                 false);
-            filteredNode->parent = nullptr; // Sera défini par le parent
+            filteredNode->parent = nullptr; 
             return filteredNode;
         }
-        return nullptr; // Fichier ne correspond pas au filtre
+        return nullptr;
     }
     
-    // Pour les dossiers : créer une copie seulement s'ils ont des enfants qui matchent
     std::unique_ptr<PlaylistNode> filteredFolder = nullptr;
     std::vector<std::unique_ptr<PlaylistNode>> filteredChildren;
     
@@ -235,7 +432,6 @@ std::unique_ptr<PlaylistNode> PlaylistManager::createFilteredTree(
         }
     }
     
-    // Si le dossier a des enfants filtrés, créer le nœud
     if (!filteredChildren.empty()) {
         filteredFolder = std::make_unique<PlaylistNode>(
             sourceNode->name,
@@ -243,7 +439,6 @@ std::unique_ptr<PlaylistNode> PlaylistManager::createFilteredTree(
             true);
         filteredFolder->children = std::move(filteredChildren);
         
-        // Définir le parent pour tous les enfants
         for (auto& child : filteredFolder->children) {
             child->parent = filteredFolder.get();
         }
@@ -257,7 +452,6 @@ PlaylistNode* PlaylistManager::findFirstMatchingNode(
     std::function<bool(PlaylistNode*)> filterFunc) const {
     if (!node) return nullptr;
     
-    // Pour les fichiers : retourner s'ils matchent
     if (!node->isFolder) {
         if (filterFunc(node)) {
             return node;
@@ -265,7 +459,6 @@ PlaylistNode* PlaylistManager::findFirstMatchingNode(
         return nullptr;
     }
     
-    // Pour les dossiers : chercher récursivement dans les enfants
     for (auto& child : node->children) {
         PlaylistNode* found = findFirstMatchingNode(child.get(), filterFunc);
         if (found) {
@@ -275,4 +468,3 @@ PlaylistNode* PlaylistManager::findFirstMatchingNode(
     
     return nullptr;
 }
-

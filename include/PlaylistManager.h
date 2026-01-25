@@ -22,6 +22,9 @@ struct PlaylistNode {
         : name(n), filepath(path), isFolder(folder) {}
 };
 
+class SidMetadata;
+class DatabaseManager;
+
 class PlaylistManager {
 public:
     PlaylistManager();
@@ -29,7 +32,10 @@ public:
     // Charger la playlist depuis la config
     void loadFromConfig(const Config& config);
     
-    // Sauvegarder la playlist vers la config
+    // Reconstruire l'arborescence depuis la base de données
+    void rebuildFromDatabase(const DatabaseManager& db);
+    
+    // Sauvegarder la playlist (ne fait plus rien vers Config)
     void saveToConfig(Config& config) const;
     
     // Trouver un nœud par chemin de fichier
@@ -76,10 +82,9 @@ private:
     bool m_shouldScrollToCurrent;
     
     // Fonctions internes
-    std::unique_ptr<PlaylistNode> convertFromConfigItem(const Config::PlaylistItem& item, PlaylistNode* parent);
-    Config::PlaylistItem convertToConfigItem(const PlaylistNode* node) const;
     void sortNode(PlaylistNode* node);
     void addDirectoryRecursive(const fs::path& dir, PlaylistNode* parent);
+    void addFilePathToTree(const std::string& filepath);
 };
 
 #endif // PLAYLIST_MANAGER_H
