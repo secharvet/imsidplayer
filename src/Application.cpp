@@ -165,8 +165,11 @@ bool Application::initialize() {
     // Lancer la reconstruction du cache en arrière-plan
     rebuildCacheAsync();
     
-    // Vérifier les mises à jour en arrière-plan (non-bloquant)
+    // Nettoyer les fichiers .old au démarrage
 #ifdef ENABLE_CLOUD_SAVE
+    UpdateInstaller::cleanupOldFiles();
+    
+    // Vérifier les mises à jour en arrière-plan (non-bloquant)
     checkForUpdatesAsync();
 #endif
     

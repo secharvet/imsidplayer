@@ -66,7 +66,10 @@ jobs:
         cp -r certs artifacts/linux/
         
         if [ "${{ steps.get_version.outputs.is_release }}" = "true" ]; then
-          cp artifacts/linux/imSidPlayer "artifacts/linux/imSidPlayer-${VERSION}-linux"
+          # Créer une archive tar.gz pour Linux
+          cd artifacts/linux
+          tar -czf "../imSidPlayer-${VERSION}-linux.tar.gz" *
+          cd ../..
         fi
 
     - name: Upload Linux artifacts
@@ -192,10 +195,9 @@ jobs:
           VERSION="${{ steps.get_version.outputs.version }}"
           mkdir -p release-files
           
-          # Linux binary
-          if [ -f "release-artifacts/linux/imSidPlayer-$VERSION-linux" ]; then
-            cp "release-artifacts/linux/imSidPlayer-$VERSION-linux" "release-files/imSidPlayer-$VERSION-linux"
-            chmod +x "release-files/imSidPlayer-$VERSION-linux"
+          # Linux tar.gz
+          if [ -f "release-artifacts/linux/imSidPlayer-$VERSION-linux.tar.gz" ]; then
+            cp "release-artifacts/linux/imSidPlayer-$VERSION-linux.tar.gz" "release-files/imSidPlayer-$VERSION-linux.tar.gz"
           fi
           
           # Windows zip
@@ -216,7 +218,7 @@ jobs:
             ## 📦 Downloads
             
             ### Linux
-            - **[Download imSidPlayer-${{ steps.get_version.outputs.version }}-linux](https://github.com/${{ github.repository }}/releases/download/${{ steps.get_version.outputs.tag }}/imSidPlayer-${{ steps.get_version.outputs.version }}-linux)**
+            - **[Download imSidPlayer-${{ steps.get_version.outputs.version }}-linux.tar.gz](https://github.com/${{ github.repository }}/releases/download/${{ steps.get_version.outputs.tag }}/imSidPlayer-${{ steps.get_version.outputs.version }}-linux.tar.gz)**
             
             ### Windows
             - **[Download imSidPlayer-${{ steps.get_version.outputs.version }}-windows.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.get_version.outputs.tag }}/imSidPlayer-${{ steps.get_version.outputs.version }}-windows.zip)**

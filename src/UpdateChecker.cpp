@@ -150,13 +150,28 @@ UpdateChecker::UpdateInfo UpdateChecker::checkForUpdate(
                     std::string platformSuffix = getPlatformSuffix();
                     std::string archiveExt = getArchiveExtension();
                     
+                    LOG_DEBUG("Looking for asset with platform suffix: '{}' and archive extension: '{}'", platformSuffix, archiveExt);
+                    
                     for (const auto& asset : release.assets) {
                         std::string nameLower = asset.name;
                         std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
                         
-                        // Chercher un asset qui contient le suffixe de plateforme et l'extension
-                        if (nameLower.find(platformSuffix) != std::string::npos && 
-                            nameLower.find(archiveExt) != std::string::npos) {
+                        LOG_DEBUG("Checking asset: '{}'", asset.name);
+                        
+                        // Pour Linux, le fichier n'a pas d'extension, il se termine par "-linux"
+                        // Pour Windows, on cherche ".zip"
+                        bool matchesPlatform = nameLower.find(platformSuffix) != std::string::npos;
+                        bool matchesExtension = false;
+                        
+                        if (platformSuffix == "linux") {
+                            // Linux: le fichier doit se terminer par "-linux" (pas d'extension)
+                            matchesExtension = nameLower.ends_with("-linux") || nameLower.ends_with("-linux.tar.gz");
+                        } else {
+                            // Windows/Mac: chercher l'extension d'archive
+                            matchesExtension = nameLower.find(archiveExt) != std::string::npos;
+                        }
+                        
+                        if (matchesPlatform && matchesExtension) {
                             info.downloadUrl = asset.browser_download_url;
                             info.available = true;
                             LOG_INFO("Update available: {} -> {} ({})", currentVersion, remoteVersion, info.downloadUrl);
@@ -218,13 +233,28 @@ UpdateChecker::UpdateInfo UpdateChecker::checkForUpdate(
     std::string platformSuffix = getPlatformSuffix();
     std::string archiveExt = getArchiveExtension();
     
+    LOG_DEBUG("Looking for asset with platform suffix: '{}' and archive extension: '{}'", platformSuffix, archiveExt);
+    
     for (const auto& asset : release.assets) {
         std::string nameLower = asset.name;
         std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
         
-        // Chercher un asset qui contient le suffixe de plateforme et l'extension
-        if (nameLower.find(platformSuffix) != std::string::npos && 
-            nameLower.find(archiveExt) != std::string::npos) {
+        LOG_DEBUG("Checking asset: '{}'", asset.name);
+        
+        // Pour Linux, chercher .tar.gz
+        // Pour Windows, chercher .zip
+        bool matchesPlatform = nameLower.find(platformSuffix) != std::string::npos;
+        bool matchesExtension = false;
+        
+        if (platformSuffix == "linux") {
+            // Linux: chercher .tar.gz
+            matchesExtension = nameLower.ends_with(".tar.gz") || nameLower.ends_with("-linux.tar.gz");
+        } else {
+            // Windows/Mac: chercher l'extension d'archive
+            matchesExtension = nameLower.find(archiveExt) != std::string::npos;
+        }
+        
+        if (matchesPlatform && matchesExtension) {
             info.downloadUrl = asset.browser_download_url;
             info.available = true;
             LOG_INFO("Update available: {} -> {} ({})", currentVersion, remoteVersion, info.downloadUrl);

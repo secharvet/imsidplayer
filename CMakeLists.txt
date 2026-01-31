@@ -26,11 +26,24 @@ if(GIT_FOUND)
             ERROR_QUIET
         )
         
-        if(NOT GIT_EXACT_TAG)
-            # On n'est pas exactement sur un tag, on est après
+        # Vérifier si le working directory est "dirty" (modifications non commitées)
+        execute_process(
+            COMMAND ${GIT_EXECUTABLE} diff --quiet HEAD
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+            RESULT_VARIABLE GIT_DIRTY_RESULT
+            ERROR_QUIET
+        )
+        
+        # Vérifier si on est exactement sur un tag ET que le working directory est propre
+        if(NOT GIT_EXACT_TAG OR GIT_DIRTY_RESULT)
+            # On n'est pas exactement sur un tag, ou il y a des modifications non commitées
             # On garde la version de base pour project() mais on stocke le suffixe
             set(VERSION_SUFFIX "-dev")
-            message(STATUS "Version détectée depuis Git: ${VERSION_FROM_GIT}${VERSION_SUFFIX} (après tag ${GIT_TAG})")
+            if(GIT_DIRTY_RESULT)
+                message(STATUS "Version détectée depuis Git: ${VERSION_FROM_GIT}${VERSION_SUFFIX} (working directory dirty)")
+            else()
+                message(STATUS "Version détectée depuis Git: ${VERSION_FROM_GIT}${VERSION_SUFFIX} (après tag ${GIT_TAG})")
+            endif()
         else()
             set(VERSION_SUFFIX "")
             message(STATUS "Version détectée depuis Git tag: ${VERSION_FROM_GIT} (tag: ${GIT_TAG})")

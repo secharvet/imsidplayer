@@ -16,6 +16,8 @@ namespace fs = std::filesystem;
 #else
 #include <unistd.h>
 #include <limits.h>
+#include <sys/wait.h>
+#include <sys/types.h>
 #endif
 
 std::string UpdateInstaller::getExecutablePath() {
@@ -111,36 +113,72 @@ bool UpdateInstaller::downloadFile(const std::string& url, const std::string& ta
 }
 
 bool UpdateInstaller::extractZip(const std::string& zipPath, const std::string& destDir) {
-    // Pour l'instant, solution simple : on suppose que le ZIP contient juste l'exe
-    // TODO: Implémenter l'extraction ZIP complète avec minizip-ng
-    LOG_WARNING("Extraction ZIP non implémentée, copie directe du fichier");
-    
-    // Solution temporaire : si le ZIP est en fait juste l'exe (cas simple)
-    // On copie directement
     try {
-        fs::path zip(zipPath);
+        fs::path archive(zipPath);
         fs::path dest(destDir);
         fs::create_directories(dest);
         
-        // Pour l'instant, on suppose que le fichier téléchargé est directement l'exe
-        // Dans un vrai cas, il faudrait extraire le ZIP
-        std::string exeName = "imSidPlayer";
+        std::string archiveExt = archive.extension().string();
+        std::transform(archiveExt.begin(), archiveExt.end(), archiveExt.begin(), ::tolower);
+        
         #ifdef _WIN32
-        exeName += ".exe";
-        #endif
+        // Windows: extraction ZIP (pour l'instant, solution simple)
+        // TODO: Implémenter l'extraction ZIP complète avec minizip-ng
+        LOG_WARNING("Extraction ZIP Windows non complètement implémentée");
         
+        std::string exeName = "imSidPlayer.exe";
         fs::path targetExe = dest / exeName;
-        fs::copy_file(zipPath, targetExe, fs::copy_options::overwrite_existing);
-        
-        // Rendre exécutable sur Linux
-        #ifndef _WIN32
-        fs::permissions(targetExe, fs::perms::owner_read | fs::perms::owner_write | fs::perms::owner_exec |
-                                   fs::perms::group_read | fs::perms::group_exec |
-                                   fs::perms::others_read | fs::perms::others_exec);
-        #endif
-        
+        fs::copy_file(archive, targetExe, fs::copy_options::overwrite_existing);
         LOG_INFO("Fichier extrait : {}", targetExe.string());
         return true;
+        #else
+        // Linux: extraction tar.gz avec tar (commande système standard)
+        // Utilisation de fork+exec au lieu de system() pour plus de sécurité
+        if (archiveExt == ".gz" || archive.string().ends_with(".tar.gz")) {
+            LOG_INFO("Extraction tar.gz : {} vers {}", archive.string(), dest.string());
+            
+            pid_t pid = fork();
+            if (pid == -1) {
+                LOG_ERROR("Échec de fork() pour l'extraction tar.gz");
+                return false;
+            }
+            
+            if (pid == 0) {
+                // Processus enfant : exécuter tar
+                std::string archiveStr = archive.string();
+                std::string destStr = dest.string();
+                
+                // Utiliser execvp pour éviter l'injection de commande
+                const char* args[] = {
+                    "tar",
+                    "-xzf",
+                    archiveStr.c_str(),
+                    "-C",
+                    destStr.c_str(),
+                    nullptr
+                };
+                
+                execvp("tar", const_cast<char* const*>(args));
+                // Si execvp échoue, on sort avec un code d'erreur
+                _exit(1);
+            } else {
+                // Processus parent : attendre la fin de l'extraction
+                int status;
+                waitpid(pid, &status, 0);
+                
+                if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+                    LOG_INFO("Archive tar.gz extraite avec succès dans : {}", dest.string());
+                    return true;
+                } else {
+                    LOG_ERROR("Échec de l'extraction tar.gz (code: {})", WEXITSTATUS(status));
+                    return false;
+                }
+            }
+        } else {
+            LOG_ERROR("Format d'archive non supporté : {}", archiveExt);
+            return false;
+        }
+        #endif
     } catch (const std::exception& e) {
         LOG_ERROR("Erreur lors de l'extraction : {}", e.what());
         return false;
@@ -223,16 +261,22 @@ bool UpdateInstaller::installUpdate(const std::string& downloadUrl, const std::s
         return false;
     }
     
-    // Télécharger le ZIP
-    std::string zipPath = (tempDir / "update.zip").string();
-    if (!downloadFile(downloadUrl, zipPath)) {
+    // Télécharger l'archive (ZIP pour Windows, tar.gz pour Linux)
+    std::string archivePath;
+    #ifdef _WIN32
+    archivePath = (tempDir / "update.zip").string();
+    #else
+    archivePath = (tempDir / "update.tar.gz").string();
+    #endif
+    
+    if (!downloadFile(downloadUrl, archivePath)) {
         LOG_ERROR("Échec du téléchargement");
         return false;
     }
     
-    // Extraire le ZIP
+    // Extraire l'archive
     std::string extractDir = (tempDir / "extracted").string();
-    if (!extractZip(zipPath, extractDir)) {
+    if (!extractZip(archivePath, extractDir)) {
         LOG_ERROR("Échec de l'extraction");
         return false;
     }
