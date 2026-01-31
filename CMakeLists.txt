@@ -1,5 +1,53 @@
 cmake_minimum_required(VERSION 3.15)
-project(imSidPlayer VERSION 1.0.0 LANGUAGES CXX)
+
+# Détecter la version depuis Git
+# CMake exécute cette commande au moment de la configuration (cmake ..)
+find_package(Git QUIET)
+if(GIT_FOUND)
+    # Obtenir le dernier tag (ex: v0.0.24)
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} describe --tags --abbrev=0
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        OUTPUT_VARIABLE GIT_TAG
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    
+    if(GIT_TAG)
+        # Enlever le "v" du tag (ex: v0.0.24 -> 0.0.24)
+        string(REGEX REPLACE "^v" "" VERSION_FROM_GIT "${GIT_TAG}")
+        
+        # Vérifier si on est exactement sur un tag ou après
+        execute_process(
+            COMMAND ${GIT_EXECUTABLE} describe --tags --exact-match HEAD
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+            OUTPUT_VARIABLE GIT_EXACT_TAG
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET
+        )
+        
+        if(NOT GIT_EXACT_TAG)
+            # On n'est pas exactement sur un tag, on est après
+            # On garde la version de base pour project() mais on stocke le suffixe
+            set(VERSION_SUFFIX "-dev")
+            message(STATUS "Version détectée depuis Git: ${VERSION_FROM_GIT}${VERSION_SUFFIX} (après tag ${GIT_TAG})")
+        else()
+            set(VERSION_SUFFIX "")
+            message(STATUS "Version détectée depuis Git tag: ${VERSION_FROM_GIT} (tag: ${GIT_TAG})")
+        endif()
+    else()
+        set(VERSION_FROM_GIT "0.0.0")
+        set(VERSION_SUFFIX "-dev")
+        message(STATUS "Aucun tag Git trouvé, utilisation de la version par défaut: ${VERSION_FROM_GIT}${VERSION_SUFFIX}")
+    endif()
+else()
+    set(VERSION_FROM_GIT "0.0.0")
+    set(VERSION_SUFFIX "-dev")
+    message(STATUS "Git non trouvé, utilisation de la version par défaut: ${VERSION_FROM_GIT}${VERSION_SUFFIX}")
+endif()
+
+# Utiliser la version détectée (sans suffixe pour project(), CMake n'accepte que X.Y.Z)
+project(imSidPlayer VERSION ${VERSION_FROM_GIT} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,6 +60,13 @@ option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
 
 # Dossiers
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
+# Générer Version.h depuis le template
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/Version.h.in"
+    "${CMAKE_BINARY_DIR}/include/Version.h"
+    @ONLY
+)
 
 # SDL2 pour l'audio (doit être trouvé AVANT ImGui)
 # Sur Windows avec MinGW, utiliser pkg-config comme sur Linux
@@ -241,6 +296,7 @@ endif()
 
 # MBed TLS - Pour le cloud save (HTTPS)
 option(ENABLE_CLOUD_SAVE "Enable cloud save functionality" ON)
+option(ENABLE_UI_LOGS "Enable UI Manager logs (very verbose)" OFF)
 
 if(ENABLE_CLOUD_SAVE)
     set(MBEDTLS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/mbedtls)
@@ -320,6 +376,8 @@ if(ENABLE_CLOUD_SAVE)
     list(APPEND SOURCES
         src/HTTPClient.cpp
         src/CloudSyncManager.cpp
+        src/UpdateChecker.cpp
+        src/UpdateInstaller.cpp
     )
 endif()
 
@@ -346,6 +404,8 @@ if(ENABLE_CLOUD_SAVE)
     list(APPEND HEADERS
         include/HTTPClient.h
         include/CloudSyncManager.h
+        include/UpdateChecker.h
+        include/UpdateInstaller.h
     )
 endif()
 
@@ -391,6 +451,7 @@ endif()
 
 # Include directories
 target_include_directories(${PROJECT_NAME} PRIVATE
+    ${CMAKE_BINARY_DIR}/include  # Pour Version.h généré
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${SDL2_INCLUDE_DIRS}
     ${SIDPLAYFP_INCLUDE_DIR}
@@ -458,6 +519,14 @@ else()
     # En mode Release, définir NDEBUG pour désactiver les logs DEBUG
     target_compile_definitions(${PROJECT_NAME} PRIVATE NDEBUG=1)
     message(STATUS "Build type: ${CMAKE_BUILD_TYPE} - DEBUG logs disabled (NDEBUG defined)")
+endif()
+
+# Logs UI (optionnel, désactivé par défaut car très verbeux)
+if(ENABLE_UI_LOGS)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_UI_LOGS=1)
+    message(STATUS "UI Manager logs enabled (very verbose)")
+else()
+    message(STATUS "UI Manager logs disabled (use -DENABLE_UI_LOGS=ON to enable)")
 endif()
 
 # Flags de linkage

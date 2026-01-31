@@ -30,8 +30,8 @@ if command -v podman &> /dev/null; then
     podman --version
     echo ""
     echo "Vous pouvez maintenant utiliser:"
-    echo "  ./docker-build-windows.sh"
-    echo "  ./docker-test-windows.sh"
+    echo "  ./docker/docker-build-windows.sh"
+    echo "  ./docker/docker-test-windows.sh"
 else
     echo ""
     echo "⚠️  Podman n'a pas pu être installé, essayons Docker..."

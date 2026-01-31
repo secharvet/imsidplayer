@@ -8,6 +8,8 @@
 #include <thread>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
+#include <sstream>
 
 namespace fs = std::filesystem;
 
@@ -94,8 +96,51 @@ int main(int argc, char* argv[]) {
     std::cout << "\n[TEST 4] Test POST (mise à jour) - DÉSACTIVÉ" << std::endl;
     */
     
-    // Test 5: GET (vérification)
-    std::cout << "\n[TEST 5] Test GET (vérification)..." << std::endl;
+    // Test 5: POST avec history.json (test upload historique)
+    std::cout << "\n[TEST 5] Test POST avec history.json..." << std::endl;
+    
+    // Lire le fichier history.json de test
+    std::string historyJson;
+    std::string historyPath = "/tmp/history_test.json";
+    if (argc > 2) {
+        historyPath = argv[2];
+    }
+    
+    std::ifstream historyFile(historyPath);
+    if (!historyFile.is_open()) {
+        std::cout << "  ⚠️  Fichier history.json non trouvé: " << historyPath << std::endl;
+        std::cout << "  → Création d'un JSON de test minimal..." << std::endl;
+        historyJson = R"([{"timestamp":"2024-01-15T14:30:45","title":"Test Song","author":"Test Author","metadataHash":1234567890}])";
+    } else {
+        std::ostringstream buffer;
+        buffer << historyFile.rdbuf();
+        historyJson = buffer.str();
+        historyFile.close();
+        std::cout << "  → Fichier history.json chargé: " << historyJson.length() << " bytes" << std::endl;
+    }
+    
+    std::cout << "  → Envoi de POST vers " << testEndpoint << std::endl;
+    std::cout << "  → Body size: " << historyJson.length() << " bytes" << std::endl;
+    std::cout << "  → Body preview (first 200 chars): " << historyJson.substr(0, 200) << std::endl;
+    
+    auto postResponse = client.post(testEndpoint, historyJson);
+    
+    std::cout << "  → Code de statut: " << postResponse.statusCode << std::endl;
+    std::cout << "  → Taille du body de réponse: " << postResponse.body.length() << " bytes" << std::endl;
+    std::cout << "  → Body de réponse: " << postResponse.body << std::endl;
+    
+    if (!client.getLastError().empty() && client.getLastError() != "No error") {
+        std::cout << "  ⚠️  Erreur HTTPClient: " << client.getLastError() << std::endl;
+    }
+    
+    if (postResponse.statusCode == 200 || postResponse.statusCode == 201) {
+        std::cout << "  ✅ POST réussi" << std::endl;
+    } else {
+        std::cout << "  ❌ POST échoué (code: " << postResponse.statusCode << ")" << std::endl;
+    }
+    
+    // Test 6: GET (vérification)
+    std::cout << "\n[TEST 6] Test GET (vérification après POST)..." << std::endl;
     auto getResponse2 = client.get(testEndpoint);
     
     std::cout << "  → Code de statut: " << getResponse2.statusCode << std::endl;
@@ -107,14 +152,14 @@ int main(int argc, char* argv[]) {
         std::cout << "  ❌ GET échoué (code: " << getResponse2.statusCode << ")" << std::endl;
     }
     
-    // Test 6: Affichage des headers
-    std::cout << "\n[TEST 6] Headers de la dernière réponse GET..." << std::endl;
+    // Test 7: Affichage des headers
+    std::cout << "\n[TEST 7] Headers de la dernière réponse GET..." << std::endl;
     for (const auto& [key, value] : getResponse2.headers) {
         std::cout << "  → " << key << ": " << value << std::endl;
     }
     
     // Nettoyage
-    std::cout << "\n[TEST 7] Nettoyage..." << std::endl;
+    std::cout << "\n[TEST 8] Nettoyage..." << std::endl;
     client.cleanup();
     std::cout << "  ✅ HTTPClient nettoyé" << std::endl;
     

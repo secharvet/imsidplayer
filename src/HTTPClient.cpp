@@ -321,8 +321,10 @@ std::string HTTPClient::buildHTTPRequest(const std::string& method,
     request << "Connection: close\r\n";
     
     if (!body.empty()) {
-        request << "Content-Type: application/json\r\n";
-        request << "Content-Length: " << body.length() << "\r\n";
+        request << "Content-Type: application/json; charset=utf-8\r\n";
+        size_t bodySize = body.length();
+        request << "Content-Length: " << bodySize << "\r\n";
+        LOG_INFO("buildHTTPRequest: Body size={} bytes, Content-Length={}", bodySize, bodySize);
     }
     
     request << "\r\n";
@@ -331,12 +333,18 @@ std::string HTTPClient::buildHTTPRequest(const std::string& method,
         request << body;
     }
     
-    return request.str();
+    std::string requestStr = request.str();
+    LOG_INFO("buildHTTPRequest: Total request size={} bytes (headers + body)", requestStr.length());
+    return requestStr;
 }
 
 int HTTPClient::sendRequest(const std::string& request) {
-    LOG_DEBUG("Sending HTTP request ({} bytes)", request.length());
-    LOG_DEBUG("Request preview (first 300 chars): {}", request.substr(0, 300));
+    LOG_INFO("sendRequest: Starting to send HTTP request ({} bytes)", request.length());
+    if (request.length() > 500) {
+        LOG_DEBUG("sendRequest: Request preview (first 500 chars): {}", request.substr(0, 500));
+    } else {
+        LOG_DEBUG("sendRequest: Full request: {}", request);
+    }
     
     size_t written = 0;
     size_t len = request.length();
@@ -349,18 +357,18 @@ int HTTPClient::sendRequest(const std::string& request) {
                 char error_buf[256];
                 mbedtls_strerror(ret, error_buf, sizeof(error_buf));
                 m_lastError = "Failed to send request: " + std::string(error_buf);
-                LOG_ERROR("Failed to send request: {}", m_lastError);
+                LOG_ERROR("sendRequest: Failed to send request: {} (ret={})", m_lastError, ret);
                 return -1;
             }
             // WANT_READ ou WANT_WRITE : continuer
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         } else {
             written += ret;
-            LOG_DEBUG("Sent {} bytes (total: {}/{})", ret, written, len);
+            LOG_DEBUG("sendRequest: Sent {} bytes (total: {}/{})", ret, written, len);
         }
     }
     
-    LOG_DEBUG("Request sent completely ({} bytes)", written);
+    LOG_INFO("sendRequest: Request sent completely ({} bytes total)", written);
     
     // Pour POST/PUT/PATCH, s'assurer que toutes les données sont bien envoyées
     // En forçant un flush SSL si nécessaire
@@ -544,6 +552,23 @@ HTTPClient::Response HTTPClient::parseResponse() {
     std::string headers = responseData.substr(0, headerEnd);
     std::string rawBody = responseData.substr(headerEnd + 4);
     
+    // Extraire Content-Length depuis les headers si pas déjà fait dans la boucle de lecture
+    if (contentLength == 0) {
+        size_t clPos = headers.find("Content-Length:");
+        if (clPos != std::string::npos) {
+            size_t clValueStart = headers.find(' ', clPos) + 1;
+            size_t clValueEnd = headers.find("\r\n", clValueStart);
+            if (clValueEnd != std::string::npos) {
+                try {
+                    contentLength = std::stoul(headers.substr(clValueStart, clValueEnd - clValueStart));
+                    LOG_DEBUG("parseResponse: Content-Length from headers: {} bytes", contentLength);
+                } catch (...) {
+                    contentLength = 0;
+                }
+            }
+        }
+    }
+    
     // Vérifier si Transfer-Encoding: chunked
     bool isChunked = false;
     size_t tePos = headers.find("Transfer-Encoding:");
@@ -567,7 +592,15 @@ HTTPClient::Response HTTPClient::parseResponse() {
         response.body = decodeChunkedBody(rawBody);
         LOG_DEBUG("parseResponse: Decoded chunked body: {} bytes -> {} bytes", rawBody.length(), response.body.length());
     } else {
-        response.body = rawBody;
+        // Si on a Content-Length, limiter le body à cette taille
+        // (il peut y avoir des données supplémentaires après le body)
+        if (contentLength > 0 && rawBody.length() > contentLength) {
+            response.body = rawBody.substr(0, contentLength);
+            LOG_DEBUG("parseResponse: Limited body to Content-Length: {} bytes (raw body was {} bytes)", 
+                     contentLength, rawBody.length());
+        } else {
+            response.body = rawBody;
+        }
     }
     
     // Parser la ligne de statut
@@ -681,6 +714,8 @@ HTTPClient::Response HTTPClient::post(const std::string& url, const std::string&
     Response response;
     m_lastError.clear();
     
+    LOG_INFO("POST: URL={}, body size={} bytes", url, jsonData.length());
+    
     // Parser l'URL (similaire à get)
     if (url.find("https://") != 0) {
         m_lastError = "Only HTTPS URLs are supported";
@@ -704,17 +739,25 @@ HTTPClient::Response HTTPClient::post(const std::string& url, const std::string&
             path = url.substr(pathEnd);
         }
         
+        LOG_INFO("POST: host={}, path={}, port={}", host, path, port);
+        
         if (!connectSSL(host, port)) {
+            LOG_ERROR("POST: Failed to connect SSL");
             return response;
         }
         
         std::string request = buildHTTPRequest("POST", path, host, jsonData);
+        LOG_INFO("POST: Request built, total size={} bytes", request.length());
+        
         if (sendRequest(request) != 0) {
+            LOG_ERROR("POST: Failed to send request");
             disconnect();
             return response;
         }
         
+        LOG_INFO("POST: Request sent successfully, waiting for response...");
         response = parseResponse();
+        LOG_INFO("POST: Response received: status={}, body size={} bytes", response.statusCode, response.body.length());
         disconnect();
     }
     

@@ -3,6 +3,11 @@
 
 set -e
 
+# Se placer à la racine du projet
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+
 IMAGE_NAME="imsidplayer-windows"
 
 # Détecter podman ou docker
@@ -21,7 +26,7 @@ fi
 # Vérifier que l'image existe
 if ! $CONTAINER_CMD image exists "$IMAGE_NAME" 2>/dev/null; then
     echo "❌ L'image $IMAGE_NAME n'existe pas. Lancez d'abord:"
-    echo "   ./docker-build-windows.sh"
+    echo "   ./docker/docker-build-windows.sh"
     exit 1
 fi
 

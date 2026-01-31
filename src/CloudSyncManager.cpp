@@ -10,6 +10,7 @@
 #include <sstream>
 #include <chrono>
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 
 namespace fs = std::filesystem;
@@ -328,6 +329,8 @@ bool CloudSyncManager::uploadHistory() {
     
     // Convertir les données en mémoire en JSON
     const auto& entries = m_historyManager->getEntries();
+    LOG_INFO("uploadHistory: Starting upload, {} entries in memory", entries.size());
+    
     auto result = glz::write_json(entries);
     if (!result.has_value()) {
         LOG_ERROR("Failed to serialize history for upload");
@@ -335,11 +338,69 @@ bool CloudSyncManager::uploadHistory() {
     }
     
     std::string localJson = result.value();
+    LOG_INFO("uploadHistory: Serialized JSON size: {} bytes", localJson.length());
+    
+    // Convertir Latin-1 vers UTF-8 si nécessaire
+    // Glaze peut générer des bytes Latin-1 (0x80-0xFF) au lieu d'UTF-8
+    // On détecte et convertit les bytes Latin-1 en UTF-8
+    std::string utf8Json;
+    utf8Json.reserve(localJson.length() * 2); // UTF-8 peut être 2x plus grand
+    bool needsConversion = false;
+    
+    for (unsigned char c : localJson) {
+        if (c < 0x80) {
+            // ASCII, copier tel quel
+            utf8Json += c;
+        } else if (c >= 0x80 && c <= 0xFF) {
+            // Byte Latin-1, convertir en UTF-8
+            needsConversion = true;
+            if (c < 0xC0) {
+                // Caractère Latin-1 (0x80-0xBF) -> UTF-8: 0xC2 + byte
+                utf8Json += '\xC2';
+                utf8Json += c;
+            } else {
+                // Caractère Latin-1 (0xC0-0xFF) -> UTF-8: 0xC3 + (byte - 0x40)
+                utf8Json += '\xC3';
+                utf8Json += (c - 0x40);
+            }
+        } else {
+            // Déjà UTF-8 multi-byte, copier tel quel
+            utf8Json += c;
+        }
+    }
+    
+    if (needsConversion) {
+        LOG_INFO("uploadHistory: Converted Latin-1 to UTF-8 ({} -> {} bytes)", 
+                 localJson.length(), utf8Json.length());
+        localJson = std::move(utf8Json);
+    }
+    
+    // Sauvegarder le JSON sur disque pour inspection (en UTF-8)
+    fs::path debugJsonPath = fs::path(getConfigDir()) / "history_debug.json";
+    std::ofstream debugFile(debugJsonPath, std::ios::binary);
+    if (debugFile.is_open()) {
+        debugFile.write(localJson.data(), localJson.size());
+        debugFile.close();
+        LOG_INFO("uploadHistory: JSON saved to {} for inspection", debugJsonPath.string());
+    } else {
+        LOG_WARNING("uploadHistory: Failed to save debug JSON to {}", debugJsonPath.string());
+    }
+    
+    if (localJson.length() > 500) {
+        LOG_DEBUG("uploadHistory: JSON preview (first 500 chars): {}", localJson.substr(0, 500));
+    } else {
+        LOG_DEBUG("uploadHistory: Full JSON: {}", localJson);
+    }
     
     // Upload vers npoint.io
     std::string url = buildNpointURL(m_historyEndpoint);
-    LOG_DEBUG("Uploading history to {}", url);
+    LOG_INFO("uploadHistory: Uploading to URL: {}", url);
     auto response = m_httpClient->post(url, localJson);
+    
+    LOG_INFO("uploadHistory: Response received - status={}, body size={} bytes", response.statusCode, response.body.length());
+    if (!response.body.empty() && response.body.length() < 500) {
+        LOG_DEBUG("uploadHistory: Response body: {}", response.body);
+    }
     
     if (response.statusCode == 200 || response.statusCode == 201) {
         LOG_INFO("History uploaded successfully to cloud ({} bytes)", localJson.length());

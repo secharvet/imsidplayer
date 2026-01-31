@@ -23,13 +23,13 @@ Le conteneur Docker utilise l'image `msys2/msys2` qui contient l'environnement M
 Construire l'image Docker une fois :
 
 ```bash
-./docker-build-windows.sh
+./docker/docker-build-windows.sh
 ```
 
 Ou manuellement :
 
 ```bash
-docker build -f Dockerfile.windows -t imsidplayer-windows .
+docker build -f docker/Dockerfile.windows -t imsidplayer-windows .
 ```
 
 ## Utilisation
@@ -39,7 +39,7 @@ docker build -f Dockerfile.windows -t imsidplayer-windows .
 Pour lancer un shell interactif dans le conteneur :
 
 ```bash
-./docker-run-windows.sh
+./docker/docker-run-windows.sh
 ```
 
 Le répertoire courant sera monté dans `/workspace` dans le conteneur.
@@ -107,7 +107,7 @@ docker run -it -v $(pwd):/workspace imsidplayer-windows bash -c '
 Pour tester que tout fonctionne et produire l'exe :
 
 ```bash
-./docker-test-windows.sh
+./docker/docker-test-windows.sh
 ```
 
 Ce script va :

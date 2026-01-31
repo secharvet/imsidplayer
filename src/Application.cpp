@@ -1,16 +1,22 @@
 #include "Application.h"
+#include "Version.h"
 #include "SongLengthDB.h"
 #include "Utils.h"
 #include "Config.h"
 #include "Logger.h"
 #ifdef ENABLE_CLOUD_SAVE
 #include "CloudSyncManager.h"
+#include "UpdateChecker.h"
+#include "UpdateInstaller.h"
+#include "UpdateChecker.h"
+#include "UpdateInstaller.h"
 #endif
 #include <iostream>
 #include <filesystem>
 #include <algorithm>
 #include <functional>
 #include <cstring>
+#include <chrono>
 
 namespace fs = std::filesystem;
 
@@ -29,29 +35,66 @@ Application::~Application() {
 }
 
 bool Application::initialize() {
-    // Initialiser le système de logging en premier
-    Logger::initialize();
+    auto initStart = std::chrono::high_resolution_clock::now();
     
+    // Initialiser le système de logging en premier
+    auto loggerStart = std::chrono::high_resolution_clock::now();
+    Logger::initialize();
+    auto loggerEnd = std::chrono::high_resolution_clock::now();
+    auto loggerTime = std::chrono::duration_cast<std::chrono::milliseconds>(loggerEnd - loggerStart).count();
+    LOG_INFO("[App Init] Logger::initialize(): {} ms", loggerTime);
+    
+    // Initialiser SDL
+    auto sdlStart = std::chrono::high_resolution_clock::now();
     if (!initSDL()) {
         return false;
     }
+    auto sdlEnd = std::chrono::high_resolution_clock::now();
+    auto sdlTime = std::chrono::duration_cast<std::chrono::milliseconds>(sdlEnd - sdlStart).count();
+    LOG_INFO("[App Init] initSDL(): {} ms", sdlTime);
     
+    // Charger la config (déjà fait dans initSDL, mais on log quand même)
+    auto configStart = std::chrono::high_resolution_clock::now();
     if (!loadConfig()) {
         return false;
     }
+    auto configEnd = std::chrono::high_resolution_clock::now();
+    auto configTime = std::chrono::duration_cast<std::chrono::milliseconds>(configEnd - configStart).count();
+    LOG_INFO("[App Init] loadConfig(): {} ms", configTime);
     
+    // Initialiser le background
+    auto bgStart = std::chrono::high_resolution_clock::now();
     if (!initBackground()) {
         LOG_WARNING("Background initialization failed, continuing without backgrounds");
     }
+    auto bgEnd = std::chrono::high_resolution_clock::now();
+    auto bgTime = std::chrono::duration_cast<std::chrono::milliseconds>(bgEnd - bgStart).count();
+    LOG_INFO("[App Init] initBackground(): {} ms", bgTime);
     
     // Créer DatabaseManager et charger la DB en premier
+    auto dbCreateStart = std::chrono::high_resolution_clock::now();
     m_database = std::make_unique<DatabaseManager>();
+    auto dbCreateEnd = std::chrono::high_resolution_clock::now();
+    auto dbCreateTime = std::chrono::duration_cast<std::chrono::milliseconds>(dbCreateEnd - dbCreateStart).count();
+    LOG_INFO("[App Init] DatabaseManager creation: {} ms", dbCreateTime);
+    
+    auto preDbLoadEnd = std::chrono::high_resolution_clock::now();
+    auto preDbLoadTime = std::chrono::duration_cast<std::chrono::milliseconds>(preDbLoadEnd - initStart).count();
+    LOG_INFO("[App Init] Time before DB load: {} ms", preDbLoadTime);
+    
+    auto dbLoadStart = std::chrono::high_resolution_clock::now();
     if (m_database->load()) {
-        LOG_INFO("Database loaded: {} files", m_database->getCount());
+        auto dbLoadEnd = std::chrono::high_resolution_clock::now();
+        auto dbLoadTime = std::chrono::duration_cast<std::chrono::milliseconds>(dbLoadEnd - dbLoadStart).count();
+        LOG_INFO("[App Init] DatabaseManager::load() completed in {} ms ({} files)", dbLoadTime, m_database->getCount());
     }
     
     // Reconstruire la playlist depuis la DB
+    auto playlistRebuildStart = std::chrono::high_resolution_clock::now();
     m_playlist.rebuildFromDatabase(*m_database);
+    auto playlistRebuildEnd = std::chrono::high_resolution_clock::now();
+    auto playlistRebuildTime = std::chrono::duration_cast<std::chrono::milliseconds>(playlistRebuildEnd - playlistRebuildStart).count();
+    LOG_INFO("[App Init] PlaylistManager::rebuildFromDatabase() completed in {} ms", playlistRebuildTime);
     
     // Charger Songlengths.md5 si configuré
     if (!m_config.getSonglengthsPath().empty()) {
@@ -122,6 +165,11 @@ bool Application::initialize() {
     // Lancer la reconstruction du cache en arrière-plan
     rebuildCacheAsync();
     
+    // Vérifier les mises à jour en arrière-plan (non-bloquant)
+#ifdef ENABLE_CLOUD_SAVE
+    checkForUpdatesAsync();
+#endif
+    
     return true;
 }
 
@@ -142,8 +190,12 @@ bool Application::initSDL() {
     m_config.load(m_configPath);
     
     SDL_WindowFlags window_flags = (SDL_WindowFlags)(SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
+    
+    // Titre avec version
+    std::string windowTitle = VERSION_STRING_FULL;
+    
     m_window = SDL_CreateWindow(
-        "imSid Player",
+        windowTitle.c_str(),
         m_config.getWindowX(),
         m_config.getWindowY(),
         m_config.getWindowWidth(),
@@ -726,3 +778,24 @@ float Application::getDatabaseOperationProgress() const {
     return m_databaseProgress.load();
 }
 
+#ifdef ENABLE_CLOUD_SAVE
+void Application::checkForUpdatesAsync() {
+    // Lancer la vérification dans un thread séparé pour ne pas bloquer le démarrage
+    std::thread updateThread([]() {
+        
+        auto updateInfo = UpdateChecker::checkForUpdate(VERSION_STRING);
+        
+        if (updateInfo.available) {
+            LOG_INFO("Nouvelle version disponible : {} (actuellement : {})", 
+                     updateInfo.version, VERSION_STRING);
+            LOG_INFO("URL de téléchargement : {}", updateInfo.downloadUrl);
+            // TODO: Afficher une notification dans l'UI (Phase 4)
+        } else if (!updateInfo.error.empty()) {
+            LOG_DEBUG("Vérification de mise à jour échouée : {}", updateInfo.error);
+        } else {
+            LOG_DEBUG("Aucune mise à jour disponible (version actuelle : {})", VERSION_STRING);
+        }
+    });
+    updateThread.detach();  // Détacher le thread pour qu'il s'exécute en arrière-plan
+}
+#endif

@@ -89,6 +89,9 @@ private:
     // Extraire les métadonnées d'un fichier SID sans le jouer
     SidMetadata extractMetadata(const std::string& filepath);
     
+    // Récupérer les songlengths depuis SongLengthDB et les ajouter aux métadonnées
+    void populateSongLengths(SidMetadata& metadata) const;
+    
     // Calculer la similarité entre deux chaînes (pour la recherche floue) - version optimisée
     static double fuzzyMatchFast(const std::string& str, const std::string& query);
 };

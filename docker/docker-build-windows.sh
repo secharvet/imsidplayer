@@ -3,8 +3,13 @@
 
 set -e
 
+# Se placer à la racine du projet
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+
 IMAGE_NAME="imsidplayer-windows"
-DOCKERFILE="Dockerfile.windows"
+DOCKERFILE="docker/Dockerfile.windows"
 
 # Détecter podman ou docker
 if command -v podman &> /dev/null; then
@@ -39,7 +44,7 @@ if [ $? -eq 0 ]; then
     echo "✅ Image construite avec succès !"
     echo ""
     echo "Pour lancer un shell interactif dans le conteneur:"
-    echo "  ./docker-run-windows.sh"
+    echo "  ./docker/docker-run-windows.sh"
     echo ""
     echo "Ou manuellement:"
     echo "  $CONTAINER_CMD run -it -v \$(pwd):/workspace $IMAGE_NAME"

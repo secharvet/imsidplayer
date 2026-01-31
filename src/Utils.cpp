@@ -82,3 +82,27 @@ std::string calculateFileMD5(const std::string& filepath) {
     }
 }
 
+std::string latin1ToUtf8(const std::string& latin1) {
+    std::string utf8;
+    utf8.reserve(latin1.length() * 2); // UTF-8 peut être jusqu'à 2x plus grand
+    
+    for (unsigned char c : latin1) {
+        if (c < 0x80) {
+            // ASCII, copier tel quel
+            utf8 += c;
+        } else {
+            // Caractère Latin-1 (0x80-0xFF), convertir en UTF-8
+            // 0x80-0xBF -> 0xC2 + byte
+            // 0xC0-0xFF -> 0xC3 + (byte - 0x40)
+            if (c < 0xC0) {
+                utf8 += '\xC2';
+                utf8 += c;
+            } else {
+                utf8 += '\xC3';
+                utf8 += (c - 0x40);
+            }
+        }
+    }
+    
+    return utf8;
+}

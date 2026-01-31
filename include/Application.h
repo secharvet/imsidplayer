@@ -89,6 +89,11 @@ private:
     void indexPlaylistAsync();
     void rebuildCacheAsync();
     void waitForDatabaseThread();
+    
+#ifdef ENABLE_CLOUD_SAVE
+    // Vérification de mise à jour
+    void checkForUpdatesAsync();
+#endif
 };
 
 #endif // APPLICATION_H

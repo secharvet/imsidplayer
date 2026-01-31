@@ -54,6 +54,7 @@ private:
     int m_backgroundAlpha; // 0-255
     
     void clearImages();
+    void loadImageMetadata(BackgroundImage& img);  // Charger seulement width/height
     void loadImageTexture(BackgroundImage& img);
     void unloadImageTexture(BackgroundImage& img);
 };

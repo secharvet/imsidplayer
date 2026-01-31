@@ -9,9 +9,24 @@
 #include "HistoryManager.h"
 #include "RatingManager.h"
 #include "FilterWidget.h"
+#include "Logger.h"
 #include <SDL2/SDL.h>
 #include <string>
 #include <vector>
+
+// Macros de logging conditionnelles pour UIManager
+// Définir ENABLE_UI_LOGS lors de la compilation pour activer les logs UI
+#ifdef ENABLE_UI_LOGS
+    #define UI_LOG_DEBUG(...) LOG_DEBUG(__VA_ARGS__)
+    #define UI_LOG_INFO(...) LOG_INFO(__VA_ARGS__)
+    #define UI_LOG_WARNING(...) LOG_WARNING(__VA_ARGS__)
+    #define UI_LOG_ERROR(...) LOG_ERROR(__VA_ARGS__)
+#else
+    #define UI_LOG_DEBUG(...) ((void)0)
+    #define UI_LOG_INFO(...) ((void)0)
+    #define UI_LOG_WARNING(...) ((void)0)
+    #define UI_LOG_ERROR(...) ((void)0)
+#endif
 
 class UIManager {
 public:

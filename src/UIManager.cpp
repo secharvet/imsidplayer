@@ -97,9 +97,9 @@ bool UIManager::initialize(SDL_Window* window, SDL_Renderer* renderer) {
     
     if (fontFound) {
         io.Fonts->AddFontFromFileTTF(fontPath.string().c_str(), fontSize, &icons_config, icons_ranges);
-        LOG_INFO("FontAwesome chargé depuis: {}", fontPath.string());
+        UI_LOG_INFO("FontAwesome chargé depuis: {}", fontPath.string());
     } else {
-        LOG_WARNING("FontAwesome non trouvé, les icônes ne seront pas disponibles");
+        UI_LOG_WARNING("FontAwesome non trouvé, les icônes ne seront pas disponibles");
     }
     
     io.FontGlobalScale = 1.2f;
@@ -254,7 +254,7 @@ void UIManager::render() {
         // Ne logger qu'une fois toutes les 1000 frames pour éviter le spam
         static int errorLogCounter = 0;
         if (errorLogCounter++ % 1000 == 0) {
-            LOG_WARNING("Erreur SDL détectée après RenderPresent: {}", sdlError);
+            UI_LOG_WARNING("Erreur SDL détectée après RenderPresent: {}", sdlError);
         }
         // Effacer l'erreur pour éviter qu'elle ne soit reportée en continu
         SDL_ClearError();
@@ -280,18 +280,18 @@ void UIManager::render() {
     static int frameCount = 0;
     frameCount++;
     if (frameCount % 10 == 0) {
-        LOG_DEBUG("=== RENDER TIMINGS (frame {}) ===", frameCount);
-        LOG_DEBUG("NewFrame:        {:6.2f} us ({:.2f}%)", newFrameTime / 1000.0, (newFrameTime * 100.0) / totalFrameTime);
-        LOG_DEBUG("MainPanel:       {:6.2f} us ({:.2f}%)", mainPanelTime / 1000.0, (mainPanelTime * 100.0) / totalFrameTime);
-        LOG_DEBUG("PlaylistPanel:   {:6.2f} us ({:.2f}%)", playlistPanelTime / 1000.0, (playlistPanelTime * 100.0) / totalFrameTime);
-        LOG_DEBUG("FileBrowser:     {:6.2f} us ({:.2f}%)", fileBrowserTime / 1000.0, (fileBrowserTime * 100.0) / totalFrameTime);
-        LOG_DEBUG("ImGui::Render:   {:6.2f} us ({:.2f}%)", imguiRenderTime / 1000.0, (imguiRenderTime * 100.0) / totalFrameTime);
-        LOG_DEBUG("Clear:           {:6.2f} us ({:.2f}%)", clearTime / 1000.0, (clearTime * 100.0) / totalFrameTime);
-        LOG_DEBUG("Background:      {:6.2f} us ({:.2f}%)", backgroundTime / 1000.0, (backgroundTime * 100.0) / totalFrameTime);
-        LOG_DEBUG("RenderDrawData:  {:6.2f} us ({:.2f}%)", renderDrawDataTime / 1000.0, (renderDrawDataTime * 100.0) / totalFrameTime);
-        LOG_DEBUG("Present:         {:6.2f} us ({:.2f}%)", presentTime / 1000.0, (presentTime * 100.0) / totalFrameTime);
-        LOG_DEBUG("TOTAL FRAME:     {:6.2f} us ({:.2f} ms, {:.1f} FPS)", totalFrameTime / 1000.0, totalFrameTime / 1000.0, 1000000.0 / totalFrameTime);
-        LOG_DEBUG("===================================");
+        UI_LOG_DEBUG("=== RENDER TIMINGS (frame {}) ===", frameCount);
+        UI_LOG_DEBUG("NewFrame:        {:6.2f} us ({:.2f}%)", newFrameTime / 1000.0, (newFrameTime * 100.0) / totalFrameTime);
+        UI_LOG_DEBUG("MainPanel:       {:6.2f} us ({:.2f}%)", mainPanelTime / 1000.0, (mainPanelTime * 100.0) / totalFrameTime);
+        UI_LOG_DEBUG("PlaylistPanel:   {:6.2f} us ({:.2f}%)", playlistPanelTime / 1000.0, (playlistPanelTime * 100.0) / totalFrameTime);
+        UI_LOG_DEBUG("FileBrowser:     {:6.2f} us ({:.2f}%)", fileBrowserTime / 1000.0, (fileBrowserTime * 100.0) / totalFrameTime);
+        UI_LOG_DEBUG("ImGui::Render:   {:6.2f} us ({:.2f}%)", imguiRenderTime / 1000.0, (imguiRenderTime * 100.0) / totalFrameTime);
+        UI_LOG_DEBUG("Clear:           {:6.2f} us ({:.2f}%)", clearTime / 1000.0, (clearTime * 100.0) / totalFrameTime);
+        UI_LOG_DEBUG("Background:      {:6.2f} us ({:.2f}%)", backgroundTime / 1000.0, (backgroundTime * 100.0) / totalFrameTime);
+        UI_LOG_DEBUG("RenderDrawData:  {:6.2f} us ({:.2f}%)", renderDrawDataTime / 1000.0, (renderDrawDataTime * 100.0) / totalFrameTime);
+        UI_LOG_DEBUG("Present:         {:6.2f} us ({:.2f}%)", presentTime / 1000.0, (presentTime * 100.0) / totalFrameTime);
+        UI_LOG_DEBUG("TOTAL FRAME:     {:6.2f} us ({:.2f} ms, {:.1f} FPS)", totalFrameTime / 1000.0, totalFrameTime / 1000.0, 1000000.0 / totalFrameTime);
+        UI_LOG_DEBUG("===================================");
     }
 }
 
@@ -315,11 +315,11 @@ bool UIManager::reinitializeRenderer(SDL_Renderer* renderer) {
     
     // Réinitialiser le backend ImGui SDLRenderer2
     if (!ImGui_ImplSDLRenderer2_Init(renderer)) {
-        LOG_ERROR("Échec de la réinitialisation du backend ImGui SDLRenderer2");
+        UI_LOG_ERROR("Échec de la réinitialisation du backend ImGui SDLRenderer2");
         return false;
     }
     
-    LOG_INFO("Backend ImGui SDLRenderer2 réinitialisé avec succès");
+    UI_LOG_INFO("Backend ImGui SDLRenderer2 réinitialisé avec succès");
     return true;
 }
 
@@ -395,194 +395,190 @@ void UIManager::renderPlayerTab() {
             ImGui::Text("Subsong: %d / %d", currentSong, totalSongs);
         }
         
-        // Récupérer la durée depuis SongLengthDB
+        // Récupérer la durée depuis les métadonnées (si sauvegardée) ou SongLengthDB
         const SidMetadata* metadata = m_database.getMetadata(m_player.getCurrentFile());
-        if (metadata && !metadata->md5Hash.empty()) {
-            SongLengthDB& db = SongLengthDB::getInstance();
-            if (db.isLoaded()) {
-                // Obtenir la durée du subsong actuel (index 0-based, defaultSong commence à 1)
-                int subsongIndex = m_player.getCurrentSong(); // 0-based
-                double totalDuration = db.getDuration(metadata->md5Hash, subsongIndex);
+        if (metadata) {
+            double totalDuration = -1.0;
+            int subsongIndex = m_player.getCurrentSong(); // 0-based
+            
+            // D'abord essayer depuis les métadonnées sauvegardées
+            if (!metadata->songLengths.empty() && subsongIndex < metadata->songLengths.size()) {
+                totalDuration = metadata->songLengths[subsongIndex];
+            } else if (!metadata->md5Hash.empty()) {
+                // Fallback : chercher dans SongLengthDB
+                SongLengthDB& db = SongLengthDB::getInstance();
+                if (db.isLoaded()) {
+                    totalDuration = db.getDuration(metadata->md5Hash, subsongIndex);
+                }
+            }
+            
+            if (totalDuration > 0.0) {
+                // Calculer la progression
+                float currentTime = m_player.getPlaybackTime(); // Temps écoulé en secondes
+                    
+                // Pour le loop : calculer le temps modulo la durée totale
+                // libsidplayfp boucle naturellement, on ajuste juste l'affichage
+                float displayTime = currentTime;
+                if (m_player.isLoopEnabled() && totalDuration > 0.0f) {
+                    displayTime = std::fmod(currentTime, totalDuration);
+                }
                 
-                if (totalDuration > 0.0) {
-                    // Calculer la progression
-                    float currentTime = m_player.getPlaybackTime(); // Temps écoulé en secondes
+                float progress = 0.0f;
+                if (totalDuration > 0.0 && displayTime >= 0.0f) {
+                    progress = static_cast<float>(displayTime / totalDuration);
+                    progress = std::max(0.0f, std::min(1.0f, progress)); // Clamp entre 0 et 1
+                }
+                
+                // Formater le temps actuel et total
+                int currentMinutes = static_cast<int>(displayTime) / 60;
+                int currentSeconds = static_cast<int>(displayTime) % 60;
+                int totalMinutes = static_cast<int>(totalDuration) / 60;
+                int totalSeconds = static_cast<int>(totalDuration) % 60;
+                
+                // Formater le texte centré
+                char progressText[64];
+                snprintf(progressText, sizeof(progressText), "%d:%02d / %d:%02d", 
+                        currentMinutes, currentSeconds, totalMinutes, totalSeconds);
+                
+                // Créer une barre de progression personnalisée avec dégradé pastel
+                ImVec2 pos = ImGui::GetCursorScreenPos();
+                float barWidth = ImGui::GetContentRegionAvail().x;
+                float barHeight = 16.0f; // Hauteur réduite
+                ImVec2 barMin = pos;
+                ImVec2 barMax = ImVec2(pos.x + barWidth, pos.y + barHeight);
+                
+                // Dessiner le fond de la barre
+                ImDrawList* drawList = ImGui::GetWindowDrawList();
+                ImU32 bgColor = ImGui::GetColorU32(ImGuiCol_FrameBg);
+                drawList->AddRectFilled(barMin, barMax, bgColor, ImGui::GetStyle().FrameRounding);
+                
+                // Dessiner la barre de progression avec dégradé pastel arc-en-ciel
+                if (progress > 0.0f) {
+                    float fillWidth = barWidth * progress;
+                    ImVec2 fillMax = ImVec2(barMin.x + fillWidth, barMax.y);
                     
-                    // Pour le loop : calculer le temps modulo la durée totale
-                    // libsidplayfp boucle naturellement, on ajuste juste l'affichage
-                    float displayTime = currentTime;
-                    if (m_player.isLoopEnabled() && totalDuration > 0.0f) {
-                        displayTime = std::fmod(currentTime, totalDuration);
-                    }
+                    // Obtenir l'option d'animation depuis Config
+                    Config& config = Config::getInstance();
+                    bool animated = config.isProgressBarAnimated();
                     
-                    float progress = 0.0f;
-                    if (totalDuration > 0.0 && displayTime >= 0.0f) {
-                        progress = static_cast<float>(displayTime / totalDuration);
-                        progress = std::max(0.0f, std::min(1.0f, progress)); // Clamp entre 0 et 1
-                    }
-                    
-                    // Formater le temps actuel et total
-                    int currentMinutes = static_cast<int>(displayTime) / 60;
-                    int currentSeconds = static_cast<int>(displayTime) % 60;
-                    int totalMinutes = static_cast<int>(totalDuration) / 60;
-                    int totalSeconds = static_cast<int>(totalDuration) % 60;
-                    
-                    // Formater le texte centré
-                    char progressText[64];
-                    snprintf(progressText, sizeof(progressText), "%d:%02d / %d:%02d", 
-                            currentMinutes, currentSeconds, totalMinutes, totalSeconds);
-                    
-                    // Créer une barre de progression personnalisée avec dégradé pastel
-                    ImVec2 pos = ImGui::GetCursorScreenPos();
-                    float barWidth = ImGui::GetContentRegionAvail().x;
-                    float barHeight = 16.0f; // Hauteur réduite
-                    ImVec2 barMin = pos;
-                    ImVec2 barMax = ImVec2(pos.x + barWidth, pos.y + barHeight);
-                    
-                    // Dessiner le fond de la barre
-                    ImDrawList* drawList = ImGui::GetWindowDrawList();
-                    ImU32 bgColor = ImGui::GetColorU32(ImGuiCol_FrameBg);
-                    drawList->AddRectFilled(barMin, barMax, bgColor, ImGui::GetStyle().FrameRounding);
-                    
-                    // Dessiner la barre de progression avec dégradé pastel arc-en-ciel
-                    if (progress > 0.0f) {
-                        float fillWidth = barWidth * progress;
-                        ImVec2 fillMax = ImVec2(barMin.x + fillWidth, barMax.y);
+                    if (animated) {
+                        // Dégradé arc-en-ciel cyclique avec couleurs pastel tamisées
+                        // Cycle basé sur le temps pour créer un effet animé
+                        static auto cycleStart = std::chrono::steady_clock::now();
+                        auto now = std::chrono::steady_clock::now();
+                        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - cycleStart).count();
+                        float cyclePhase = (elapsed % 3000) / 3000.0f; // Cycle de 3 secondes
                         
-                        // Obtenir l'option d'animation depuis Config
-                        Config& config = Config::getInstance();
-                        bool animated = config.isProgressBarAnimated();
-                        
-                        if (animated) {
-                            // Dégradé arc-en-ciel cyclique avec couleurs pastel tamisées
-                            // Cycle basé sur le temps pour créer un effet animé
-                            static auto cycleStart = std::chrono::steady_clock::now();
-                            auto now = std::chrono::steady_clock::now();
-                            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - cycleStart).count();
-                            float cyclePhase = (elapsed % 3000) / 3000.0f; // Cycle de 3 secondes
+                        // Couleurs arc-en-ciel pastel tamisées (HSV → RGB)
+                        // Format : doux et discret, saturation et luminosité réduites
+                        auto getRainbowColor = [](float hue, float sat = 0.30f, float val = 0.55f) -> ImU32 {
+                            // HSV to RGB (hue en 0-1, saturation et value réduites pour pastel tamisé)
+                            float c = val * sat;
+                            float x = c * (1.0f - std::abs(std::fmod(hue * 6.0f, 2.0f) - 1.0f));
+                            float m = val - c;
                             
-                            // Couleurs arc-en-ciel pastel tamisées (HSV → RGB)
-                            // Format : doux et discret, saturation et luminosité réduites
-                            auto getRainbowColor = [](float hue, float sat = 0.30f, float val = 0.55f) -> ImU32 {
-                                // HSV to RGB (hue en 0-1, saturation et value réduites pour pastel tamisé)
-                                float c = val * sat;
-                                float x = c * (1.0f - std::abs(std::fmod(hue * 6.0f, 2.0f) - 1.0f));
-                                float m = val - c;
-                                
-                                float r = 0.0f, g = 0.0f, b = 0.0f;
-                                if (hue < 1.0f/6.0f) { r = c; g = x; b = 0; }
-                                else if (hue < 2.0f/6.0f) { r = x; g = c; b = 0; }
-                                else if (hue < 3.0f/6.0f) { r = 0; g = c; b = x; }
-                                else if (hue < 4.0f/6.0f) { r = 0; g = x; b = c; }
-                                else if (hue < 5.0f/6.0f) { r = x; g = 0; b = c; }
-                                else { r = c; g = 0; b = x; }
-                                
-                                return IM_COL32(
-                                    static_cast<int>((r + m) * 255),
-                                    static_cast<int>((g + m) * 255),
-                                    static_cast<int>((b + m) * 255),
-                                    180 // Opacité modérée pour rester discret
-                                );
-                            };
+                            float r = 0.0f, g = 0.0f, b = 0.0f;
+                            if (hue < 1.0f/6.0f) { r = c; g = x; b = 0; }
+                            else if (hue < 2.0f/6.0f) { r = x; g = c; b = 0; }
+                            else if (hue < 3.0f/6.0f) { r = 0; g = c; b = x; }
+                            else if (hue < 4.0f/6.0f) { r = 0; g = x; b = c; }
+                            else if (hue < 5.0f/6.0f) { r = x; g = 0; b = c; }
+                            else { r = c; g = 0; b = x; }
                             
-                            // Créer un dégradé arc-en-ciel avec plusieurs segments pour plus de fluidité
-                            int segments = 50; // Plus de segments pour un dégradé plus fluide
-                            for (int i = 0; i < segments; ++i) {
-                                float t0 = static_cast<float>(i) / segments;
-                                float t1 = static_cast<float>(i + 1) / segments;
-                                
-                                ImVec2 p0 = ImVec2(barMin.x + fillWidth * t0, barMin.y);
-                                ImVec2 p1 = ImVec2(barMin.x + fillWidth * t1, barMax.y);
-                                
-                                // Dégradé arc-en-ciel qui cycle dans la barre
-                                // Le cycle se déplace de gauche à droite
-                                float hue0 = std::fmod(cyclePhase + t0 * 0.7f, 1.0f); // Arc-en-ciel sur 70% du spectre
-                                float hue1 = std::fmod(cyclePhase + t1 * 0.7f, 1.0f);
-                                
-                                ImU32 color0 = getRainbowColor(hue0);
-                                ImU32 color1 = getRainbowColor(hue1);
-                                
-                                // Dégradé entre les deux couleurs pour chaque segment
-                                drawList->AddRectFilledMultiColor(p0, p1, color0, color1, color1, color0);
-                            }
-                        } else {
-                            // Dégradé statique discret (bleu pastel vers vert-cyan pastel)
-                            ImU32 colorLeft = IM_COL32(140, 160, 180, 180);   // Bleu pastel tamisé (gauche)
-                            ImU32 colorRight = IM_COL32(120, 180, 170, 180);  // Vert-cyan pastel tamisé (droite)
-                            
-                            drawList->AddRectFilledMultiColor(
-                                barMin,
-                                fillMax,
-                                colorLeft,
-                                colorRight,
-                                colorRight,
-                                colorLeft
+                            return IM_COL32(
+                                static_cast<int>((r + m) * 255),
+                                static_cast<int>((g + m) * 255),
+                                static_cast<int>((b + m) * 255),
+                                180 // Opacité modérée pour rester discret
                             );
-                        }
-                    }
-                    
-                    // Dessiner le contour
-                    ImU32 borderColor = ImGui::GetColorU32(ImGuiCol_Border);
-                    drawList->AddRect(barMin, barMax, borderColor, ImGui::GetStyle().FrameRounding, 0, 1.0f);
-                    
-                    // Centrer le texte dans la barre
-                    ImVec2 textSize = ImGui::CalcTextSize(progressText);
-                    ImVec2 textPos = ImVec2(
-                        barMin.x + (barWidth - textSize.x) * 0.5f,
-                        barMin.y + (barHeight - textSize.y) * 0.5f
-                    );
-                    
-                    // Dessiner l'ombre du texte pour meilleure lisibilité
-                    drawList->AddText(ImVec2(textPos.x + 1, textPos.y + 1), IM_COL32(0, 0, 0, 128), progressText);
-                    drawList->AddText(textPos, IM_COL32(255, 255, 255, 255), progressText);
-                    
-                    // Déplacer le curseur après la barre
-                    ImGui::SetCursorScreenPos(ImVec2(barMin.x, barMax.y + ImGui::GetStyle().ItemSpacing.y));
-                    
-                    // Détecter la fin du morceau et gérer le passage au suivant (si loop désactivé)
-                    // Si loop est actif, libsidplayfp boucle naturellement, on ne fait rien
-                    static bool songEnded = false; // Variable statique pour éviter les déclenchements multiples
-                    if (!m_player.isLoopEnabled() && m_player.isPlaying() && !m_player.isPaused() && progress >= 0.99f && currentTime >= totalDuration - 0.5f) {
-                        // Le morceau est terminé (avec une petite marge de 0.5s) - seulement si loop désactivé
-                        if (!songEnded) { // Éviter les déclenchements multiples
-                            songEnded = true;
+                        };
+                        
+                        // Créer un dégradé arc-en-ciel avec plusieurs segments pour plus de fluidité
+                        int segments = 50; // Plus de segments pour un dégradé plus fluide
+                        for (int i = 0; i < segments; ++i) {
+                            float t0 = static_cast<float>(i) / segments;
+                            float t1 = static_cast<float>(i + 1) / segments;
                             
-                            // Loop désactivé : passer au morceau suivant
-                                // Loop désactivé : passer au morceau suivant
-                            PlaylistNode* nextNode = getNextFilteredFile();
-                            if (nextNode && !nextNode->filepath.empty()) {
-                                // Toujours trouver le nœud correspondant dans l'arbre original pour setCurrentNode
-                                // (même sans filtres, pour s'assurer qu'on utilise le bon pointeur)
-                                PlaylistNode* originalNode = m_playlist.findNodeByPath(nextNode->filepath);
-                                PlaylistNode* targetNode = originalNode ? originalNode : nextNode;
-                                m_playlist.setCurrentNode(targetNode);
-                                m_playlist.setScrollToCurrent(true);
-                                if (m_player.loadFile(nextNode->filepath)) {
-                                    m_player.play();
-                                    recordHistoryEntry(nextNode->filepath);
-                                }
-                            } else {
-                                // Pas de morceau suivant, arrêter
-                                m_player.stop();
-                            }
+                            ImVec2 p0 = ImVec2(barMin.x + fillWidth * t0, barMin.y);
+                            ImVec2 p1 = ImVec2(barMin.x + fillWidth * t1, barMax.y);
+                            
+                            // Dégradé arc-en-ciel qui cycle dans la barre
+                            // Le cycle se déplace de gauche à droite
+                            float hue0 = std::fmod(cyclePhase + t0 * 0.7f, 1.0f); // Arc-en-ciel sur 70% du spectre
+                            float hue1 = std::fmod(cyclePhase + t1 * 0.7f, 1.0f);
+                            
+                            ImU32 color0 = getRainbowColor(hue0);
+                            ImU32 color1 = getRainbowColor(hue1);
+                            
+                            // Dégradé entre les deux couleurs pour chaque segment
+                            drawList->AddRectFilledMultiColor(p0, p1, color0, color1, color1, color0);
                         }
                     } else {
-                        // Réinitialiser le flag si on n'est plus à la fin
-                        songEnded = false;
-                    }
-                } else {
-                    // Durée non trouvée dans la base Songlengths.md5
-                    float currentTime = m_player.getPlaybackTime();
-                    if (currentTime > 0.0f) {
-                        int currentMinutes = static_cast<int>(currentTime) / 60;
-                        int currentSeconds = static_cast<int>(currentTime) % 60;
-                        ImGui::Text("Duration: Unknown (Playing: %d:%02d)", currentMinutes, currentSeconds);
-                    } else {
-                        ImGui::Text("Duration: Unknown");
+                        // Dégradé statique discret (bleu pastel vers vert-cyan pastel)
+                        ImU32 colorLeft = IM_COL32(140, 160, 180, 180);   // Bleu pastel tamisé (gauche)
+                        ImU32 colorRight = IM_COL32(120, 180, 170, 180);  // Vert-cyan pastel tamisé (droite)
+                        
+                        drawList->AddRectFilledMultiColor(
+                            barMin,
+                            fillMax,
+                            colorLeft,
+                            colorRight,
+                            colorRight,
+                            colorLeft
+                        );
                     }
                 }
+                
+                // Dessiner le contour
+                ImU32 borderColor = ImGui::GetColorU32(ImGuiCol_Border);
+                drawList->AddRect(barMin, barMax, borderColor, ImGui::GetStyle().FrameRounding, 0, 1.0f);
+                
+                // Centrer le texte dans la barre
+                ImVec2 textSize = ImGui::CalcTextSize(progressText);
+                ImVec2 textPos = ImVec2(
+                    barMin.x + (barWidth - textSize.x) * 0.5f,
+                    barMin.y + (barHeight - textSize.y) * 0.5f
+                );
+                
+                // Dessiner l'ombre du texte pour meilleure lisibilité
+                drawList->AddText(ImVec2(textPos.x + 1, textPos.y + 1), IM_COL32(0, 0, 0, 128), progressText);
+                drawList->AddText(textPos, IM_COL32(255, 255, 255, 255), progressText);
+                
+                // Déplacer le curseur après la barre
+                ImGui::SetCursorScreenPos(ImVec2(barMin.x, barMax.y + ImGui::GetStyle().ItemSpacing.y));
+                
+                // Détecter la fin du morceau et gérer le passage au suivant (si loop désactivé)
+                // Si loop est actif, libsidplayfp boucle naturellement, on ne fait rien
+                static bool songEnded = false; // Variable statique pour éviter les déclenchements multiples
+                if (!m_player.isLoopEnabled() && m_player.isPlaying() && !m_player.isPaused() && progress >= 0.99f && currentTime >= totalDuration - 0.5f) {
+                    // Le morceau est terminé (avec une petite marge de 0.5s) - seulement si loop désactivé
+                    if (!songEnded) { // Éviter les déclenchements multiples
+                        songEnded = true;
+                        
+                        // Loop désactivé : passer au morceau suivant
+                        PlaylistNode* nextNode = getNextFilteredFile();
+                        if (nextNode && !nextNode->filepath.empty()) {
+                            // Toujours trouver le nœud correspondant dans l'arbre original pour setCurrentNode
+                            // (même sans filtres, pour s'assurer qu'on utilise le bon pointeur)
+                            PlaylistNode* originalNode = m_playlist.findNodeByPath(nextNode->filepath);
+                            PlaylistNode* targetNode = originalNode ? originalNode : nextNode;
+                            m_playlist.setCurrentNode(targetNode);
+                            m_playlist.setScrollToCurrent(true);
+                            if (m_player.loadFile(nextNode->filepath)) {
+                                m_player.play();
+                                recordHistoryEntry(nextNode->filepath);
+                            }
+                        } else {
+                            // Pas de morceau suivant, arrêter
+                            m_player.stop();
+                        }
+                    }
+                } else {
+                    // Réinitialiser le flag si on n'est plus à la fin
+                    songEnded = false;
+                }
             } else {
-                // Songlengths.md5 non chargé
+                // Durée non trouvée
                 float currentTime = m_player.getPlaybackTime();
                 if (currentTime > 0.0f) {
                     int currentMinutes = static_cast<int>(currentTime) / 60;
@@ -621,7 +617,7 @@ void UIManager::renderPlayerTab() {
     static int frameCount = 0;
     frameCount++;
     if (frameCount % 60 == 0) {
-        LOG_DEBUG("[PlayerTab] Oscilloscopes: {:.2f} us/frame avg, PlayerControls: {:.2f} us/frame avg",
+        UI_LOG_DEBUG("[PlayerTab] Oscilloscopes: {:.2f} us/frame avg, PlayerControls: {:.2f} us/frame avg",
                   oscilloscopesTime / 60.0 / 1000.0, playerControlsTime / 60.0 / 1000.0);
         oscilloscopesTime = 0;
         playerControlsTime = 0;
@@ -784,7 +780,7 @@ void UIManager::renderOscilloscopes() {
         m_oscilloscopePlot1Time = plot1Time / 60.0 / 1000.0;
         m_oscilloscopePlot2Time = plot2Time / 60.0 / 1000.0;
         
-        LOG_DEBUG("[Oscilloscopes] Total: {:.2f} us/frame avg, Plot0: {:.2f} us, Plot1: {:.2f} us, Plot2: {:.2f} us",
+        UI_LOG_DEBUG("[Oscilloscopes] Total: {:.2f} us/frame avg, Plot0: {:.2f} us, Plot1: {:.2f} us, Plot2: {:.2f} us",
                   totalOscTime / 60.0 / 1000.0, plot0Time / 60.0 / 1000.0, 
                   plot1Time / 60.0 / 1000.0, plot2Time / 60.0 / 1000.0);
         totalOscTime = 0;
@@ -938,7 +934,7 @@ void UIManager::renderPlayerControls() {
                 // Le rating a changé, sauvegarder
                 if (currentRating != prevRating) {
                     m_ratingManager.updateRating(metadata->metadataHash, currentRating);
-                    LOG_INFO("Rating mis à jour: {} étoiles pour {}", currentRating, metadata->title);
+                    UI_LOG_INFO("Rating mis à jour: {} étoiles pour {}", currentRating, metadata->title);
                     
 #ifdef ENABLE_CLOUD_SAVE
                     // Push automatique vers le cloud
@@ -952,7 +948,7 @@ void UIManager::renderPlayerControls() {
             ImGui::Spacing();
         } else if (!m_player.getCurrentFile().empty()) {
             // Debug : vérifier pourquoi les métadonnées ne sont pas disponibles
-            LOG_DEBUG("Métadonnées non disponibles pour le fichier: {}", m_player.getCurrentFile());
+            UI_LOG_DEBUG("Métadonnées non disponibles pour le fichier: {}", m_player.getCurrentFile());
             ImGui::Text("Rating: Not available (file not indexed)");
             ImGui::Spacing();
             ImGui::Separator();
@@ -1256,7 +1252,7 @@ void UIManager::renderConfigTab() {
             if (!cloudSync.isEnabled() && cloudSync.getRatingEndpoint().empty() && cloudSync.getHistoryEndpoint().empty()) {
                 // Essayer d'initialiser si pas encore fait
                 // Note: CloudSyncManager devrait être initialisé dans Application.cpp
-                LOG_WARNING("CloudSyncManager may not be initialized. Please ensure it's initialized in Application.cpp");
+                UI_LOG_WARNING("CloudSyncManager may not be initialized. Please ensure it's initialized in Application.cpp");
             }
             
             // Récupérer les endpoints depuis la config (doivent être saisis manuellement)
@@ -1265,7 +1261,7 @@ void UIManager::renderConfigTab() {
             
             // Vérifier que les endpoints sont configurés
             if (ratingEndpoint.empty() || historyEndpoint.empty()) {
-                LOG_WARNING("Please configure both rating and history endpoints in the fields above before pushing.");
+                UI_LOG_WARNING("Please configure both rating and history endpoints in the fields above before pushing.");
             } else {
                 // Push ratings et history
                 if (!ratingEndpoint.empty()) {
@@ -1634,10 +1630,10 @@ void UIManager::renderPlaylistTree() {
     auto renderTime = std::chrono::duration_cast<std::chrono::milliseconds>(renderEnd - renderStart).count();
     
     // Log pour mesurer le problème (toujours en DEBUG pour capture de référence)
-    LOG_DEBUG("[UI] renderPlaylistTree: {} ms ({} nœuds rendus, {} dans liste plate, {} visibles, filtrage: {}, virtual scrolling: activé)", 
+    UI_LOG_DEBUG("[UI] renderPlaylistTree: {} ms ({} nœuds rendus, {} dans liste plate, {} visibles, filtrage: {}, virtual scrolling: activé)", 
               renderTime, nodesRendered, m_flatList.size(), m_filtersActive ? m_visibleIndices.size() : m_flatList.size(), m_filtersActive ? "dynamique" : "désactivé");
     if (renderTime > 10) {
-        LOG_WARNING("[UI] renderPlaylistTree: {} ms ({} nœuds rendus) - PERFORMANCE CRITIQUE", renderTime, nodesRendered);
+        UI_LOG_WARNING("[UI] renderPlaylistTree: {} ms ({} nœuds rendus) - PERFORMANCE CRITIQUE", renderTime, nodesRendered);
     }
     
     ImGui::EndChild();
@@ -1862,13 +1858,8 @@ void UIManager::recordHistoryEntry(const std::string& filepath) {
     m_history.addEntry(metadata->title, metadata->author, metadata->metadataHash);
     
     // Incrémenter le playCount dans le RatingManager
+    // Note: pas de sync automatique ici, le playCount sera sync à la sortie ou sur push manuel
     m_ratingManager.incrementPlayCount(metadata->metadataHash);
-
-#ifdef ENABLE_CLOUD_SAVE
-    // On ne push PAS l'historique ici (trop lourd), 
-    // mais on peut push le playCount via le RatingSync qui est léger
-    CloudSyncManager::getInstance().queueRatingSync();
-#endif
 }
 
 void UIManager::rebuildFilepathToHashCache() {
@@ -1895,7 +1886,7 @@ void UIManager::rebuildFilepathToHashCache() {
     
     // Log seulement si ça prend du temps (> 100ms) ou si beaucoup de fichiers
     if (totalTime > 100 || cached > 1000) {
-        LOG_INFO("[UI] rebuildFilepathToHashCache(): {} ms ({} fichiers mis en cache)", totalTime, cached);
+        UI_LOG_INFO("[UI] rebuildFilepathToHashCache(): {} ms ({} fichiers mis en cache)", totalTime, cached);
     }
     
     // Marquer que les filtres doivent être mis à jour
@@ -2301,7 +2292,7 @@ void UIManager::renderFilters() {
     
     // Filtre Auteur
     // Mode 1 : Recherche (focus) - Mode 2 : Sélection (arbre filtré)
-    LOG_DEBUG("[Filter] renderFilters: Auteur='{}', Année='{}'", m_filterAuthor, m_filterYear);
+    UI_LOG_DEBUG("[Filter] renderFilters: Auteur='{}', Année='{}'", m_filterAuthor, m_filterYear);
     ImGui::PushItemWidth(authorWidth);  // Forcer la largeur du filtre auteur
     bool authorChanged = m_authorFilterWidget.render(m_filterAuthor, m_availableAuthors, 
         [this](const std::string& value) {
@@ -2311,12 +2302,12 @@ void UIManager::renderFilters() {
             m_filterAuthor = value;
             // S'assurer que m_filterYear n'a pas été modifié
             if (m_filterYear != previousYear) {
-                LOG_WARNING("[Filter] m_filterYear modifié lors du changement d'auteur! Restauration: '{}' -> '{}'", previousYear, m_filterYear);
+                UI_LOG_WARNING("[Filter] m_filterYear modifié lors du changement d'auteur! Restauration: '{}' -> '{}'", previousYear, m_filterYear);
                 m_filterYear = previousYear;
             }
             // Mode 2 : Quand on sélectionne un item, activer le filtre (filtrage dynamique)
             m_filtersActive = !m_filterAuthor.empty() || !m_filterYear.empty() || m_filterRating > 0;
-            LOG_DEBUG("[Filter] Auteur changé: '{}' -> '{}', Année préservée: '{}', Filtres actifs: {}", 
+            UI_LOG_DEBUG("[Filter] Auteur changé: '{}' -> '{}', Année préservée: '{}', Filtres actifs: {}", 
                      previousAuthor, m_filterAuthor, m_filterYear, m_filtersActive);
             // Invalider la liste filtrée pour qu'elle soit reconstruite avec les nouveaux filtres
             invalidateVisibleIndices();  // Forcer le rafraîchissement de l'affichage
@@ -2335,12 +2326,12 @@ void UIManager::renderFilters() {
             m_filterYear = value;
             // S'assurer que m_filterAuthor n'a pas été modifié
             if (m_filterAuthor != previousAuthor) {
-                LOG_WARNING("[Filter] m_filterAuthor modifié lors du changement d'année! Restauration: '{}' -> '{}'", previousAuthor, m_filterAuthor);
+                UI_LOG_WARNING("[Filter] m_filterAuthor modifié lors du changement d'année! Restauration: '{}' -> '{}'", previousAuthor, m_filterAuthor);
                 m_filterAuthor = previousAuthor;
             }
             // Mode 2 : Quand on sélectionne un item, activer le filtre (filtrage dynamique)
             m_filtersActive = !m_filterAuthor.empty() || !m_filterYear.empty() || m_filterRating > 0;
-            LOG_DEBUG("[Filter] Année changée: '{}' -> '{}', Auteur préservé: '{}', Filtres actifs: {}", 
+            UI_LOG_DEBUG("[Filter] Année changée: '{}' -> '{}', Auteur préservé: '{}', Filtres actifs: {}", 
                      previousYear, m_filterYear, m_filterAuthor, m_filtersActive);
             // Invalider la liste filtrée pour qu'elle soit reconstruite avec les nouveaux filtres
             invalidateVisibleIndices();  // Forcer le rafraîchissement de l'affichage
@@ -2362,7 +2353,7 @@ void UIManager::renderFilters() {
         m_filterRating = (currentRatingIndex == 0) ? 0 : (6 - currentRatingIndex);
         m_filtersActive = !m_filterAuthor.empty() || !m_filterYear.empty() || m_filterRating > 0;
         invalidateVisibleIndices();
-        LOG_DEBUG("[Filter] Rating changé: {} (index combo: {})", m_filterRating, currentRatingIndex);
+        UI_LOG_DEBUG("[Filter] Rating changé: {} (index combo: {})", m_filterRating, currentRatingIndex);
     }
     
     ImGui::PopItemWidth();
@@ -2374,14 +2365,14 @@ void UIManager::renderFilters() {
         if (ImGui::Button(operatorLabel, ImVec2(ratingButtonWidth, 0))) {
             m_filterRatingOperator = !m_filterRatingOperator;
             invalidateVisibleIndices();
-            LOG_DEBUG("[Filter] Opérateur rating changé: {}", m_filterRatingOperator ? ">=" : "=");
+            UI_LOG_DEBUG("[Filter] Opérateur rating changé: {}", m_filterRatingOperator ? ">=" : "=");
         }
     }
     
     // Si les filtres ont changé, invalider les indices visibles pour forcer le rafraîchissement
     if (authorChanged || yearChanged || previousFiltersActive != m_filtersActive) {
         invalidateVisibleIndices();
-        LOG_DEBUG("[Filter] Filtres modifiés, invalidation des indices visibles");
+        UI_LOG_DEBUG("[Filter] Filtres modifiés, invalidation des indices visibles");
     }
 }
 
@@ -2645,7 +2636,7 @@ void UIManager::renderExplorerTab() {
     static int frameCount = 0;
     frameCount++;
     if (frameCount % 10 == 0) {
-        LOG_DEBUG("[ExplorerTab] Timings (frame {}): Tree={:.2f} ms/frame avg, Nav={:.2f} ms/frame avg, Total={:.2f} ms/frame avg",
+        UI_LOG_DEBUG("[ExplorerTab] Timings (frame {}): Tree={:.2f} ms/frame avg, Nav={:.2f} ms/frame avg, Total={:.2f} ms/frame avg",
                   frameCount, treeTime / 10.0 / 1000.0, navTime / 10.0 / 1000.0, explorerTabTime / 10.0 / 1000.0);
         explorerTabTime = 0;
         treeTime = 0;
@@ -2744,7 +2735,7 @@ void UIManager::renderHistoryTab() {
                 // Trouver le fichier correspondant dans la playlist par metadataHash
                 auto startTime = std::chrono::high_resolution_clock::now();
                 auto allFiles = m_playlist.getAllFiles();
-                LOG_DEBUG("Looking for history entry: hash={}, title='{}', author='{}', total files in playlist: {}", 
+                UI_LOG_DEBUG("Looking for history entry: hash={}, title='{}', author='{}', total files in playlist: {}", 
                           entry.metadataHash, entry.title, entry.author, allFiles.size());
                 
                 bool found = false;
@@ -2761,7 +2752,7 @@ void UIManager::renderHistoryTab() {
                         indexedCount++;
                         if (metadata->metadataHash == entry.metadataHash) {
                             hashMatchCount++;
-                            LOG_DEBUG("Found matching file: {} (hash: {})", node->filepath, metadata->metadataHash);
+                            UI_LOG_DEBUG("Found matching file: {} (hash: {})", node->filepath, metadata->metadataHash);
                             
                             // Si des filtres sont actifs et que le fichier ne correspond pas, désactiver les filtres
                             // pour que le fichier soit visible dans l'arbre
@@ -2789,17 +2780,17 @@ void UIManager::renderHistoryTab() {
                             break;
                         }
                     } else {
-                        LOG_DEBUG("File not indexed in database: {}", node->filepath);
+                        UI_LOG_DEBUG("File not indexed in database: {}", node->filepath);
                     }
                 }
                 
                 auto endTime = std::chrono::high_resolution_clock::now();
                 auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
                 if (!found) {
-                    LOG_WARNING("History entry not found: checked {} files, {} indexed, {} hash matches, search took {} ms", 
+                    UI_LOG_WARNING("History entry not found: checked {} files, {} indexed, {} hash matches, search took {} ms", 
                                checkedCount, indexedCount, hashMatchCount, duration.count());
                 } else {
-                    LOG_DEBUG("History entry found in {} ms (checked {} files, {} indexed)", 
+                    UI_LOG_DEBUG("History entry found in {} ms (checked {} files, {} indexed)", 
                              duration.count(), checkedCount, indexedCount);
                 }
             }

@@ -1,11 +1,16 @@
 #!/bin/bash
 # Script pour pousser l'image MinGW vers GitHub Container Registry (GHCR)
-# Usage: ./docker-push-ghcr.sh <votre_username_github>
+# Usage: ./docker/docker-push-ghcr.sh <votre_username_github>
 
 if [ -z "$1" ]; then
-    echo "Usage: ./docker-push-ghcr.sh <votre_username_github>"
+    echo "Usage: ./docker/docker-push-ghcr.sh <votre_username_github>"
     exit 1
 fi
+
+# Se placer à la racine du projet
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
 
 USERNAME=$(echo "$1" | tr '[:upper:]' '[:lower:]')
 IMAGE_NAME="imsidplayer-windows"
@@ -16,7 +21,7 @@ echo "=== Préparation de l'image pour GHCR ==="
 echo "Tag: $TAG"
 
 # Construire localement
-podman build -f Dockerfile.windows -t "$IMAGE_NAME" .
+podman build -f docker/Dockerfile.windows -t "$IMAGE_NAME" .
 
 # Tagger pour GHCR
 podman tag "$IMAGE_NAME" "$TAG"

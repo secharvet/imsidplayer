@@ -25,9 +25,32 @@ void BackgroundManager::clearImages() {
     m_images.clear();
 }
 
+void BackgroundManager::loadImageMetadata(BackgroundImage& img) {
+    // Charger seulement les dimensions si pas déjà chargées
+    if (img.width > 0 && img.height > 0) {
+        return;  // Déjà chargé
+    }
+    
+#ifdef HAS_SDL2_IMAGE
+    SDL_Surface* bgSurface = IMG_Load(img.fullPath.c_str());
+    if (bgSurface) {
+        img.width = bgSurface->w;
+        img.height = bgSurface->h;
+        SDL_FreeSurface(bgSurface);
+    } else {
+        LOG_ERROR("Error loading image metadata {}: {}", img.filename, IMG_GetError());
+    }
+#endif
+}
+
 void BackgroundManager::loadImageTexture(BackgroundImage& img) {
     if (img.texture) {
         return;  // Déjà chargé
+    }
+    
+    // Charger les métadonnées si pas déjà chargées
+    if (img.width == 0 || img.height == 0) {
+        loadImageMetadata(img);
     }
     
 #ifdef HAS_SDL2_IMAGE
@@ -73,6 +96,8 @@ void BackgroundManager::loadImages() {
     
     std::vector<std::string> imageExtensions = {".png", ".jpg", ".jpeg", ".bmp", ".gif"};
     try {
+        // Étape 1: Lister seulement les fichiers (sans charger les surfaces)
+        std::vector<std::pair<std::string, std::string>> imageFiles; // filename, fullPath
         for (const auto& entry : fs::directory_iterator(backgroundPath)) {
             if (entry.is_regular_file()) {
                 std::string ext = entry.path().extension().string();
@@ -80,23 +105,22 @@ void BackgroundManager::loadImages() {
                 
                 if (std::find(imageExtensions.begin(), imageExtensions.end(), ext) != imageExtensions.end()) {
                     std::string filename = entry.path().filename().string();
-                    std::string fullPath = entry.path().string();
                     if (filename[0] != '.') {
-                        // Charger seulement les métadonnées (pas la texture)
-                        SDL_Surface* bgSurface = IMG_Load(fullPath.c_str());
-                        if (bgSurface) {
-                            BackgroundImage bgImg;
-                            bgImg.texture = nullptr;  // Non chargé pour l'instant
-                            bgImg.filename = filename;
-                            bgImg.fullPath = fullPath;
-                            bgImg.width = bgSurface->w;
-                            bgImg.height = bgSurface->h;
-                            m_images.push_back(bgImg);
-                            SDL_FreeSurface(bgSurface);
-                        }
+                        imageFiles.push_back({filename, entry.path().string()});
                     }
                 }
             }
+        }
+        
+        // Étape 2: Créer les entrées sans charger les dimensions (lazy loading)
+        for (const auto& [filename, fullPath] : imageFiles) {
+            BackgroundImage bgImg;
+            bgImg.texture = nullptr;
+            bgImg.filename = filename;
+            bgImg.fullPath = fullPath;
+            bgImg.width = 0;  // Chargé à la demande
+            bgImg.height = 0; // Chargé à la demande
+            m_images.push_back(bgImg);
         }
         
         if (!m_images.empty() && m_currentIndex >= (int)m_images.size()) {
@@ -105,9 +129,10 @@ void BackgroundManager::loadImages() {
             m_currentIndex = -1;
         }
         
-        // Charger la texture de l'image courante si elle existe
+        // Étape 3: Charger seulement l'image courante (dimensions + texture)
         if (m_currentIndex >= 0 && m_currentIndex < (int)m_images.size()) {
-            loadImageTexture(m_images[m_currentIndex]);
+            loadImageMetadata(m_images[m_currentIndex]);  // Charger les dimensions
+            loadImageTexture(m_images[m_currentIndex]);   // Charger la texture
         }
     } catch (const std::exception& e) {
         LOG_ERROR("Error loading images: {}", e.what());

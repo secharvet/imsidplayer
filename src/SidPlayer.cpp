@@ -1,4 +1,5 @@
 #include "SidPlayer.h"
+#include "Utils.h"
 #include <sidplayfp/SidInfo.h>
 #include <sidplayfp/SidTuneInfo.h>
 #include <cstring>
@@ -86,7 +87,8 @@ bool SidPlayer::loadFile(const std::string& filepath) {
             const char* info = tuneInfo->infoString(i);
             if (info && strlen(info) > 0) {
                 if (!tempInfo.empty()) tempInfo += " | ";
-                tempInfo += info;
+                // Convertir Latin-1 vers UTF-8 pour l'affichage
+                tempInfo += latin1ToUtf8(info);
             }
         }
         if (!tempInfo.empty()) m_tuneInfo = tempInfo;

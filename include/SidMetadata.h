@@ -29,6 +29,7 @@ struct SidMetadata {
     int64_t lastModified;           // Date de modification (timestamp)
     uint16_t hvscNum;               // Numéro de version HVSC (ex: 84)
     std::string rootFolder;         // Dossier racine (nom du dossier déposé, ex: "HVSCallofthem24")
+    std::vector<double> songLengths; // Durées des subsongs en secondes (depuis Songlengths.md5)
     
     // Constructeur par défaut
     SidMetadata() : numberOfSongs(0), defaultSong(1), clockSpeed(0), metadataHash(0), fileSize(0), lastModified(0), hvscNum(0) {}
@@ -66,7 +67,8 @@ struct glz::meta<SidMetadata> {
         "fileSize", &T::fileSize,
         "lastModified", &T::lastModified,
         "hvscNum", &T::hvscNum,
-        "rootFolder", &T::rootFolder
+        "rootFolder", &T::rootFolder,
+        "songLengths", &T::songLengths
     );
 };
 

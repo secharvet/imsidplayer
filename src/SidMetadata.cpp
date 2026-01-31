@@ -1,4 +1,5 @@
 #include "SidMetadata.h"
+#include "Utils.h"
 #include <fstream>
 #include <sstream>
 #include <iomanip>
@@ -56,24 +57,25 @@ SidMetadata SidMetadata::fromSidTune(const std::string& filepath, SidTune* tune)
     }
     
     // Titre, auteur, date
+    // Les fichiers SID utilisent souvent Latin-1, convertir en UTF-8
     if (info->numberOfInfoStrings() > 0) {
         const char* title = info->infoString(0);
         if (title && strlen(title) > 0) {
-            metadata.title = title;
+            metadata.title = latin1ToUtf8(title);
         }
     }
     
     if (info->numberOfInfoStrings() > 1) {
         const char* author = info->infoString(1);
         if (author && strlen(author) > 0) {
-            metadata.author = author;
+            metadata.author = latin1ToUtf8(author);
         }
     }
     
     if (info->numberOfInfoStrings() > 2) {
         const char* released = info->infoString(2);
         if (released && strlen(released) > 0) {
-            metadata.released = released;
+            metadata.released = latin1ToUtf8(released);
         }
     }
     
@@ -81,7 +83,7 @@ SidMetadata SidMetadata::fromSidTune(const std::string& filepath, SidTune* tune)
     for (unsigned int i = 0; i < info->numberOfInfoStrings(); ++i) {
         const char* infoStr = info->infoString(i);
         if (infoStr && strlen(infoStr) > 0) {
-            metadata.infoStrings.push_back(infoStr);
+            metadata.infoStrings.push_back(latin1ToUtf8(infoStr));
         }
     }
     

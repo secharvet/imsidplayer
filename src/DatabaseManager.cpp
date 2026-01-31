@@ -2,12 +2,14 @@
 #include "Utils.h"
 #include "PlaylistManager.h"
 #include "Logger.h"
+#include "SongLengthDB.h"
 #include <sidplayfp/SidTune.h>
 #include <sidplayfp/SidTuneInfo.h>
 #include <fstream>
 #include <algorithm>
 #include <sstream>
 #include <unordered_set>
+#include <chrono>
 #include <glaze/glaze.hpp>
 
 namespace fs = std::filesystem;
@@ -18,6 +20,8 @@ DatabaseManager::DatabaseManager() : m_cacheValid(false) {
 }
 
 bool DatabaseManager::load() {
+    auto loadStart = std::chrono::high_resolution_clock::now();
+    
     if (!fs::exists(m_databasePath)) {
         LOG_INFO("Database does not exist yet, creating a new database");
         m_rootFolders.clear();
@@ -26,111 +30,55 @@ bool DatabaseManager::load() {
     }
     
     try {
-        std::string jsonStr;
-        std::ifstream file(m_databasePath);
-        if (!file) {
-            LOG_ERROR("Failed to open database");
+        // Mode Turbo: Lecture + Parsing JSON en une seule opération optimisée
+        auto readParseStart = std::chrono::high_resolution_clock::now();
+        
+        // Obtenir la taille du fichier pour le log
+        size_t fileSize = 0;
+        if (fs::exists(m_databasePath)) {
+            fileSize = fs::file_size(m_databasePath);
+        }
+        
+        std::vector<RootFolderEntry> newStructure;
+        auto error = glz::read_file_json(newStructure, m_databasePath, std::string{});
+    
+        auto readParseEnd = std::chrono::high_resolution_clock::now();
+        auto readParseTime = std::chrono::duration_cast<std::chrono::milliseconds>(readParseEnd - readParseStart).count();
+        
+        if (error) {
+            LOG_ERROR("Error reading database file: error code {}", static_cast<int>(error.ec));
             return false;
         }
         
-        file.seekg(0, std::ios::end);
-        jsonStr.reserve(file.tellg());
-        file.seekg(0, std::ios::beg);
-        jsonStr.assign((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        LOG_INFO("[DB Load] File read + JSON parsing (Turbo mode): {} ms ({} bytes)", readParseTime, fileSize);
         
-        // Essayer d'abord la nouvelle structure hiérarchique
-        std::vector<RootFolderEntry> newStructure;
-        auto error = glz::read_json(newStructure, jsonStr);
+        // Copie des données
+        auto copyStart = std::chrono::high_resolution_clock::now();
+        m_rootFolders = newStructure;
+        auto copyEnd = std::chrono::high_resolution_clock::now();
+        auto copyTime = std::chrono::duration_cast<std::chrono::milliseconds>(copyEnd - copyStart).count();
+        LOG_INFO("[DB Load] Data copy: {} ms", copyTime);
         
-        if (error) {
-            // Si ça échoue, essayer l'ancienne structure plate (migration)
-            LOG_INFO("Trying to load old flat structure for migration...");
-            std::vector<SidMetadata> oldMetadata;
-            auto oldError = glz::read_json(oldMetadata, jsonStr);
-            if (oldError) {
-                std::string errorMsg = glz::format_error(error, jsonStr);
-                LOG_ERROR("Error reading database: {}", errorMsg);
-                return false;
-            }
-            
-            // Migrer l'ancienne structure vers la nouvelle
-            LOG_INFO("Migrating old database structure to new hierarchical format...");
-            std::unordered_map<std::string, size_t> rootFolderMap; // rootFolder -> index dans m_rootFolders
-            
-            for (const auto& meta : oldMetadata) {
-                std::string rootFolder = meta.rootFolder.empty() ? "" : meta.rootFolder;
-                std::string rootPath = "";
-                
-                // Extraire le rootPath depuis le filepath
-                if (!meta.filepath.empty()) {
-                    fs::path filePath(meta.filepath);
-                    // Chercher le rootFolder dans le chemin
-                    if (!rootFolder.empty()) {
-                        fs::path current = filePath;
-                        while (current.has_parent_path() && current.parent_path() != current) {
-                            if (current.filename().string() == rootFolder) {
-                                rootPath = current.string();
-                                break;
-                            }
-                            current = current.parent_path();
-                        }
-                    }
-                    // Si rootPath non trouvé, utiliser le parent du fichier
-                    if (rootPath.empty()) {
-                        rootPath = filePath.parent_path().string();
-                    }
-                }
-                
-                // Trouver ou créer l'entrée RootFolderEntry
-                size_t rootIndex;
-                if (rootFolderMap.find(rootFolder) != rootFolderMap.end()) {
-                    rootIndex = rootFolderMap[rootFolder];
-                } else {
-                    RootFolderEntry entry;
-                    entry.rootPath = rootPath;
-                    entry.rootFolder = rootFolder;
-                    rootIndex = m_rootFolders.size();
-                    m_rootFolders.push_back(entry);
-                    rootFolderMap[rootFolder] = rootIndex;
-                }
-                
-                // Créer une copie avec filepath relatif
-                SidMetadata relMeta = meta;
-                if (!rootPath.empty() && !relMeta.filepath.empty()) {
-                    fs::path absPath(relMeta.filepath);
-                    fs::path root(rootPath);
-                    try {
-                        relMeta.filepath = fs::relative(absPath, root).string();
-                    } catch (...) {
-                        // Si relative échoue, garder le chemin absolu
-                    }
-                }
-                relMeta.rootFolder = ""; // Plus besoin dans chaque entrée
-                m_rootFolders[rootIndex].sidList.push_back(relMeta);
-            }
-            
-            LOG_INFO("Migration completed: {} root folders, {} total files", m_rootFolders.size(), oldMetadata.size());
-        } else {
-            // Nouvelle structure chargée avec succès
-            m_rootFolders = newStructure;
-            
-            // Reconstruire les chemins absolus depuis les chemins relatifs
-            for (auto& rootEntry : m_rootFolders) {
-                if (rootEntry.rootPath.empty()) {
-                    // Si rootPath est vide, essayer de le déduire depuis le premier filepath
-                    if (!rootEntry.sidList.empty() && !rootEntry.sidList[0].filepath.empty()) {
-                        fs::path firstFile(rootEntry.sidList[0].filepath);
-                        if (firstFile.is_absolute()) {
-                            // C'est encore un chemin absolu (ancien format), extraire rootPath
-                            rootEntry.rootPath = firstFile.parent_path().string();
-                            // Garder le filepath tel quel pour l'instant
-                        }
+        // Étape 4: Reconstruction des chemins absolus
+        auto pathStart = std::chrono::high_resolution_clock::now();
+        for (auto& rootEntry : m_rootFolders) {
+            if (rootEntry.rootPath.empty()) {
+                // Si rootPath est vide, essayer de le déduire depuis le premier filepath
+                if (!rootEntry.sidList.empty() && !rootEntry.sidList[0].filepath.empty()) {
+                    fs::path firstFile(rootEntry.sidList[0].filepath);
+                    if (firstFile.is_absolute()) {
+                        // C'est encore un chemin absolu (ancien format), extraire rootPath
+                        rootEntry.rootPath = firstFile.parent_path().string();
+                        // Garder le filepath tel quel pour l'instant
                     }
                 }
             }
         }
+        auto pathEnd = std::chrono::high_resolution_clock::now();
+        auto pathTime = std::chrono::duration_cast<std::chrono::milliseconds>(pathEnd - pathStart).count();
+        LOG_INFO("[DB Load] Path reconstruction: {} ms", pathTime);
         
-        // Reconstruire le cache et les index
+        // Étape 5: Reconstruire le cache et les index depuis la base de données
         rebuildCacheAndIndexes();
         
         size_t totalFiles = 0;
@@ -138,8 +86,11 @@ bool DatabaseManager::load() {
             totalFiles += root.sidList.size();
         }
         
-        LOG_INFO("Database loaded: {} root folders, {} total files, {} filepath entries, {} hash entries", 
-                 m_rootFolders.size(), totalFiles, m_filepathIndex.size(), m_hashIndex.size());
+        auto loadEnd = std::chrono::high_resolution_clock::now();
+        auto totalTime = std::chrono::duration_cast<std::chrono::milliseconds>(loadEnd - loadStart).count();
+        
+        LOG_INFO("[DB Load] Total load time: {} ms ({} root folders, {} total files, {} filepath entries, {} hash entries)", 
+                 totalTime, m_rootFolders.size(), totalFiles, m_filepathIndex.size(), m_hashIndex.size());
         return true;
     } catch (const std::exception& e) {
         LOG_ERROR("Error loading database: {}", e.what());
@@ -149,10 +100,6 @@ bool DatabaseManager::load() {
 
 bool DatabaseManager::save() {
     try {
-        // Toujours invalider le cache avant de sauvegarder pour forcer la reconstruction
-        // avec les dernières modifications
-        m_cacheValid = false;
-        
         // Préparer la structure hiérarchique avec chemins relatifs
         std::vector<RootFolderEntry> saveStructure = m_rootFolders;
         
@@ -201,7 +148,8 @@ bool DatabaseManager::save() {
             totalFiles += root.sidList.size();
         }
         
-        LOG_INFO("Database saved: {} root folders, {} total files", saveStructure.size(), totalFiles);
+        LOG_INFO("Database saved: {} root folders, {} total files", 
+                 saveStructure.size(), totalFiles);
         return true;
     } catch (const std::exception& e) {
         LOG_ERROR("Error saving database: {}", e.what());
@@ -210,6 +158,8 @@ bool DatabaseManager::save() {
 }
 
 void DatabaseManager::rebuildCacheAndIndexes() const {
+    auto start = std::chrono::high_resolution_clock::now();
+    
     m_metadataCache.clear();
     m_filepathIndex.clear();
     m_hashIndex.clear();
@@ -250,6 +200,11 @@ void DatabaseManager::rebuildCacheAndIndexes() const {
     }
     
     m_cacheValid = true;
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    LOG_INFO("rebuildCacheAndIndexes completed in {} ms ({} entries, {} filepath index, {} hash index)", 
+             duration.count(), m_metadataCache.size(), m_filepathIndex.size(), m_hashIndex.size());
 }
 
 bool DatabaseManager::clear() {
@@ -393,6 +348,7 @@ bool DatabaseManager::indexFile(const std::string& filepath, const std::string& 
                         
                         // Recalculer le MD5 car le fichier a changé
                         meta.md5Hash = calculateFileMD5(filepath);
+                        populateSongLengths(meta);
                         meta.rootFolder = ""; // Plus besoin dans chaque entrée
                         
                         // Mettre à jour le cache et les index
@@ -472,6 +428,7 @@ bool DatabaseManager::indexFile(const std::string& filepath, const std::string& 
         if (shouldDuplicate) {
             // Créer une nouvelle entrée pour ce rootFolder différent
             metadata.md5Hash = calculateFileMD5(filepath);
+            populateSongLengths(metadata);
             // Convertir en chemin relatif
             SidMetadata relMeta = metadata;
             if (!rootEntry.rootPath.empty()) {
@@ -545,8 +502,10 @@ bool DatabaseManager::indexFile(const std::string& filepath, const std::string& 
                             }
                         }
                         existingMeta.md5Hash = calculateFileMD5(filepath);
+                        populateSongLengths(existingMeta);
                     } else if (existingMeta.md5Hash.empty()) {
                         existingMeta.md5Hash = calculateFileMD5(filepath);
+                        populateSongLengths(existingMeta);
                     }
                     
                     existingMeta.rootFolder = ""; // Plus besoin
@@ -566,6 +525,8 @@ bool DatabaseManager::indexFile(const std::string& filepath, const std::string& 
     
     // Nouveau morceau : ajouter les métadonnées et calculer le MD5
     metadata.md5Hash = calculateFileMD5(filepath);
+    populateSongLengths(metadata);
+    
     // Convertir en chemin relatif
     SidMetadata relMeta = metadata;
     if (!rootEntry.rootPath.empty()) {
@@ -901,6 +862,16 @@ SidMetadata DatabaseManager::extractMetadata(const std::string& filepath) {
     } catch (const std::exception& e) {
         LOG_ERROR("Error extracting metadata from {}: {}", filepath, e.what());
         return SidMetadata();
+    }
+}
+
+void DatabaseManager::populateSongLengths(SidMetadata& metadata) const {
+    // Récupérer les songlengths depuis SongLengthDB si disponible
+    if (!metadata.md5Hash.empty()) {
+        SongLengthDB& songLengthDB = SongLengthDB::getInstance();
+        if (songLengthDB.isLoaded()) {
+            metadata.songLengths = songLengthDB.getDurations(metadata.md5Hash);
+        }
     }
 }
 

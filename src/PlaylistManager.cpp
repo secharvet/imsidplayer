@@ -1,9 +1,12 @@
 #include "PlaylistManager.h"
 #include "Config.h"
 #include "DatabaseManager.h"
+#include "Logger.h"
 #include <algorithm>
 #include <iostream>
 #include <functional>
+#include <chrono>
+#include <unordered_map>
 
 PlaylistManager::PlaylistManager()
     : m_root(std::make_unique<PlaylistNode>("Playlist", "", true)), m_currentNode(nullptr), m_shouldScrollToCurrent(false) {
@@ -21,21 +24,39 @@ void PlaylistManager::loadFromConfig(const Config& config) {
 }
 
 void PlaylistManager::rebuildFromDatabase(const DatabaseManager& db) {
+    auto rebuildStart = std::chrono::high_resolution_clock::now();
+    
     m_root->children.clear();
     m_currentNode = nullptr;
     
+    // Étape 1: Récupérer toutes les métadonnées
+    auto getAllMetaStart = std::chrono::high_resolution_clock::now();
     const auto& metadataList = db.getAllMetadata();
+    auto getAllMetaEnd = std::chrono::high_resolution_clock::now();
+    auto getAllMetaTime = std::chrono::duration_cast<std::chrono::milliseconds>(getAllMetaEnd - getAllMetaStart).count();
+    LOG_INFO("[Playlist Rebuild] getAllMetadata: {} ms ({} entries)", getAllMetaTime, metadataList.size());
+    
     if (metadataList.empty()) return;
 
-    // Grouper les fichiers par rootFolder
+    // Étape 2: Grouper les fichiers par rootFolder
+    auto groupStart = std::chrono::high_resolution_clock::now();
     std::unordered_map<std::string, std::vector<const SidMetadata*>> filesByRoot;
     for (const auto& meta : metadataList) {
         std::string root = meta.rootFolder.empty() ? "" : meta.rootFolder;
         filesByRoot[root].push_back(&meta);
     }
+    auto groupEnd = std::chrono::high_resolution_clock::now();
+    auto groupTime = std::chrono::duration_cast<std::chrono::milliseconds>(groupEnd - groupStart).count();
+    LOG_INFO("[Playlist Rebuild] Grouping by rootFolder: {} ms ({} root folders)", groupTime, filesByRoot.size());
 
+    // Étape 3: Construire l'arborescence
+    auto treeBuildStart = std::chrono::high_resolution_clock::now();
+    size_t totalFilesAdded = 0;
+    size_t totalFoldersCreated = 0;
+    
     // Pour chaque rootFolder, créer un nœud racine et ajouter les fichiers
     for (const auto& [rootFolder, files] : filesByRoot) {
+        auto rootStart = std::chrono::high_resolution_clock::now();
         PlaylistNode* rootNode = m_root.get();
         
         // Si rootFolder est spécifié, créer un nœud racine pour ce dossier
@@ -181,17 +202,40 @@ void PlaylistManager::rebuildFromDatabase(const DatabaseManager& db) {
             auto fileNode = std::make_unique<PlaylistNode>(fileName, meta->filepath, false);
             fileNode->parent = current;
             current->children.push_back(std::move(fileNode));
+            totalFilesAdded++;
+        }
+        
+        auto rootEnd = std::chrono::high_resolution_clock::now();
+        auto rootTime = std::chrono::duration_cast<std::chrono::milliseconds>(rootEnd - rootStart).count();
+        if (rootTime > 100) { // Log seulement si > 100ms
+            LOG_INFO("[Playlist Rebuild] Root folder '{}': {} ms ({} files)", rootFolder.empty() ? "<empty>" : rootFolder, rootTime, files.size());
         }
     }
     
-    // Trier toute l'arborescence
-    sortNode(m_root.get());
+    auto treeBuildEnd = std::chrono::high_resolution_clock::now();
+    auto treeBuildTime = std::chrono::duration_cast<std::chrono::milliseconds>(treeBuildEnd - treeBuildStart).count();
+    LOG_INFO("[Playlist Rebuild] Tree construction: {} ms ({} files, {} folders)", treeBuildTime, totalFilesAdded, totalFoldersCreated);
     
-    // Restaurer le morceau courant après reconstruction
+    // Étape 4: Trier toute l'arborescence
+    auto sortStart = std::chrono::high_resolution_clock::now();
+    sortNode(m_root.get());
+    auto sortEnd = std::chrono::high_resolution_clock::now();
+    auto sortTime = std::chrono::duration_cast<std::chrono::milliseconds>(sortEnd - sortStart).count();
+    LOG_INFO("[Playlist Rebuild] Sorting: {} ms", sortTime);
+    
+    // Étape 5: Restaurer le morceau courant après reconstruction
+    auto restoreStart = std::chrono::high_resolution_clock::now();
     std::string currentFile = Config::getInstance().getCurrentFile();
     if (!currentFile.empty()) {
         m_currentNode = findNodeByPath(currentFile);
     }
+    auto restoreEnd = std::chrono::high_resolution_clock::now();
+    auto restoreTime = std::chrono::duration_cast<std::chrono::milliseconds>(restoreEnd - restoreStart).count();
+    LOG_INFO("[Playlist Rebuild] Restore current file: {} ms", restoreTime);
+    
+    auto rebuildEnd = std::chrono::high_resolution_clock::now();
+    auto totalTime = std::chrono::duration_cast<std::chrono::milliseconds>(rebuildEnd - rebuildStart).count();
+    LOG_INFO("[Playlist Rebuild] Total rebuild time: {} ms", totalTime);
 }
 
 void PlaylistManager::saveToConfig(Config& config) const {
@@ -244,34 +288,38 @@ void PlaylistManager::addFilePathToTree(const std::string& filepath) {
 }
 
 PlaylistNode* PlaylistManager::findNodeByPath(const std::string& filepath) {
-    std::function<PlaylistNode*(PlaylistNode*, const std::string&)> findRecursive;
-    findRecursive = [&](PlaylistNode* node, const std::string& targetPath) -> PlaylistNode* {
+    if (!m_root) return nullptr;
+
+    // 1. On canonise la cible UNE SEULE FOIS (évite des milliers d'appels système)
+    std::string target;
+    try {
+        target = fs::canonical(filepath).string();
+    } catch (...) {
+        // Si canonical échoue, utiliser le chemin tel quel
+        target = filepath;
+    }
+
+    // 2. Lambda générique sans std::function (permet l'inlining par le compilateur)
+    auto findRecursive = [&](auto& self, PlaylistNode* node) -> PlaylistNode* {
         if (!node) return nullptr;
         
+        // Comparaison de string simple (très rapide, pas d'appels système)
         if (!node->isFolder && !node->filepath.empty()) {
-            try {
-                fs::path nodePath = fs::canonical(node->filepath);
-                fs::path target = fs::canonical(targetPath);
-                if (nodePath == target) {
-                    return node;
-                }
-            } catch (...) {
-                // Si canonical échoue, comparer directement
-                if (node->filepath == targetPath) {
-                    return node;
-                }
+            // Comparer directement les strings (les filepath sont déjà en format absolu dans le cache)
+            if (node->filepath == target) {
+                return node;
             }
         }
         
         for (auto& child : node->children) {
-            PlaylistNode* found = findRecursive(child.get(), targetPath);
+            PlaylistNode* found = self(self, child.get());
             if (found) return found;
         }
         
         return nullptr;
     };
     
-    return findRecursive(m_root.get(), filepath);
+    return findRecursive(findRecursive, m_root.get());
 }
 
 void PlaylistManager::addFile(const fs::path& path) {
