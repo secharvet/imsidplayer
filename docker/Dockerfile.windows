@@ -16,7 +16,6 @@ RUN apt-get update && apt-get install -y \
     perl \
     python3 \
     python3-pip \
-    python3-venv \
     zip \
     git \
     wget \
@@ -26,6 +25,9 @@ RUN apt-get update && apt-get install -y \
     libtool \
     nasm \
     && rm -rf /var/lib/apt/lists/*
+
+# Installer les dépendances Python nécessaires pour MBed TLS (jsonschema, jinja2)
+RUN pip3 install --break-system-packages "jsonschema>=3.0.0,<4.0.0" jinja2
 
 # Forcer MinGW à utiliser le modèle de threading posix (nécessaire pour std::thread, std::mutex, etc.)
 RUN update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix && \

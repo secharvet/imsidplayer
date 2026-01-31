@@ -64,12 +64,9 @@ $CONTAINER_CMD run --rm \
     git submodule update --init --recursive || echo 'Submodules déjà initialisés'
     echo ''
     
-    echo '=== Création du venv Python ==='
-    python3 -m venv venv
-    source venv/bin/activate
-    pip install --upgrade pip --quiet
-    pip install \"jsonschema>=3.0.0,<4.0.0\" jinja2 --quiet
-    echo '✅ venv prêt'
+    echo '=== Vérification Python ==='
+    python3 --version
+    python3 -c \"import jsonschema; import jinja2; print('✅ Dépendances Python disponibles')\"
     echo ''
     
     echo '=== Configuration CMake ==='
@@ -85,7 +82,7 @@ $CONTAINER_CMD run --rm \
       -DCMAKE_CXX_STANDARD_REQUIRED=ON \
       -DCMAKE_BUILD_TYPE=Release \
       -DENABLE_CLOUD_SAVE=ON \
-      -DPython3_EXECUTABLE=\"\$(pwd)/venv/bin/python3\" \
+      -DPython3_EXECUTABLE=\"\$(which python3)\" \
       -DCMAKE_FIND_ROOT_PATH=/usr/x86_64-w64-mingw32 \
       -DSDL2_DIR=/usr/x86_64-w64-mingw32/lib/cmake/SDL2
     

@@ -118,29 +118,20 @@ jobs:
           echo "is_release=false" >> $GITHUB_OUTPUT
         fi
 
-    - name: Prepare Python environment
-      run: |
-        python3 -m venv venv
-        source venv/bin/activate
-        pip install --upgrade pip --quiet
-        pip install "jsonschema>=3.0.0,<4.0.0" jinja2 --quiet
-
     - name: Configure CMake
       run: |
-        source venv/bin/activate
         cmake -B build-win -S . \
           -DCMAKE_SYSTEM_NAME=Windows \
           -DCMAKE_C_COMPILER=$CC \
           -DCMAKE_CXX_COMPILER=$CXX \
           -DCMAKE_BUILD_TYPE=Release \
           -DENABLE_CLOUD_SAVE=ON \
-          -DPython3_EXECUTABLE=$(pwd)/venv/bin/python3 \
+          -DPython3_EXECUTABLE=$(which python3) \
           -DCMAKE_FIND_ROOT_PATH=/usr/x86_64-w64-mingw32 \
           -DSDL2_DIR=/usr/x86_64-w64-mingw32/lib/cmake/SDL2
 
     - name: Build
       run: |
-        source venv/bin/activate
         cmake --build build-win --config Release -j$(nproc)
 
     - name: Prepare Windows artifacts (Install)
