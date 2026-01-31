@@ -119,6 +119,7 @@ jobs:
         fi
 
     - name: Configure CMake
+      shell: bash
       run: |
         cmake -B build-win -S . \
           -DCMAKE_SYSTEM_NAME=Windows \
@@ -131,6 +132,7 @@ jobs:
           -DSDL2_DIR=/usr/x86_64-w64-mingw32/lib/cmake/SDL2
 
     - name: Build
+      shell: bash
       run: |
         cmake --build build-win --config Release -j$(nproc)
 
