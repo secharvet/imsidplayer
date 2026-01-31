@@ -121,13 +121,13 @@ jobs:
     - name: Prepare Python environment
       run: |
         python3 -m venv venv
-        . venv/bin/activate
-        pip install --upgrade pip
-        pip install "jsonschema>=3.0.0,<4.0.0" jinja2
+        source venv/bin/activate
+        pip install --upgrade pip --quiet
+        pip install "jsonschema>=3.0.0,<4.0.0" jinja2 --quiet
 
     - name: Configure CMake
       run: |
-        . venv/bin/activate
+        source venv/bin/activate
         cmake -B build-win -S . \
           -DCMAKE_SYSTEM_NAME=Windows \
           -DCMAKE_C_COMPILER=$CC \
@@ -140,7 +140,7 @@ jobs:
 
     - name: Build
       run: |
-        . venv/bin/activate
+        source venv/bin/activate
         cmake --build build-win --config Release -j$(nproc)
 
     - name: Prepare Windows artifacts (Install)
