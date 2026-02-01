@@ -33,8 +33,8 @@ private:
     // Renommer l'exe actuel en .old
     static bool renameCurrentExecutable();
     
-    // Copier le nouvel exe depuis le dossier temporaire
-    static bool copyNewExecutable(const std::string& tempDir);
+    // Copier le nouvel exe depuis le dossier temporaire vers le chemin de destination
+    static bool copyNewExecutable(const std::string& tempDir, const std::string& targetPath);
 };
 
 #endif // ENABLE_CLOUD_SAVE

@@ -666,30 +666,34 @@ HTTPClient::Response HTTPClient::get(const std::string& url) {
     Response response;
     m_lastError.clear();
     
-    // Parser l'URL
-    if (url.find("https://") != 0) {
-        m_lastError = "Only HTTPS URLs are supported";
-        return response;
-    }
+    // Suivre les redirections (max 5 pour éviter les boucles)
+    std::string currentUrl = url;
+    int redirectCount = 0;
+    const int maxRedirects = 5;
     
-    std::string host = "api.npoint.io";
-    int port = 443;
-    
-    // Extraire le path de l'URL
-    size_t pathStart = url.find("https://");
-    if (pathStart != std::string::npos) {
-        pathStart += 8; // "https://"
-        size_t pathEnd = url.find('/', pathStart);
-        if (pathEnd == std::string::npos) {
-            pathEnd = url.length();
+    while (redirectCount < maxRedirects) {
+        // Parser l'URL
+        if (currentUrl.find("https://") != 0) {
+            m_lastError = "Only HTTPS URLs are supported";
+            return response;
         }
-        host = url.substr(pathStart, pathEnd - pathStart);
         
-        if (pathEnd < url.length()) {
-            // Il y a un path
-            std::string path = url.substr(pathEnd);
-            if (path.empty()) {
-                path = "/";
+        std::string host;
+        int port = 443;
+        
+        // Extraire le host et le path de l'URL
+        size_t pathStart = currentUrl.find("https://");
+        if (pathStart != std::string::npos) {
+            pathStart += 8; // "https://"
+            size_t pathEnd = currentUrl.find('/', pathStart);
+            if (pathEnd == std::string::npos) {
+                pathEnd = currentUrl.length();
+            }
+            host = currentUrl.substr(pathStart, pathEnd - pathStart);
+            
+            std::string path = "/";
+            if (pathEnd < currentUrl.length()) {
+                path = currentUrl.substr(pathEnd);
             }
             
             if (!connectSSL(host, port)) {
@@ -704,7 +708,47 @@ HTTPClient::Response HTTPClient::get(const std::string& url) {
             
             response = parseResponse();
             disconnect();
+            
+            // Si c'est une redirection (301, 302, 303, 307, 308), suivre la redirection
+            if (response.statusCode == 301 || response.statusCode == 302 || 
+                response.statusCode == 303 || response.statusCode == 307 || 
+                response.statusCode == 308) {
+                auto locationIt = response.headers.find("Location");
+                if (locationIt != response.headers.end()) {
+                    std::string newUrl = locationIt->second;
+                    LOG_DEBUG("Following redirect {} -> {}", currentUrl, newUrl);
+                    
+                    // Si l'URL de redirection est relative, la convertir en absolue
+                    if (newUrl.find("http://") == 0 || newUrl.find("https://") == 0) {
+                        currentUrl = newUrl;
+                    } else {
+                        // URL relative : construire l'URL complète
+                        size_t lastSlash = currentUrl.find_last_of('/');
+                        if (lastSlash != std::string::npos) {
+                            currentUrl = currentUrl.substr(0, lastSlash + 1) + newUrl;
+                        } else {
+                            currentUrl = currentUrl + "/" + newUrl;
+                        }
+                    }
+                    redirectCount++;
+                    continue; // Refaire la requête avec la nouvelle URL
+                } else {
+                    LOG_WARNING("Redirect {} but no Location header found", response.statusCode);
+                    break; // Pas de Location header, arrêter
+                }
+            } else {
+                // Pas de redirection, retourner la réponse
+                return response;
+            }
+        } else {
+            m_lastError = "Invalid URL format";
+            return response;
         }
+    }
+    
+    if (redirectCount >= maxRedirects) {
+        m_lastError = "Too many redirects (max " + std::to_string(maxRedirects) + ")";
+        LOG_ERROR("Too many redirects, stopping at: {}", currentUrl);
     }
     
     return response;

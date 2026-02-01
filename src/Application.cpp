@@ -867,6 +867,19 @@ void Application::startUpdateInstallation() {
             m_updateState.statusMessage = "Installation de la mise à jour...";
         }
         
+        // Obtenir le chemin de l'exécutable AVANT l'installation
+        // (car getExecutablePath() pourrait pointer vers .old après renommage)
+        std::string exePath = UpdateInstaller::getExecutablePath();
+        if (exePath.empty()) {
+            {
+                std::lock_guard<std::mutex> lock(m_updateState.mutex);
+                m_updateState.stage = UpdateStage::Error;
+                m_updateState.statusMessage = "Impossible de déterminer le chemin de l'exécutable";
+            }
+            m_updateInProgress = false;
+            return;
+        }
+        
         // Utiliser UpdateInstaller pour faire tout le travail
         bool success = UpdateInstaller::installUpdate(downloadUrl, version);
         
@@ -888,8 +901,8 @@ void Application::startUpdateInstallation() {
         if (success) {
             std::this_thread::sleep_for(std::chrono::seconds(2));
             
-            // Relancer l'application
-            std::string exePath = UpdateInstaller::getExecutablePath();
+            // Relancer l'application avec le chemin stocké (pas getExecutablePath() qui pourrait pointer vers .old)
+            LOG_INFO("Relance de l'application : {}", exePath);
             if (!exePath.empty()) {
                 #ifdef _WIN32
                 std::string command = "start \"\" \"" + exePath + "\"";

@@ -210,15 +210,65 @@ bool UpdateInstaller::renameCurrentExecutable() {
     }
 }
 
-bool UpdateInstaller::copyNewExecutable(const std::string& tempDir) {
-    std::string exePath = getExecutablePath();
-    if (exePath.empty()) {
-        LOG_ERROR("Impossible de déterminer le chemin de l'exécutable");
+bool UpdateInstaller::copyNewExecutable(const std::string& tempDir, const std::string& targetPath) {
+    if (targetPath.empty()) {
+        LOG_ERROR("Chemin de destination vide");
         return false;
     }
     
-    std::string exeName = fs::path(exePath).filename().string();
-    fs::path sourceExe = fs::path(tempDir) / exeName;
+    fs::path exePath(targetPath);
+    
+    fs::path extractDir(tempDir);
+    fs::path sourceExe;
+    
+    // Chercher l'exécutable dans le dossier extrait
+    // Sur Linux, il s'appelle "imSidPlayer", sur Windows "imSidPlayer.exe"
+    #ifdef _WIN32
+    std::string exeName = "imSidPlayer.exe";
+    #else
+    std::string exeName = "imSidPlayer";
+    #endif
+    
+    // Essayer d'abord directement dans le dossier extrait
+    sourceExe = extractDir / exeName;
+    
+    // Si pas trouvé, chercher récursivement dans le dossier
+    if (!fs::exists(sourceExe)) {
+        LOG_DEBUG("Fichier {} non trouvé, recherche récursive...", sourceExe.string());
+        bool found = false;
+        try {
+            for (const auto& entry : fs::recursive_directory_iterator(extractDir)) {
+                if (entry.is_regular_file()) {
+                    std::string filename = entry.path().filename().string();
+                    #ifdef _WIN32
+                    if (filename == exeName || filename == "imSidPlayer.exe") {
+                    #else
+                    if (filename == exeName || filename == "imSidPlayer") {
+                    #endif
+                        sourceExe = entry.path();
+                        found = true;
+                        LOG_DEBUG("Exécutable trouvé : {}", sourceExe.string());
+                        break;
+                    }
+                }
+            }
+        } catch (const std::exception& e) {
+            LOG_ERROR("Erreur lors de la recherche récursive : {}", e.what());
+        }
+        
+        if (!found) {
+            LOG_ERROR("Fichier exécutable introuvable dans : {}", extractDir.string());
+            // Lister les fichiers pour debug
+            try {
+                LOG_DEBUG("Contenu du dossier extrait :");
+                for (const auto& entry : fs::directory_iterator(extractDir)) {
+                    LOG_DEBUG("  - {} ({})", entry.path().filename().string(), 
+                             entry.is_directory() ? "dossier" : "fichier");
+                }
+            } catch (...) {}
+            return false;
+        }
+    }
     
     if (!fs::exists(sourceExe)) {
         LOG_ERROR("Fichier source introuvable : {}", sourceExe.string());
@@ -235,7 +285,7 @@ bool UpdateInstaller::copyNewExecutable(const std::string& tempDir) {
                                  fs::perms::others_read | fs::perms::others_exec);
         #endif
         
-        LOG_INFO("Nouvel exécutable copié : {}", exePath);
+        LOG_INFO("Nouvel exécutable copié : {} <- {}", exePath.string(), sourceExe.string());
         return true;
     } catch (const std::exception& e) {
         LOG_ERROR("Erreur lors de la copie : {}", e.what());
@@ -281,14 +331,22 @@ bool UpdateInstaller::installUpdate(const std::string& downloadUrl, const std::s
         return false;
     }
     
+    // Obtenir le chemin de l'exécutable AVANT de le renommer
+    // (car getExecutablePath() pourrait pointer vers .old après renommage)
+    std::string targetExePath = getExecutablePath();
+    if (targetExePath.empty()) {
+        LOG_ERROR("Impossible de déterminer le chemin de l'exécutable");
+        return false;
+    }
+    
     // Renommer l'exe actuel en .old
     if (!renameCurrentExecutable()) {
         LOG_ERROR("Échec du renommage de l'exécutable actuel");
         return false;
     }
     
-    // Copier le nouvel exe
-    if (!copyNewExecutable(extractDir)) {
+    // Copier le nouvel exe vers le chemin original (pas .old)
+    if (!copyNewExecutable(extractDir, targetExePath)) {
         LOG_ERROR("Échec de la copie du nouvel exécutable");
         // TODO: Restaurer l'ancien exe depuis .old en cas d'échec
         return false;
