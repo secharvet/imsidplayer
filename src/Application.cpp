@@ -8,8 +8,7 @@
 #include "CloudSyncManager.h"
 #include "UpdateChecker.h"
 #include "UpdateInstaller.h"
-#include "UpdateChecker.h"
-#include "UpdateInstaller.h"
+#include "imgui.h"
 #endif
 #include <iostream>
 #include <filesystem>
@@ -27,7 +26,11 @@ namespace fs = std::filesystem;
 Application::Application() 
     : m_window(nullptr), m_renderer(nullptr), m_config(Config::getInstance()),
       m_databaseOperation(DatabaseOperation::None), m_databaseProgress(0.0f),
-      m_databaseCurrent(0), m_databaseTotal(0), m_shouldStopDatabaseThread(false) {
+      m_databaseCurrent(0), m_databaseTotal(0), m_shouldStopDatabaseThread(false)
+#ifdef ENABLE_CLOUD_SAVE
+      , m_updateInProgress(false)
+#endif
+{
 }
 
 Application::~Application() {
@@ -161,6 +164,13 @@ bool Application::initialize() {
         LOG_ERROR("Impossible d'initialiser UIManager");
         return false;
     }
+    
+#ifdef ENABLE_CLOUD_SAVE
+    // Configurer le callback pour rendre le dialog de mise à jour
+    m_uiManager->setUpdateDialogCallback([this]() {
+        renderUpdateDialog();
+    });
+#endif
     
     // Lancer la reconstruction du cache en arrière-plan
     rebuildCacheAsync();
@@ -784,21 +794,259 @@ float Application::getDatabaseOperationProgress() const {
 #ifdef ENABLE_CLOUD_SAVE
 void Application::checkForUpdatesAsync() {
     // Lancer la vérification dans un thread séparé pour ne pas bloquer le démarrage
-    std::thread updateThread([]() {
+    std::thread updateThread([this]() {
         
         auto updateInfo = UpdateChecker::checkForUpdate(VERSION_STRING);
         
-        if (updateInfo.available) {
-            LOG_INFO("Nouvelle version disponible : {} (actuellement : {})", 
-                     updateInfo.version, VERSION_STRING);
-            LOG_INFO("URL de téléchargement : {}", updateInfo.downloadUrl);
-            // TODO: Afficher une notification dans l'UI (Phase 4)
-        } else if (!updateInfo.error.empty()) {
-            LOG_DEBUG("Vérification de mise à jour échouée : {}", updateInfo.error);
-        } else {
-            LOG_DEBUG("Aucune mise à jour disponible (version actuelle : {})", VERSION_STRING);
+        {
+            std::lock_guard<std::mutex> lock(m_updateState.mutex);
+            if (updateInfo.available) {
+                m_updateState.available = true;
+                m_updateState.showDialog = true;
+                m_updateState.version = updateInfo.version;
+                m_updateState.tagName = updateInfo.tagName;
+                m_updateState.releaseNotes = updateInfo.releaseNotes;
+                m_updateState.downloadUrl = updateInfo.downloadUrl;
+                m_updateState.error.clear();
+                LOG_INFO("Nouvelle version disponible : {} (actuellement : {})", 
+                         updateInfo.version, VERSION_STRING);
+            } else if (!updateInfo.error.empty()) {
+                m_updateState.error = updateInfo.error;
+                LOG_DEBUG("Vérification de mise à jour échouée : {}", updateInfo.error);
+            } else {
+                LOG_DEBUG("Aucune mise à jour disponible (version actuelle : {})", VERSION_STRING);
+            }
         }
     });
     updateThread.detach();  // Détacher le thread pour qu'il s'exécute en arrière-plan
+}
+
+void Application::startUpdateInstallation() {
+    if (m_updateInProgress.load()) {
+        return; // Déjà en cours
+    }
+    
+    m_updateInProgress = true;
+    
+    // Lancer l'installation dans un thread séparé
+    m_updateThread = std::thread([this]() {
+        std::string downloadUrl;
+        std::string version;
+        
+        {
+            std::lock_guard<std::mutex> lock(m_updateState.mutex);
+            downloadUrl = m_updateState.downloadUrl;
+            version = m_updateState.version;
+        }
+        
+        // Étape 1: Téléchargement
+        {
+            std::lock_guard<std::mutex> lock(m_updateState.mutex);
+            m_updateState.stage = UpdateStage::Downloading;
+            m_updateState.progress = 0.1f;
+            m_updateState.statusMessage = "Téléchargement de la mise à jour...";
+        }
+        
+        std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Petit délai pour l'affichage
+        
+        // Étape 2: Extraction (simulation - UpdateInstaller fait tout)
+        {
+            std::lock_guard<std::mutex> lock(m_updateState.mutex);
+            m_updateState.progress = 0.4f;
+            m_updateState.stage = UpdateStage::Extracting;
+            m_updateState.statusMessage = "Extraction de l'archive...";
+        }
+        
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        
+        // Étape 3: Installation
+        {
+            std::lock_guard<std::mutex> lock(m_updateState.mutex);
+            m_updateState.progress = 0.6f;
+            m_updateState.stage = UpdateStage::Installing;
+            m_updateState.statusMessage = "Installation de la mise à jour...";
+        }
+        
+        // Utiliser UpdateInstaller pour faire tout le travail
+        bool success = UpdateInstaller::installUpdate(downloadUrl, version);
+        
+        {
+            std::lock_guard<std::mutex> lock(m_updateState.mutex);
+            if (success) {
+                m_updateState.stage = UpdateStage::Completed;
+                m_updateState.progress = 1.0f;
+                m_updateState.statusMessage = "Mise à jour installée avec succès ! Redémarrage...";
+            } else {
+                m_updateState.stage = UpdateStage::Error;
+                m_updateState.statusMessage = "Erreur lors de l'installation";
+            }
+        }
+        
+        m_updateInProgress = false;
+        
+        // Attendre un peu avant de relancer
+        if (success) {
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+            
+            // Relancer l'application
+            std::string exePath = UpdateInstaller::getExecutablePath();
+            if (!exePath.empty()) {
+                #ifdef _WIN32
+                std::string command = "start \"\" \"" + exePath + "\"";
+                int result = system(command.c_str());
+                if (result != 0) {
+                    LOG_WARNING("Échec du lancement de l'application (code: {})", result);
+                }
+                #else
+                std::string command = "\"" + exePath + "\" &";
+                int result = system(command.c_str());
+                if (result != 0) {
+                    LOG_WARNING("Échec du lancement de l'application (code: {})", result);
+                }
+                #endif
+            }
+            
+            // Quitter l'application actuelle
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            std::exit(0);
+        }
+    });
+    m_updateThread.detach();
+}
+
+void Application::renderUpdateDialog() {
+    // Lire les valeurs nécessaires avec le mutex
+    bool showDialog;
+    bool userAccepted;
+    UpdateStage stage;
+    std::string version;
+    std::string releaseNotes;
+    std::string statusMessage;
+    float progress;
+    
+    {
+        std::lock_guard<std::mutex> lock(m_updateState.mutex);
+        showDialog = m_updateState.showDialog;
+        if (!showDialog) {
+            return;
+        }
+        userAccepted = m_updateState.userAccepted;
+        stage = m_updateState.stage;
+        version = m_updateState.version;
+        releaseNotes = m_updateState.releaseNotes;
+        statusMessage = m_updateState.statusMessage;
+        progress = m_updateState.progress;
+    }
+    
+    // 1. Déclencher l'ouverture du popup (une seule fois)
+    if (!ImGui::IsPopupOpen("Mise à jour disponible")) {
+        ImGui::OpenPopup("Mise à jour disponible");
+    }
+    
+    // Centrer la fenêtre quand elle apparaît
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(500, 0), ImGuiCond_Appearing);
+    
+    // 2. Utiliser le vrai composant Modal
+    if (ImGui::BeginPopupModal("Mise à jour disponible", NULL, 
+                                ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | 
+                                ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse)) {
+        
+        if (!userAccepted && stage == UpdateStage::None) {
+            // Dialog initial : demander confirmation
+            ImGui::Text("Une nouvelle version est disponible !");
+            ImGui::Spacing();
+            ImGui::Text("Version actuelle : %s", VERSION_STRING);
+            ImGui::Text("Nouvelle version : %s", version.c_str());
+            ImGui::Spacing();
+            
+            if (!releaseNotes.empty()) {
+                if (ImGui::CollapsingHeader("Notes de version")) {
+                    ImGui::TextWrapped("%s", releaseNotes.c_str());
+                }
+            }
+            
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+            
+            if (ImGui::Button("Télécharger et installer", ImVec2(-1, 0))) {
+                {
+                    std::lock_guard<std::mutex> lock(m_updateState.mutex);
+                    m_updateState.userAccepted = true;
+                }
+                startUpdateInstallation();
+            }
+            ImGui::Spacing();
+            if (ImGui::Button("Plus tard", ImVec2(-1, 0))) {
+                {
+                    std::lock_guard<std::mutex> lock(m_updateState.mutex);
+                    m_updateState.showDialog = false;
+                }
+                ImGui::CloseCurrentPopup();
+            }
+        } else if (userAccepted) {
+            // Afficher la progression
+            ImGui::Text("Installation en cours...");
+            ImGui::Spacing();
+            
+            // Afficher l'étape actuelle
+            const char* stageText = "";
+            switch (stage) {
+                case UpdateStage::Downloading:
+                    stageText = "Téléchargement";
+                    break;
+                case UpdateStage::Extracting:
+                    stageText = "Extraction";
+                    break;
+                case UpdateStage::Installing:
+                    stageText = "Installation";
+                    break;
+                case UpdateStage::Completed:
+                    stageText = "Terminé";
+                    break;
+                case UpdateStage::Error:
+                    stageText = "Erreur";
+                    break;
+                default:
+                    stageText = "En attente...";
+            }
+            
+            ImGui::Text("Étape : %s", stageText);
+            ImGui::Text("%s", statusMessage.c_str());
+            ImGui::Spacing();
+            
+            // Barre de progression
+            ImGui::ProgressBar(progress, ImVec2(-1, 0), "");
+            
+            if (stage == UpdateStage::Error) {
+                ImGui::Spacing();
+                ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Erreur : %s", statusMessage.c_str());
+                ImGui::Spacing();
+                if (ImGui::Button("Fermer", ImVec2(-1, 0))) {
+                    {
+                        std::lock_guard<std::mutex> lock(m_updateState.mutex);
+                        m_updateState.showDialog = false;
+                        m_updateState.userAccepted = false;
+                        m_updateState.stage = UpdateStage::None;
+                    }
+                    ImGui::CloseCurrentPopup();
+                }
+            } else if (stage == UpdateStage::Completed) {
+                ImGui::Spacing();
+                ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Mise à jour installée avec succès !");
+                ImGui::Text("L'application va redémarrer...");
+            }
+        }
+        
+        ImGui::EndPopup();
+    }
+    
+    // Mettre à jour showDialog si le popup a été fermé
+    if (!showDialog) {
+        std::lock_guard<std::mutex> lock(m_updateState.mutex);
+        m_updateState.showDialog = false;
+    }
 }
 #endif

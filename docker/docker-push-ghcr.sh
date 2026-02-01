@@ -29,7 +29,14 @@ podman tag "$IMAGE_NAME" "$TAG"
 echo ""
 echo "=== Connexion à GHCR ==="
 echo "Utilisez votre Personal Access Token (PAT) comme mot de passe."
-podman login ghcr.io -u "$USERNAME"
+echo "Si vous avez un token dans la variable GITHUB_TOKEN, il sera utilisé automatiquement."
+if [ -n "$GITHUB_TOKEN" ]; then
+    echo "$GITHUB_TOKEN" | podman login ghcr.io -u "$USERNAME" --password-stdin
+else
+    echo "GITHUB_TOKEN non défini. Veuillez entrer votre token manuellement :"
+    read -s TOKEN
+    echo "$TOKEN" | podman login ghcr.io -u "$USERNAME" --password-stdin
+fi
 
 echo ""
 echo "=== Push de l'image ==="

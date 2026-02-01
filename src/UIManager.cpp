@@ -210,6 +210,12 @@ void UIManager::render() {
                          storedRenderDrawDataTime, storedPresentTime, storedTotalFrameTime);
     }
     
+    // Appeler le callback pour rendre le dialog de mise à jour (si défini)
+    // Cela doit être fait après ImGui::NewFrame() mais avant ImGui::Render()
+    if (m_updateDialogCallback) {
+        m_updateDialogCallback();
+    }
+    
     // Rendu ImGui
     auto t8 = std::chrono::high_resolution_clock::now();
     ImGui::Render();

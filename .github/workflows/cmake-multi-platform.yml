@@ -76,7 +76,9 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: imSidPlayer-linux${{ steps.get_version.outputs.is_release && format('-{0}', steps.get_version.outputs.version) || '' }}
-        path: artifacts/linux/
+        path: |
+          artifacts/linux/
+          artifacts/imSidPlayer-*.tar.gz
         retention-days: 30
 
   build-windows:
@@ -188,15 +190,34 @@ jobs:
           VERSION="${{ steps.get_version.outputs.version }}"
           mkdir -p release-files
           
-          # Linux tar.gz
+          # Debug: lister les fichiers téléchargés
+          echo "=== Linux artifacts ==="
+          find release-artifacts/linux -type f || true
+          echo "=== Windows artifacts ==="
+          find release-artifacts/windows -type f || true
+          
+          # Linux tar.gz - chercher à plusieurs emplacements possibles
           if [ -f "release-artifacts/linux/imSidPlayer-$VERSION-linux.tar.gz" ]; then
             cp "release-artifacts/linux/imSidPlayer-$VERSION-linux.tar.gz" "release-files/imSidPlayer-$VERSION-linux.tar.gz"
+            echo "✓ Linux archive found and copied"
+          elif [ -f "release-artifacts/linux/artifacts/imSidPlayer-$VERSION-linux.tar.gz" ]; then
+            cp "release-artifacts/linux/artifacts/imSidPlayer-$VERSION-linux.tar.gz" "release-files/imSidPlayer-$VERSION-linux.tar.gz"
+            echo "✓ Linux archive found in artifacts/ subdirectory and copied"
+          else
+            echo "✗ Linux archive not found!"
           fi
           
           # Windows zip
           if [ -f "release-artifacts/windows/imSidPlayer-$VERSION-windows.zip" ]; then
             cp "release-artifacts/windows/imSidPlayer-$VERSION-windows.zip" "release-files/imSidPlayer-$VERSION-windows.zip"
+            echo "✓ Windows archive found and copied"
+          else
+            echo "✗ Windows archive not found!"
           fi
+          
+          # Lister les fichiers finaux
+          echo "=== Final release files ==="
+          ls -lh release-files/ || true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1

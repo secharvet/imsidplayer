@@ -121,9 +121,21 @@ UpdateChecker::UpdateInfo UpdateChecker::checkForUpdate(
                     }
                 }
                 
-                // Si aucune release non-draft trouvée, prendre la première
+                // Si aucune release normale trouvée, accepter une prerelease non-draft
+                if (!latestRelease) {
+                    for (auto& r : releases) {
+                        if (!r.draft) {
+                            latestRelease = &r;
+                            LOG_DEBUG("Using prerelease: {}", r.tag_name);
+                            break;
+                        }
+                    }
+                }
+                
+                // Dernier recours : prendre la première release (même si draft)
                 if (!latestRelease && !releases.empty()) {
                     latestRelease = &releases[0];
+                    LOG_DEBUG("Using first available release: {}", latestRelease->tag_name);
                 }
                 
                 if (latestRelease) {
@@ -151,24 +163,37 @@ UpdateChecker::UpdateInfo UpdateChecker::checkForUpdate(
                     std::string archiveExt = getArchiveExtension();
                     
                     LOG_DEBUG("Looking for asset with platform suffix: '{}' and archive extension: '{}'", platformSuffix, archiveExt);
+                    LOG_DEBUG("Total assets in release: {}", release.assets.size());
+                    for (size_t i = 0; i < release.assets.size(); ++i) {
+                        LOG_DEBUG("Asset #{}: '{}'", i, release.assets[i].name);
+                    }
                     
                     for (const auto& asset : release.assets) {
                         std::string nameLower = asset.name;
                         std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
                         
-                        LOG_DEBUG("Checking asset: '{}'", asset.name);
+                        LOG_DEBUG("Checking asset: '{}' (lowercase: '{}')", asset.name, nameLower);
                         
-                        // Pour Linux, le fichier n'a pas d'extension, il se termine par "-linux"
+                        // Pour Linux, le fichier doit contenir "linux" et se terminer par ".tar.gz"
                         // Pour Windows, on cherche ".zip"
                         bool matchesPlatform = nameLower.find(platformSuffix) != std::string::npos;
                         bool matchesExtension = false;
                         
                         if (platformSuffix == "linux") {
-                            // Linux: le fichier doit se terminer par "-linux" (pas d'extension)
-                            matchesExtension = nameLower.ends_with("-linux") || nameLower.ends_with("-linux.tar.gz");
+                            // Linux: le fichier doit contenir "linux" et se terminer par ".tar.gz"
+                            // Vérifier plusieurs variantes possibles
+                            size_t tarGzPos = nameLower.rfind(".tar.gz");
+                            size_t linuxPos = nameLower.find("linux");
+                            matchesExtension = (tarGzPos != std::string::npos) && 
+                                             (tarGzPos + 7 == nameLower.length()) && // Se termine bien par .tar.gz
+                                             (linuxPos != std::string::npos);
+                            LOG_DEBUG("Linux asset check: matchesPlatform={}, matchesExtension={}, tarGzPos={}, linuxPos={}", 
+                                     matchesPlatform, matchesExtension, tarGzPos, linuxPos);
                         } else {
                             // Windows/Mac: chercher l'extension d'archive
                             matchesExtension = nameLower.find(archiveExt) != std::string::npos;
+                            LOG_DEBUG("Windows/Mac asset check: matchesPlatform={}, matchesExtension={}", 
+                                     matchesPlatform, matchesExtension);
                         }
                         
                         if (matchesPlatform && matchesExtension) {
@@ -239,19 +264,28 @@ UpdateChecker::UpdateInfo UpdateChecker::checkForUpdate(
         std::string nameLower = asset.name;
         std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
         
-        LOG_DEBUG("Checking asset: '{}'", asset.name);
+        LOG_DEBUG("Checking asset: '{}' (lowercase: '{}')", asset.name, nameLower);
         
-        // Pour Linux, chercher .tar.gz
-        // Pour Windows, chercher .zip
+        // Pour Linux, le fichier doit contenir "linux" et se terminer par ".tar.gz"
+        // Pour Windows, on cherche ".zip"
         bool matchesPlatform = nameLower.find(platformSuffix) != std::string::npos;
         bool matchesExtension = false;
         
         if (platformSuffix == "linux") {
-            // Linux: chercher .tar.gz
-            matchesExtension = nameLower.ends_with(".tar.gz") || nameLower.ends_with("-linux.tar.gz");
+            // Linux: le fichier doit contenir "linux" et se terminer par ".tar.gz"
+            // Vérifier plusieurs variantes possibles
+            size_t tarGzPos = nameLower.rfind(".tar.gz");
+            size_t linuxPos = nameLower.find("linux");
+            matchesExtension = (tarGzPos != std::string::npos) && 
+                             (tarGzPos + 7 == nameLower.length()) && // Se termine bien par .tar.gz
+                             (linuxPos != std::string::npos);
+            LOG_DEBUG("Linux asset check: matchesPlatform={}, matchesExtension={}, tarGzPos={}, linuxPos={}", 
+                     matchesPlatform, matchesExtension, tarGzPos, linuxPos);
         } else {
             // Windows/Mac: chercher l'extension d'archive
             matchesExtension = nameLower.find(archiveExt) != std::string::npos;
+            LOG_DEBUG("Windows/Mac asset check: matchesPlatform={}, matchesExtension={}", 
+                     matchesPlatform, matchesExtension);
         }
         
         if (matchesPlatform && matchesExtension) {

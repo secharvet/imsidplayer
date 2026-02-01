@@ -93,6 +93,38 @@ private:
 #ifdef ENABLE_CLOUD_SAVE
     // Vérification de mise à jour
     void checkForUpdatesAsync();
+    
+    // État de la mise à jour
+    enum class UpdateStage {
+        None,
+        Downloading,
+        Extracting,
+        Installing,
+        Completed,
+        Error
+    };
+    
+    struct UpdateState {
+        bool available = false;
+        bool showDialog = false;
+        bool userAccepted = false;
+        std::string version;
+        std::string tagName;
+        std::string releaseNotes;
+        std::string downloadUrl;
+        std::string error;
+        UpdateStage stage = UpdateStage::None;
+        float progress = 0.0f;
+        std::string statusMessage;
+        mutable std::mutex mutex;
+    };
+    
+    UpdateState m_updateState;
+    std::thread m_updateThread;
+    std::atomic<bool> m_updateInProgress;
+    
+    void startUpdateInstallation();
+    void renderUpdateDialog();
 #endif
 };
 

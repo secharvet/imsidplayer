@@ -13,6 +13,7 @@
 #include <SDL2/SDL.h>
 #include <string>
 #include <vector>
+#include <functional>
 
 // Macros de logging conditionnelles pour UIManager
 // Définir ENABLE_UI_LOGS lors de la compilation pour activer les logs UI
@@ -66,6 +67,9 @@ public:
     // Définir les FPS actuels pour affichage
     void setCurrentFPS(float fps) { m_currentFPS = fps; }
     
+    // Définir le callback pour rendre le dialog de mise à jour (appelé juste avant ImGui::Render())
+    void setUpdateDialogCallback(std::function<void()> callback) { m_updateDialogCallback = callback; }
+    
     // Vérifier si une opération de base de données est en cours
     // Ces méthodes sont appelées depuis Application pour mettre à jour l'état
     void setDatabaseOperationInProgress(bool inProgress, const std::string& status = "", float progress = 0.0f);
@@ -86,6 +90,9 @@ private:
     bool m_databaseOperationInProgress;
     std::string m_databaseOperationStatus;
     float m_databaseOperationProgress;
+    
+    // Callback pour rendre le dialog de mise à jour (appelé juste avant ImGui::Render())
+    std::function<void()> m_updateDialogCallback;
     
     SDL_Window* m_window;
     SDL_Renderer* m_renderer;
