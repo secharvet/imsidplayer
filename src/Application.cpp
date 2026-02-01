@@ -222,12 +222,19 @@ bool Application::initSDL() {
         return false;
     }
     
+    // Essayer d'abord avec accélération matérielle
     m_renderer = SDL_CreateRenderer(m_window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!m_renderer) {
-        LOG_ERROR("Impossible de créer le renderer SDL");
-        SDL_DestroyWindow(m_window);
-        SDL_Quit();
-        return false;
+        LOG_WARNING("Échec du renderer accéléré, tentative avec renderer logiciel...");
+        // Fallback vers renderer logiciel (utile sous Wine ou si pas de GPU)
+        m_renderer = SDL_CreateRenderer(m_window, -1, SDL_RENDERER_SOFTWARE);
+        if (!m_renderer) {
+            LOG_ERROR("Impossible de créer le renderer SDL (ni accéléré ni logiciel)");
+            SDL_DestroyWindow(m_window);
+            SDL_Quit();
+            return false;
+        }
+        LOG_INFO("Utilisation du renderer logiciel");
     }
     
     return true;
@@ -246,11 +253,16 @@ bool Application::recreateRenderer() {
         m_renderer = nullptr;
     }
     
-    // Recréer le renderer
+    // Recréer le renderer (essayer accéléré d'abord, puis logiciel)
     m_renderer = SDL_CreateRenderer(m_window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!m_renderer) {
-        LOG_ERROR("Impossible de recréer le renderer SDL: {}", SDL_GetError());
-        return false;
+        LOG_WARNING("Échec du renderer accéléré, tentative avec renderer logiciel...");
+        m_renderer = SDL_CreateRenderer(m_window, -1, SDL_RENDERER_SOFTWARE);
+        if (!m_renderer) {
+            LOG_ERROR("Impossible de recréer le renderer SDL: {}", SDL_GetError());
+            return false;
+        }
+        LOG_INFO("Utilisation du renderer logiciel");
     }
     
     // Réinitialiser le backend ImGui avec le nouveau renderer
