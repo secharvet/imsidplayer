@@ -1,9 +1,16 @@
 cmake_minimum_required(VERSION 3.15)
 
-# Détecter la version depuis Git
-# CMake exécute cette commande au moment de la configuration (cmake ..)
-find_package(Git QUIET)
-if(GIT_FOUND)
+# Permettre de passer la version depuis la ligne de commande (pour CI/CD)
+# Si VERSION_FROM_CI est défini, l'utiliser directement
+if(DEFINED VERSION_FROM_CI)
+    set(VERSION_FROM_GIT "${VERSION_FROM_CI}")
+    set(VERSION_SUFFIX "")
+    message(STATUS "Version depuis CI: ${VERSION_FROM_GIT}")
+else()
+    # Détecter la version depuis Git
+    # CMake exécute cette commande au moment de la configuration (cmake ..)
+    find_package(Git QUIET)
+    if(GIT_FOUND)
     # Obtenir le dernier tag (ex: v0.0.24)
     execute_process(
         COMMAND ${GIT_EXECUTABLE} describe --tags --abbrev=0
@@ -53,10 +60,11 @@ if(GIT_FOUND)
         set(VERSION_SUFFIX "-dev")
         message(STATUS "Aucun tag Git trouvé, utilisation de la version par défaut: ${VERSION_FROM_GIT}${VERSION_SUFFIX}")
     endif()
-else()
-    set(VERSION_FROM_GIT "0.0.0")
-    set(VERSION_SUFFIX "-dev")
-    message(STATUS "Git non trouvé, utilisation de la version par défaut: ${VERSION_FROM_GIT}${VERSION_SUFFIX}")
+    else()
+        set(VERSION_FROM_GIT "0.0.0")
+        set(VERSION_SUFFIX "-dev")
+        message(STATUS "Git non trouvé, utilisation de la version par défaut: ${VERSION_FROM_GIT}${VERSION_SUFFIX}")
+    endif()
 endif()
 
 # Utiliser la version détectée (sans suffixe pour project(), CMake n'accepte que X.Y.Z)

@@ -122,15 +122,57 @@ bool UpdateInstaller::extractZip(const std::string& zipPath, const std::string& 
         std::transform(archiveExt.begin(), archiveExt.end(), archiveExt.begin(), ::tolower);
         
         #ifdef _WIN32
-        // Windows: extraction ZIP (pour l'instant, solution simple)
-        // TODO: Implémenter l'extraction ZIP complète avec minizip-ng
-        LOG_WARNING("Extraction ZIP Windows non complètement implémentée");
-        
-        std::string exeName = "imSidPlayer.exe";
-        fs::path targetExe = dest / exeName;
-        fs::copy_file(archive, targetExe, fs::copy_options::overwrite_existing);
-        LOG_INFO("Fichier extrait : {}", targetExe.string());
-        return true;
+        // Windows: extraction ZIP avec PowerShell
+        if (archiveExt == ".zip") {
+            LOG_INFO("Extraction ZIP : {} vers {}", archive.string(), dest.string());
+            
+            // Utiliser PowerShell Expand-Archive pour extraire le ZIP
+            // Échapper correctement les chemins pour PowerShell
+            std::string archivePath = archive.string();
+            std::string destPath = dest.string();
+            
+            // Remplacer les backslashes par des doubles backslashes pour l'échappement PowerShell
+            std::string escapedArchive;
+            std::string escapedDest;
+            for (char c : archivePath) {
+                if (c == '\\') {
+                    escapedArchive += "\\\\";
+                } else if (c == '\'') {
+                    escapedArchive += "''";
+                } else {
+                    escapedArchive += c;
+                }
+            }
+            for (char c : destPath) {
+                if (c == '\\') {
+                    escapedDest += "\\\\";
+                } else if (c == '\'') {
+                    escapedDest += "''";
+                } else {
+                    escapedDest += c;
+                }
+            }
+            
+            std::string psCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"Expand-Archive -Path '";
+            psCommand += escapedArchive;
+            psCommand += "' -DestinationPath '";
+            psCommand += escapedDest;
+            psCommand += "' -Force\"";
+            
+            LOG_DEBUG("Commande PowerShell : {}", psCommand);
+            
+            int result = system(psCommand.c_str());
+            if (result != 0) {
+                LOG_ERROR("Échec de l'extraction ZIP (code: {})", result);
+                return false;
+            }
+            
+            LOG_INFO("Archive ZIP extraite avec succès dans : {}", dest.string());
+            return true;
+        } else {
+            LOG_ERROR("Format d'archive non supporté sur Windows : {}", archiveExt);
+            return false;
+        }
         #else
         // Linux: extraction tar.gz avec tar (commande système standard)
         // Utilisation de fork+exec au lieu de system() pour plus de sécurité

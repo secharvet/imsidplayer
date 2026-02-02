@@ -132,7 +132,8 @@ jobs:
           -DENABLE_CLOUD_SAVE=ON \
           -DPython3_EXECUTABLE=$(which python3) \
           -DCMAKE_FIND_ROOT_PATH=/usr/x86_64-w64-mingw32 \
-          -DSDL2_DIR=/usr/x86_64-w64-mingw32/lib/cmake/SDL2
+          -DSDL2_DIR=/usr/x86_64-w64-mingw32/lib/cmake/SDL2 \
+          -DVERSION_FROM_CI="${{ steps.get_version.outputs.version }}"
 
     - name: Build
       shell: bash
