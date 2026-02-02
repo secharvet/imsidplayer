@@ -550,6 +550,9 @@ target_link_directories(${PROJECT_NAME} PRIVATE
 # Sur Windows MinGW, linkage par défaut (standard)
 if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Windows")
     if(MINGW)
+        # Forcer la compilation en 64 bits explicitement
+        target_compile_options(${PROJECT_NAME} PRIVATE -m64)
+        target_link_options(${PROJECT_NAME} PRIVATE -m64)
         # target_link_options(${PROJECT_NAME} PRIVATE -static-libgcc -static-libstdc++ -static)
         # S'assurer que les dépendances réseau sont bien linkées
         target_link_libraries(${PROJECT_NAME} PRIVATE iphlpapi ws2_32 crypt32)

@@ -125,6 +125,7 @@ jobs:
       run: |
         cmake -B build-win -S . \
           -DCMAKE_SYSTEM_NAME=Windows \
+          -DCMAKE_SYSTEM_PROCESSOR=x86_64 \
           -DCMAKE_C_COMPILER=$CC \
           -DCMAKE_CXX_COMPILER=$CXX \
           -DCMAKE_BUILD_TYPE=Release \
