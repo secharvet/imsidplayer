@@ -4,11 +4,48 @@ cmake_minimum_required(VERSION 3.15)
 include(FetchContent)
 
 # Permettre de passer la version depuis la ligne de commande (pour CI/CD)
-# Si VERSION_FROM_CI est défini, l'utiliser directement
+# Si VERSION_FROM_CI est défini, l'utiliser mais extraire une version valide pour CMake
 if(DEFINED VERSION_FROM_CI)
-    set(VERSION_FROM_GIT "${VERSION_FROM_CI}")
-    set(VERSION_SUFFIX "")
-    message(STATUS "Version depuis CI: ${VERSION_FROM_GIT}")
+    # VERSION_FROM_CI peut être soit un tag (ex: "0.0.32") soit "dev-<sha>"
+    # CMake project() n'accepte que le format X.Y.Z, donc on doit extraire la partie valide
+    string(REGEX MATCH "^([0-9]+\\.[0-9]+\\.[0-9]+)" VERSION_MATCH "${VERSION_FROM_CI}")
+    if(VERSION_MATCH)
+        # C'est déjà un format valide X.Y.Z
+        set(VERSION_FROM_GIT "${VERSION_MATCH}")
+        # Vérifier s'il y a un suffixe (ex: "0.0.32-dev-abc123")
+        string(REGEX REPLACE "^([0-9]+\\.[0-9]+\\.[0-9]+)(.*)$" "\\2" VERSION_SUFFIX_PART "${VERSION_FROM_CI}")
+        if(VERSION_SUFFIX_PART)
+            set(VERSION_SUFFIX "${VERSION_SUFFIX_PART}")
+        else()
+            set(VERSION_SUFFIX "")
+        endif()
+    else()
+        # Format "dev-<sha>" ou autre format invalide, utiliser Git pour obtenir le dernier tag
+        message(STATUS "Version depuis CI invalide pour CMake (${VERSION_FROM_CI}), détection depuis Git...")
+        find_package(Git QUIET)
+        if(GIT_FOUND)
+            execute_process(
+                COMMAND ${GIT_EXECUTABLE} describe --tags --abbrev=0
+                WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                OUTPUT_VARIABLE GIT_TAG
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                ERROR_QUIET
+            )
+            if(GIT_TAG)
+                string(REGEX REPLACE "^v" "" VERSION_FROM_GIT "${GIT_TAG}")
+                set(VERSION_SUFFIX "-dev")
+            else()
+                set(VERSION_FROM_GIT "0.0.0")
+                set(VERSION_SUFFIX "-dev")
+            endif()
+        else()
+            set(VERSION_FROM_GIT "0.0.0")
+            set(VERSION_SUFFIX "-dev")
+        endif()
+        # Stocker la version complète depuis CI pour l'affichage
+        set(VERSION_FULL_CI "${VERSION_FROM_CI}")
+    endif()
+    message(STATUS "Version depuis CI: ${VERSION_FROM_GIT}${VERSION_SUFFIX} (original: ${VERSION_FROM_CI})")
 else()
     # Détecter la version depuis Git
     # CMake exécute cette commande au moment de la configuration (cmake ..)
