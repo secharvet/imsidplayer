@@ -52,9 +52,10 @@ public:
     bool isIndexed(const std::string& filepath) const;
     bool isIndexedByMetadataHash(uint32_t metadataHash) const;
     
-    // Obtenir les métadonnées d'un fichier indexé (par filepath ou metadataHash)
+    // Obtenir les métadonnées d'un fichier indexé (par filepath ou metadataHash ou MD5)
     const SidMetadata* getMetadata(const std::string& filepath) const;
     const SidMetadata* getMetadataByHash(uint32_t metadataHash) const;
+    const SidMetadata* getMetadataByMD5(const std::string& md5) const;
     
     // Recherche floue dans la base de données
     std::vector<const SidMetadata*> search(const std::string& query) const;
@@ -81,6 +82,7 @@ private:
     
     mutable std::unordered_map<std::string, size_t> m_filepathIndex; // Index rapide par filepath (absolu)
     mutable std::unordered_map<uint32_t, size_t> m_hashIndex;       // Index rapide par metadataHash (clé primaire, 32-bit)
+    mutable std::unordered_map<std::string, size_t> m_md5Index;     // Index rapide par MD5
     std::string m_databasePath;
     
     // Reconstruire le cache et les index

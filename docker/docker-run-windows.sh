@@ -35,8 +35,18 @@ echo "Le répertoire courant sera monté dans /workspace"
 echo "Tapez 'exit' pour quitter"
 echo ""
 
-$CONTAINER_CMD run -it \
+# Vérifier si les variables Supabase sont définies
+if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+    echo "⚠️ ATTENTION: SUPABASE_URL et/ou SUPABASE_ANON_KEY ne sont pas définies."
+    echo "   Le build échouera probablement si ENABLE_CLOUD_SAVE est activé."
+    echo "   Assurez-vous d'avoir chargé .envrc (direnv allow) ou exporté ces variables."
+    echo ""
+fi
+
+$CONTAINER_CMD run --rm -it \
   -v "$(pwd):/workspace" \
   -w /workspace \
+  -e SUPABASE_URL="$SUPABASE_URL" \
+  -e SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
   "$IMAGE_NAME" \
   bash -c "export PATH=\"/mingw64/bin:/usr/bin:\$PATH\" && export SIDPLAYFP_ROOT=/mingw64 && bash"

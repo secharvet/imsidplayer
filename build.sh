@@ -28,6 +28,19 @@ fi
 
 cd build
 
+# Configuration Supabase pour le build
+# Les variables doivent être définies dans l'environnement (ex: via .envrc + direnv)
+
+# Vérifier que les variables sont bien définies
+if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+    echo "WARNING: SUPABASE_URL or SUPABASE_ANON_KEY is not set!"
+    echo "Make sure to load your environment (e.g., 'direnv allow')."
+else
+    echo "Supabase configuration found in environment:"
+    echo "  URL: $SUPABASE_URL"
+    echo "  Anon Key: ${SUPABASE_ANON_KEY:0:20}..."
+fi
+
 echo "Configuration avec CMake..."
 cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DENABLE_CLOUD_SAVE=ON
 

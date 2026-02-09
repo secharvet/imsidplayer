@@ -27,6 +27,14 @@ fi
 echo "=== Test de compilation Windows avec $CONTAINER_CMD ==="
 echo ""
 
+# Vérifier si les variables Supabase sont définies
+if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+    echo "⚠️ ATTENTION: SUPABASE_URL et/ou SUPABASE_ANON_KEY ne sont pas définies."
+    echo "   Le build échouera probablement si ENABLE_CLOUD_SAVE est activé."
+    echo "   Assurez-vous d'avoir chargé .envrc (direnv allow) ou exporté ces variables."
+    exit 1
+fi
+
 # Construire l'image si elle n'existe pas ou forcer la reconstruction si nécessaire
 echo "📦 Vérification/Construction de l'image (cela peut prendre plusieurs minutes)..."
 $CONTAINER_CMD build -f "$DOCKERFILE" -t "$IMAGE_NAME" .
@@ -35,13 +43,22 @@ echo ""
 echo "🧪 Lancement de la compilation dans le conteneur..."
 echo ""
 
+CONTAINER_NAME="imsidplayer-builder-$$"
+
 # Exécuter la compilation dans le conteneur
-$CONTAINER_CMD run --rm \
-  -v "$(pwd):/workspace" \
+# Note: :z est ajouté pour la compatibilité SELinux avec Podman
+$CONTAINER_CMD run --rm --name "$CONTAINER_NAME" \
+  -v "$(pwd):/workspace:z" \
   -w /workspace \
+  -e SUPABASE_URL="$SUPABASE_URL" \
+  -e SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
   "$IMAGE_NAME" \
   bash -c "
     set -e
+    
+    echo '=== Vérification du montage de volume ==='
+    # Test d'écriture
+    touch /workspace/write_check && rm /workspace/write_check || echo '⚠️ Volume non inscriptible ?'
     
     # Configuration des variables d'environnement pour MinGW
     export PATH=\"/usr/x86_64-w64-mingw32/bin:/usr/bin:\$PATH\"
@@ -53,21 +70,6 @@ $CONTAINER_CMD run --rm \
     export PKG_CONFIG_PATH=\"/usr/x86_64-w64-mingw32/lib/pkgconfig\"
     export PKG_CONFIG_LIBDIR=\"/usr/x86_64-w64-mingw32/lib/pkgconfig\"
     export PKG_CONFIG_SYSROOT_DIR=\"/\"
-    
-    echo '=== Vérification des outils ==='
-    \$CC --version | head -1
-    \$CXX --version | head -1
-    cmake --version | head -1
-    echo ''
-    
-    echo '=== Initialisation des submodules ==='
-    git submodule update --init --recursive || echo 'Submodules déjà initialisés'
-    echo ''
-    
-    echo '=== Vérification Python ==='
-    python3 --version
-    python3 -c \"import jsonschema; import jinja2; print('✅ Dépendances Python disponibles')\"
-    echo ''
     
     echo '=== Configuration CMake ==='
     rm -rf build-win
@@ -87,39 +89,63 @@ $CONTAINER_CMD run --rm \
       -DSDL2_DIR=/usr/x86_64-w64-mingw32/lib/cmake/SDL2
     
     echo ''
+    echo '=== Vérification des fichiers générés ==='
+    ls -la include/SupabaseConfig.h
+    
+    echo ''
     echo '=== Compilation ==='
     cmake --build build-win --config Release -j\$(nproc)
     
     echo ''
-    echo '=== Préparation du bundle (Installation) ==='
-    # On définit le prefixe d'installation dans build-win/bundle
-    cmake --install build-win --prefix \"\$(pwd)/build-win/bundle\"
+    echo '=== Installation (Bundle) ==='
+    cmake --install build-win --prefix \"/workspace/build-win/bundle\"
     
-    # Nettoyage sélectif : on ne veut pas les dossiers de dev de MBed TLS
-    # mais on garde tout ce qui est à la racine de bundle (exe et dlls)
-    rm -rf \"\$(pwd)/build-win/bundle/include\" \"\$(pwd)/build-win/bundle/lib\" \"\$(pwd)/build-win/bundle/share\"
+    # Nettoyage sélectif
+    rm -rf \"/workspace/build-win/bundle/include\" \"/workspace/build-win/bundle/lib\" \"/workspace/build-win/bundle/share\"
     
     echo ''
     echo '=== Vérification du bundle ==='
     if [ -f \"build-win/bundle/imSidPlayer.exe\" ]; then
       echo '✅ Succès : Le bundle complet est prêt dans build-win/bundle/'
-      echo 'Contenu du bundle :'
       ls -F build-win/bundle/
-      echo ''
-      echo 'DLLs présentes :'
-      ls -1 build-win/bundle/*.dll 2>/dev/null || echo 'Aucune DLL (linkage statique total ?)'
     else
       echo '❌ Erreur : imSidPlayer.exe non trouvé dans le bundle.'
       exit 1
     fi
   "
 
-if [ $? -eq 0 ]; then
-    echo ""
-    echo "🎉 Test local terminé avec succès !"
-    echo "Le binaire Windows est disponible dans build-win/bundle/imSidPlayer.exe"
+BUILD_RET=$?
+
+echo ""
+if [ $BUILD_RET -eq 0 ]; then
+    echo "=== Récupération des artefacts === "
+    OUTPUT_DIR="windows_release"
+    
+    echo "Dossier de destination : $(pwd)/$OUTPUT_DIR"
+    rm -rf "$OUTPUT_DIR"
+    mkdir -p "$OUTPUT_DIR"
+    
+    # Debug : lister le contenu avant la copie
+    echo "Contenu du dossier build-win/bundle local :"
+    ls -la build-win/bundle/ || echo "Le dossier bundle n'existe pas localement !"
+
+    echo "Copie depuis le dossier de build local..."
+    # Copier le contenu du dossier bundle vers windows_release
+    # Note: build-win est dans le volume monté, donc accessible localement
+    cp -r "build-win/bundle/." "$OUTPUT_DIR/"
+    
+    if [ -f "$OUTPUT_DIR/imSidPlayer.exe" ]; then
+        echo "🎉 Test local terminé avec succès !"
+        echo "Le binaire Windows est DISPONIBLE sur l'hôte dans : $OUTPUT_DIR/imSidPlayer.exe"
+        ls -la "$OUTPUT_DIR"
+    else
+        echo "❌ Erreur : La copie a semblé réussir mais le fichier n'est pas là."
+        ls -la "$OUTPUT_DIR"
+        exit 1
+    fi
 else
-    echo ""
-    echo "❌ Le test a échoué."
-    exit 1
+    echo "❌ Le build a échoué dans le conteneur."
 fi
+
+# Le conteneur est supprimé automatiquement avec --rm
+exit $BUILD_RET

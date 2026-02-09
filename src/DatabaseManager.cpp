@@ -163,6 +163,7 @@ void DatabaseManager::rebuildCacheAndIndexes() const {
     m_metadataCache.clear();
     m_filepathIndex.clear();
     m_hashIndex.clear();
+    m_md5Index.clear();
     
     // Parcourir tous les RootFolderEntry et reconstruire les chemins absolus
     for (const auto& rootEntry : m_rootFolders) {
@@ -196,6 +197,11 @@ void DatabaseManager::rebuildCacheAndIndexes() const {
             if (fullMeta.metadataHash != 0) {
                 m_hashIndex[fullMeta.metadataHash] = index;
             }
+
+            // Indexer par MD5
+            if (!fullMeta.md5Hash.empty()) {
+                m_md5Index[fullMeta.md5Hash] = index;
+            }
         }
     }
     
@@ -213,6 +219,7 @@ bool DatabaseManager::clear() {
     m_metadataCache.clear();
     m_filepathIndex.clear();
     m_hashIndex.clear();
+    m_md5Index.clear();
     m_cacheValid = false;
     
     // Supprimer le fichier sur disque
@@ -549,6 +556,9 @@ bool DatabaseManager::indexFile(const std::string& filepath, const std::string& 
     m_metadataCache.push_back(fullMeta);
     m_filepathIndex[filepath] = newIndex;
     m_hashIndex[metadata.metadataHash] = newIndex;
+    if (!metadata.md5Hash.empty()) {
+        m_md5Index[metadata.md5Hash] = newIndex;
+    }
     
     return true;
 }
@@ -591,6 +601,17 @@ const SidMetadata* DatabaseManager::getMetadataByHash(uint32_t metadataHash) con
     }
     auto it = m_hashIndex.find(metadataHash);
     if (it == m_hashIndex.end()) {
+        return nullptr;
+    }
+    return &m_metadataCache[it->second];
+}
+
+const SidMetadata* DatabaseManager::getMetadataByMD5(const std::string& md5) const {
+    if (!m_cacheValid) {
+        rebuildCacheAndIndexes();
+    }
+    auto it = m_md5Index.find(md5);
+    if (it == m_md5Index.end()) {
         return nullptr;
     }
     return &m_metadataCache[it->second];

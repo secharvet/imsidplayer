@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <mutex>
 
 // Classe singleton pour gérer la configuration
 class Config {
@@ -14,85 +15,116 @@ public:
     bool load(const std::string& filename = "config.txt");
     
     // Sauvegarder la configuration dans un fichier
-    bool save(const std::string& filename = "config.txt");
+    bool save(const std::string& filename);
+    
+    // Sauvegarder dans le fichier chargé précédemment (ou par défaut)
+    bool save();
     
     // Getters/Setters pour les valeurs de configuration
-    std::string getCurrentFile() const { return m_currentFile; }
-    void setCurrentFile(const std::string& file) { m_currentFile = file; }
+    std::string getCurrentFile() const { std::lock_guard<std::mutex> lock(m_mutex); return m_currentFile; }
+    void setCurrentFile(const std::string& file) { std::lock_guard<std::mutex> lock(m_mutex); m_currentFile = file; }
     
-    int getBackgroundIndex() const { return m_backgroundIndex; }
-    void setBackgroundIndex(int index) { m_backgroundIndex = index; }
+    int getBackgroundIndex() const { std::lock_guard<std::mutex> lock(m_mutex); return m_backgroundIndex; }
+    void setBackgroundIndex(int index) { std::lock_guard<std::mutex> lock(m_mutex); m_backgroundIndex = index; }
     
-    std::string getBackgroundFilename() const { return m_backgroundFilename; }
-    void setBackgroundFilename(const std::string& filename) { m_backgroundFilename = filename; }
+    std::string getBackgroundFilename() const { std::lock_guard<std::mutex> lock(m_mutex); return m_backgroundFilename; }
+    void setBackgroundFilename(const std::string& filename) { std::lock_guard<std::mutex> lock(m_mutex); m_backgroundFilename = filename; }
     
-    std::string getSonglengthsPath() const { return m_songlengthsPath; }
-    void setSonglengthsPath(const std::string& path) { m_songlengthsPath = path; }
+    std::string getSonglengthsPath() const { std::lock_guard<std::mutex> lock(m_mutex); return m_songlengthsPath; }
+    void setSonglengthsPath(const std::string& path) { std::lock_guard<std::mutex> lock(m_mutex); m_songlengthsPath = path; }
     
-    bool isBackgroundShown() const { return m_backgroundShown; }
-    void setBackgroundShown(bool shown) { m_backgroundShown = shown; }
+    bool isBackgroundShown() const { std::lock_guard<std::mutex> lock(m_mutex); return m_backgroundShown; }
+    void setBackgroundShown(bool shown) { std::lock_guard<std::mutex> lock(m_mutex); m_backgroundShown = shown; }
     
-    bool isProgressBarAnimated() const { return m_progressBarAnimated; }
-    void setProgressBarAnimated(bool animated) { m_progressBarAnimated = animated; }
+    bool isProgressBarAnimated() const { std::lock_guard<std::mutex> lock(m_mutex); return m_progressBarAnimated; }
+    void setProgressBarAnimated(bool animated) { std::lock_guard<std::mutex> lock(m_mutex); m_progressBarAnimated = animated; }
     
-    bool isStarRatingRainbow() const { return m_starRatingRainbow; }
-    void setStarRatingRainbow(bool rainbow) { m_starRatingRainbow = rainbow; }
+    bool isStarRatingRainbow() const { std::lock_guard<std::mutex> lock(m_mutex); return m_starRatingRainbow; }
+    void setStarRatingRainbow(bool rainbow) { std::lock_guard<std::mutex> lock(m_mutex); m_starRatingRainbow = rainbow; }
     
-    int getStarRatingRainbowStep() const { return m_starRatingRainbowStep; }
+    int getStarRatingRainbowStep() const { std::lock_guard<std::mutex> lock(m_mutex); return m_starRatingRainbowStep; }
     void setStarRatingRainbowStep(int step) { 
+        std::lock_guard<std::mutex> lock(m_mutex);
         m_starRatingRainbowStep = std::max(0, std::min(51, step)); // Clamp entre 0 et 51
     }
     
-    int getStarRatingRainbowCycleFreq() const { return m_starRatingRainbowCycleFreq; }
+    int getStarRatingRainbowCycleFreq() const { std::lock_guard<std::mutex> lock(m_mutex); return m_starRatingRainbowCycleFreq; }
     void setStarRatingRainbowCycleFreq(int freq) { 
+        std::lock_guard<std::mutex> lock(m_mutex);
         m_starRatingRainbowCycleFreq = std::max(0, std::min(20, freq)); // Clamp entre 0 et 20
     }
     
-    int getStarRatingRainbowOffset() const { return m_starRatingRainbowOffset; }
+    int getStarRatingRainbowOffset() const { std::lock_guard<std::mutex> lock(m_mutex); return m_starRatingRainbowOffset; }
     void setStarRatingRainbowOffset(int offset) { 
+        std::lock_guard<std::mutex> lock(m_mutex);
         m_starRatingRainbowOffset = std::max(0, std::min(255, offset)); // Clamp entre 0 et 255
     }
     
-    bool isLoopEnabled() const { return m_loopEnabled; }
-    void setLoopEnabled(bool enabled) { m_loopEnabled = enabled; }
+    bool isLoopEnabled() const { std::lock_guard<std::mutex> lock(m_mutex); return m_loopEnabled; }
+    void setLoopEnabled(bool enabled) { std::lock_guard<std::mutex> lock(m_mutex); m_loopEnabled = enabled; }
     
-    int getBackgroundAlpha() const { return m_backgroundAlpha; }
-    void setBackgroundAlpha(int alpha) { m_backgroundAlpha = alpha; }
+    int getBackgroundAlpha() const { std::lock_guard<std::mutex> lock(m_mutex); return m_backgroundAlpha; }
+    void setBackgroundAlpha(int alpha) { std::lock_guard<std::mutex> lock(m_mutex); m_backgroundAlpha = alpha; }
     
-    int getWindowX() const { return m_windowX; }
-    int getWindowY() const { return m_windowY; }
-    int getWindowWidth() const { return m_windowWidth; }
-    int getWindowHeight() const { return m_windowHeight; }
-    void setWindowPos(int x, int y) { m_windowX = x; m_windowY = y; }
-    void setWindowSize(int w, int h) { m_windowWidth = w; m_windowHeight = h; }
+    int getWindowX() const { std::lock_guard<std::mutex> lock(m_mutex); return m_windowX; }
+    int getWindowY() const { std::lock_guard<std::mutex> lock(m_mutex); return m_windowY; }
+    int getWindowWidth() const { std::lock_guard<std::mutex> lock(m_mutex); return m_windowWidth; }
+    int getWindowHeight() const { std::lock_guard<std::mutex> lock(m_mutex); return m_windowHeight; }
+    void setWindowPos(int x, int y) { std::lock_guard<std::mutex> lock(m_mutex); m_windowX = x; m_windowY = y; }
+    void setWindowSize(int w, int h) { std::lock_guard<std::mutex> lock(m_mutex); m_windowWidth = w; m_windowHeight = h; }
     
     // État des voix (Voice 1, 2, 3 actives)
     bool isVoiceActive(int voice) const {
+        std::lock_guard<std::mutex> lock(m_mutex);
         if (voice >= 0 && voice < 3) return m_voiceActive[voice];
         return true;
     }
     void setVoiceActive(int voice, bool active) {
+        std::lock_guard<std::mutex> lock(m_mutex);
         if (voice >= 0 && voice < 3) m_voiceActive[voice] = active;
     }
     
 #ifdef ENABLE_CLOUD_SAVE
     // Cloud Save
-    bool isCloudSaveEnabled() const { return m_cloudSaveEnabled; }
-    void setCloudSaveEnabled(bool enabled) { m_cloudSaveEnabled = enabled; }
+    // Note: m_cloudSaveEnabled peut être renommé ou gardé comme master switch
+    // Pour l'instant on garde le flag global s'il est utilisé, mais on supprime les endpoints npoint
+    bool isCloudSaveEnabled() const { std::lock_guard<std::mutex> lock(m_mutex); return m_cloudSaveEnabled; }
+    void setCloudSaveEnabled(bool enabled) { std::lock_guard<std::mutex> lock(m_mutex); m_cloudSaveEnabled = enabled; }
     
-    std::string getCloudRatingEndpoint() const { return m_cloudRatingEndpoint; }
-    void setCloudRatingEndpoint(const std::string& endpoint) { m_cloudRatingEndpoint = endpoint; }
+    // Community Ratings (Supabase)
+    bool isCommunityRatingsEnabled() const { std::lock_guard<std::mutex> lock(m_mutex); return m_communityRatingsEnabled; }
+    void setCommunityRatingsEnabled(bool enabled) { std::lock_guard<std::mutex> lock(m_mutex); m_communityRatingsEnabled = enabled; }
     
-    std::string getCloudHistoryEndpoint() const { return m_cloudHistoryEndpoint; }
-    void setCloudHistoryEndpoint(const std::string& endpoint) { m_cloudHistoryEndpoint = endpoint; }
+    std::string getCommunityRatingsUsername() const { std::lock_guard<std::mutex> lock(m_mutex); return m_communityRatingsUsername; }
+    void setCommunityRatingsUsername(const std::string& username) { std::lock_guard<std::mutex> lock(m_mutex); m_communityRatingsUsername = username; }
+    
+    std::string getSupabaseProjectUrl() const { std::lock_guard<std::mutex> lock(m_mutex); return m_supabaseProjectUrl; }
+    void setSupabaseProjectUrl(const std::string& url) { std::lock_guard<std::mutex> lock(m_mutex); m_supabaseProjectUrl = url; }
+    
+    std::string getSupabaseAnonKey() const { std::lock_guard<std::mutex> lock(m_mutex); return m_supabaseAnonKey; }
+    void setSupabaseAnonKey(const std::string& key) { std::lock_guard<std::mutex> lock(m_mutex); m_supabaseAnonKey = key; }
+    
+    std::string getSupabaseAccessToken() const { std::lock_guard<std::mutex> lock(m_mutex); return m_supabaseAccessToken; }
+    void setSupabaseAccessToken(const std::string& token) { std::lock_guard<std::mutex> lock(m_mutex); m_supabaseAccessToken = token; }
+    
+    std::string getSupabaseRefreshToken() const { std::lock_guard<std::mutex> lock(m_mutex); return m_supabaseRefreshToken; }
+    void setSupabaseRefreshToken(const std::string& token) { std::lock_guard<std::mutex> lock(m_mutex); m_supabaseRefreshToken = token; }
+    
+    std::string getSupabaseUserId() const { std::lock_guard<std::mutex> lock(m_mutex); return m_supabaseUserId; }
+    void setSupabaseUserId(const std::string& userId) { std::lock_guard<std::mutex> lock(m_mutex); m_supabaseUserId = userId; }
+
+    std::string getRecoveryCode() const { std::lock_guard<std::mutex> lock(m_mutex); return m_recoveryCode; }
+    void setRecoveryCode(const std::string& code) { std::lock_guard<std::mutex> lock(m_mutex); m_recoveryCode = code; }
 #endif
     
 private:
-    Config() = default;
+    Config(); // Constructeur (implémenté dans Config.cpp)
     ~Config() = default;
     Config(const Config&) = delete;
     Config& operator=(const Config&) = delete;
     
+    mutable std::mutex m_mutex;
+    std::string m_configFilePath; // Chemin du fichier de configuration chargé
     // Valeurs de configuration
     std::string m_currentFile;
     int m_backgroundIndex = 0;
@@ -115,8 +147,17 @@ private:
 #ifdef ENABLE_CLOUD_SAVE
     // Cloud Save
     bool m_cloudSaveEnabled = false;
-    std::string m_cloudRatingEndpoint;
-    std::string m_cloudHistoryEndpoint;
+    // Endpoints npoint supprimés
+    
+    // Community Ratings (Supabase)
+    bool m_communityRatingsEnabled = false;  // Désactivé par défaut
+    std::string m_communityRatingsUsername;
+    std::string m_supabaseProjectUrl;  // URL du projet Supabase
+    std::string m_supabaseAnonKey;     // Clé API publique (anon key)
+    std::string m_supabaseAccessToken; // JWT token pour réutiliser l'authentification
+    std::string m_supabaseRefreshToken; // Refresh token pour renouveler l'access_token
+    std::string m_supabaseUserId;      // UUID de l'utilisateur authentifié
+    std::string m_recoveryCode;        // Dernier code de récupération généré
 #endif
 };
 

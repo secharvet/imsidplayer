@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.15)
 
+# FetchContent pour télécharger les dépendances
+include(FetchContent)
+
 # Permettre de passer la version depuis la ligne de commande (pour CI/CD)
 # Si VERSION_FROM_CI est défini, l'utiliser directement
 if(DEFINED VERSION_FROM_CI)
@@ -70,7 +73,7 @@ endif()
 # Utiliser la version détectée (sans suffixe pour project(), CMake n'accepte que X.Y.Z)
 project(imSidPlayer VERSION ${VERSION_FROM_GIT} LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Générer compile_commands.json pour le LSP
@@ -86,6 +89,33 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/include/Version.h.in"
     "${CMAKE_BINARY_DIR}/include/Version.h"
+    @ONLY
+)
+
+# Configuration Supabase - Récupération depuis variables d'environnement ou GitHub Secrets
+# Ces valeurs peuvent être définies via :
+# - Variables d'environnement (SUPABASE_URL, SUPABASE_ANON_KEY)
+# - GitHub Secrets (pour CI/CD)
+# - Valeurs par défaut vides (seront remplacées par les valeurs de config si présentes)
+if(DEFINED ENV{SUPABASE_URL})
+    set(SUPABASE_URL "$ENV{SUPABASE_URL}")
+else()
+    set(SUPABASE_URL "")
+    message(STATUS "SUPABASE_URL not set in environment, will use config file values")
+endif()
+
+if(DEFINED ENV{SUPABASE_ANON_KEY})
+    set(SUPABASE_ANON_KEY "$ENV{SUPABASE_ANON_KEY}")
+else()
+    set(SUPABASE_ANON_KEY "")
+    message(STATUS "SUPABASE_ANON_KEY not set in environment, will use config file values")
+endif()
+
+set(SUPABASE_CONFIG_DEST "${CMAKE_CURRENT_SOURCE_DIR}/include/SupabaseConfig.h")
+message(STATUS "Generating SupabaseConfig.h at: ${SUPABASE_CONFIG_DEST}")
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/SupabaseConfig.h.in"
+    "${SUPABASE_CONFIG_DEST}"
     @ONLY
 )
 
@@ -333,7 +363,7 @@ if(ENABLE_CLOUD_SAVE)
         # Désactiver les avertissements fatals pour éviter les erreurs de format printf sur MinGW/Windows
         set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "Treat warnings as errors" FORCE)
         
-        # Les modules nécessaires pour npoint.io sont activés par défaut dans MBed TLS
+        # Les modules nécessaires pour HTTPS sont activés par défaut dans MBed TLS
         # On n'a pas besoin de les redéfinir, ils sont déjà dans mbedtls_config.h
         # Si besoin de désactiver RSA/DHM, on peut le faire via un fichier config personnalisé
         
@@ -382,6 +412,8 @@ set(SOURCES
     src/PlaylistManager.cpp
     src/FileBrowser.cpp
     src/UIManager.cpp
+    src/UIManager_AccountDialogs.cpp
+    src/PopupManager.cpp
     src/Application.cpp
     src/SidMetadata.cpp
     src/DatabaseManager.cpp
@@ -396,7 +428,7 @@ set(SOURCES
 if(ENABLE_CLOUD_SAVE)
     list(APPEND SOURCES
         src/HTTPClient.cpp
-        src/CloudSyncManager.cpp
+        src/SupabaseClient.cpp
         src/UpdateChecker.cpp
         src/UpdateInstaller.cpp
     )
@@ -424,7 +456,7 @@ set(HEADERS
 if(ENABLE_CLOUD_SAVE)
     list(APPEND HEADERS
         include/HTTPClient.h
-        include/CloudSyncManager.h
+        include/SupabaseClient.h
         include/UpdateChecker.h
         include/UpdateInstaller.h
     )
@@ -468,11 +500,77 @@ if(ENABLE_CLOUD_SAVE)
     )
     target_compile_definitions(http_test PRIVATE ENABLE_CLOUD_SAVE=1)
     message(STATUS "HTTP test executable enabled: http_test")
+    
+    # Test Supabase
+    add_executable(supabase_test
+        tests/supabase_test.cpp
+        src/SupabaseClient.cpp
+        src/HTTPClient.cpp
+        src/Config.cpp
+        src/Logger.cpp
+        src/Utils.cpp
+        src/MD5.cpp
+    )
+    target_include_directories(supabase_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_BINARY_DIR}/include
+        ${MBEDTLS_DIR}/include
+    )
+    target_link_libraries(supabase_test PRIVATE 
+        quill::quill
+        mbedtls
+        mbedx509
+        glaze::glaze
+    )
+    target_compile_definitions(supabase_test PRIVATE ENABLE_CLOUD_SAVE=1)
+    message(STATUS "Supabase test executable enabled: supabase_test")
+    
+    # Tests unitaires avec Google Test (GTest)
+    file(GLOB GTEST_TESTS "tests/unit/*.cpp")
+    if(GTEST_TESTS)
+        # Télécharger Google Test via FetchContent
+        FetchContent_Declare(
+            googletest
+            GIT_REPOSITORY https://github.com/google/googletest.git
+            GIT_TAG        v1.14.0
+        )
+        # Pour Google Test, on doit désactiver les tests internes
+        set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+        set(BUILD_GMOCK ON CACHE BOOL "" FORCE)
+        set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+        FetchContent_MakeAvailable(googletest)
+        
+        add_executable(supabase_tests 
+            ${GTEST_TESTS}
+            src/SupabaseClient.cpp
+            src/HTTPClient.cpp
+            src/Config.cpp
+            src/Logger.cpp
+            src/Utils.cpp
+            src/MD5.cpp
+        )
+        target_include_directories(supabase_tests PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${CMAKE_BINARY_DIR}/include
+            ${MBEDTLS_DIR}/include
+        )
+        target_link_libraries(supabase_tests PRIVATE 
+            GTest::gtest
+            GTest::gtest_main
+            GTest::gmock
+            quill::quill
+            mbedtls
+            mbedx509
+            glaze::glaze
+        )
+        target_compile_definitions(supabase_tests PRIVATE ENABLE_CLOUD_SAVE=1)
+        message(STATUS "Google Test unit tests enabled: supabase_tests")
+    endif()
 endif()
 
 # Include directories
-target_include_directories(${PROJECT_NAME} PRIVATE
-    ${CMAKE_BINARY_DIR}/include  # Pour Version.h généré
+target_include_directories(${PROJECT_NAME} PRIVATE BEFORE
+    ${CMAKE_BINARY_DIR}/include  # Pour Version.h et SupabaseConfig.h générés
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${SDL2_INCLUDE_DIRS}
     ${SIDPLAYFP_INCLUDE_DIR}

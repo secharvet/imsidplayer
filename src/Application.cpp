@@ -5,7 +5,8 @@
 #include "Config.h"
 #include "Logger.h"
 #ifdef ENABLE_CLOUD_SAVE
-#include "CloudSyncManager.h"
+#include "SupabaseConfig.h"  // Généré par CMake depuis SupabaseConfig.h.in
+#include "SupabaseClient.h"
 #include "UpdateChecker.h"
 #include "UpdateInstaller.h"
 #include "imgui.h"
@@ -28,6 +29,7 @@ Application::Application()
       m_databaseOperation(DatabaseOperation::None), m_databaseProgress(0.0f),
       m_databaseCurrent(0), m_databaseTotal(0), m_shouldStopDatabaseThread(false)
 #ifdef ENABLE_CLOUD_SAVE
+      , m_supabaseClient(nullptr)
       , m_updateInProgress(false)
 #endif
 {
@@ -134,32 +136,58 @@ bool Application::initialize() {
     m_ratingManager = std::make_unique<RatingManager>();
     
 #ifdef ENABLE_CLOUD_SAVE
-    // Initialiser CloudSyncManager
-    auto& cloudSync = CloudSyncManager::getInstance();
-    if (cloudSync.initialize(m_ratingManager.get(), m_history.get())) {
-        // Charger les endpoints depuis Config
-        std::string ratingEndpoint = m_config.getCloudRatingEndpoint();
-        std::string historyEndpoint = m_config.getCloudHistoryEndpoint();
-        if (!ratingEndpoint.empty()) {
-            cloudSync.setRatingEndpoint(ratingEndpoint);
+    // Initialiser SupabaseClient si Community Ratings est activé
+    if (m_config.isCommunityRatingsEnabled()) {
+        // Priorité 1: Valeurs compilées dans le binaire (depuis GitHub Secrets/variables d'environnement)
+        // Priorité 2: Valeurs depuis le fichier config (pour développement local)
+        std::string projectUrl;
+        std::string anonKey;
+        
+        // Vérifier si les valeurs sont définies dans SupabaseConfig.h (généré par CMake)
+        std::string compiledUrl(SUPABASE_URL);
+        std::string compiledKey(SUPABASE_ANON_KEY);
+        
+        if (!compiledUrl.empty() && !compiledKey.empty()) {
+            // Utiliser les valeurs compilées (depuis GitHub Secrets/variables d'environnement)
+            projectUrl = compiledUrl;
+            anonKey = compiledKey;
+            LOG_INFO("Using Supabase credentials from build-time configuration");
+        } else {
+            // Fallback: utiliser les valeurs depuis le fichier config (pour développement local)
+            projectUrl = m_config.getSupabaseProjectUrl();
+            anonKey = m_config.getSupabaseAnonKey();
+            if (!projectUrl.empty() && !anonKey.empty()) {
+                LOG_INFO("Using Supabase credentials from config file");
+            }
         }
-        if (!historyEndpoint.empty()) {
-            cloudSync.setHistoryEndpoint(historyEndpoint);
+        
+        if (!projectUrl.empty() && !anonKey.empty()) {
+            m_supabaseClient = std::make_unique<SupabaseClient>();
+            if (m_supabaseClient->initialize(projectUrl, anonKey)) {
+                LOG_INFO("SupabaseClient initialized successfully");
+            } else {
+                LOG_ERROR("Failed to initialize SupabaseClient: {}", m_supabaseClient->getLastError());
+                // Ne pas reset pour permettre l'affichage du dialog même en cas d'erreur
+                // Le dialog pourra permettre de créer/récupérer un compte
+            }
+        } else {
+            LOG_WARNING("Supabase credentials not configured (neither in build-time config nor in config file)");
+            // m_supabaseClient reste nullptr, le dialog ne s'affichera pas
+            // L'utilisateur doit d'abord configurer les credentials
         }
-        // Activer si configuré
-        if (m_config.isCloudSaveEnabled()) {
-            cloudSync.setEnabled(true);
-            // Pull automatique au démarrage pour récupérer les dernières notes
-            cloudSync.pullRatings();
-        }
-        LOG_INFO("CloudSyncManager initialized");
-    } else {
-        LOG_WARNING("Failed to initialize CloudSyncManager");
     }
 #endif
     
     // Créer UIManager
     m_uiManager = std::make_unique<UIManager>(m_player, m_playlist, *m_background, m_fileBrowser, *m_database, *m_history, *m_ratingManager);
+    
+#ifdef ENABLE_CLOUD_SAVE
+    // Passer la référence au SupabaseClient à UIManager
+    if (m_supabaseClient) {
+        m_uiManager->setSupabaseClient(m_supabaseClient.get());
+    }
+#endif
+    
     if (!m_uiManager->initialize(m_window, m_renderer)) {
         LOG_ERROR("Impossible d'initialiser UIManager");
         return false;
@@ -604,21 +632,13 @@ void Application::handleDropFile(const char* filepath) {
 }
 
 void Application::shutdown() {
+#ifdef ENABLE_CLOUD_SAVE
+    // Nettoyer SupabaseClient (unique_ptr se charge de la destruction)
+    m_supabaseClient.reset();
+#endif
     // Arrêter le thread de base de données si en cours
     waitForDatabaseThread();
     
-#ifdef ENABLE_CLOUD_SAVE
-    // Synchronisation finale avant de quitter
-    auto& cloudSync = CloudSyncManager::getInstance();
-    if (cloudSync.isEnabled()) {
-        LOG_INFO("Final cloud synchronization before exit...");
-        cloudSync.pushRatings();
-        cloudSync.pushHistory();
-    }
-    // Arrêter le CloudSyncManager explicitement avant le Logger
-    cloudSync.shutdown();
-#endif
-
     if (m_uiManager) {
         m_uiManager->shutdown();
         m_uiManager.reset();
@@ -953,6 +973,7 @@ void Application::renderUpdateDialog() {
         std::lock_guard<std::mutex> lock(m_updateState.mutex);
         showDialog = m_updateState.showDialog;
         if (!showDialog) {
+            // LOG_DEBUG("[Application] renderUpdateDialog: showDialog is false, returning");
             return;
         }
         userAccepted = m_updateState.userAccepted;
@@ -964,19 +985,79 @@ void Application::renderUpdateDialog() {
     }
     
     // 1. Déclencher l'ouverture du popup (une seule fois)
+    // Utiliser le système de queue pour éviter les popups simultanés
+    #ifdef ENABLE_CLOUD_SAVE
+    if (m_uiManager) {
+        // Toujours utiliser la queue pour garantir qu'un seul popup s'affiche à la fois
+        auto* popupManager = m_uiManager->getPopupManager();
+        if (popupManager) {
+            auto currentPopup = popupManager->getCurrentPopup();
+            LOG_DEBUG("[Application] renderUpdateDialog: Current popup: {}, showDialog: {}", static_cast<int>(currentPopup), showDialog);
+            
+            // Ne mettre en queue que si ce n'est pas déjà le popup actuel ou dans la queue
+            if (currentPopup != PopupManager::PopupType::UpdateAvailable) {
+                // Vérifier si UpdateAvailable est déjà dans la queue
+                bool alreadyQueued = false;
+                // On ne peut pas vérifier directement, mais on peut essayer de le queue et le PopupManager évitera les doublons
+                // IMPORTANT: Ne pas ajouter UpdateAvailable si un popup de compte est en cours ou en queue
+                // Les popups de compte ont la priorité
+                if (currentPopup == PopupManager::PopupType::None) {
+                    // Aucun popup en cours, vérifier s'il y a des popups en queue
+                    if (popupManager->getQueueSize() == 0) {
+                        // Aucun popup en queue, on peut ajouter UpdateAvailable
+                        LOG_DEBUG("[Application] renderUpdateDialog: Queueing UpdateAvailable popup (no current popup, no queue)");
+                        popupManager->queuePopup(PopupManager::PopupType::UpdateAvailable);
+                    } else {
+                        // Il y a des popups en queue (probablement des popups de compte), ne pas ajouter UpdateAvailable
+                        LOG_DEBUG("[Application] renderUpdateDialog: Popups in queue, skipping UpdateAvailable");
+                    }
+                } else {
+                    // Un popup est en cours, mettre en queue (sera affiché après)
+                    LOG_DEBUG("[Application] renderUpdateDialog: Another popup is active ({}), queueing UpdateAvailable", static_cast<int>(currentPopup));
+                    popupManager->queuePopup(PopupManager::PopupType::UpdateAvailable);
+                }
+            } else {
+                // Le popup de mise à jour est déjà actif, ne rien faire
+                LOG_DEBUG("[Application] renderUpdateDialog: UpdateAvailable is already the current popup");
+            }
+        } else {
+            LOG_WARNING("[Application] renderUpdateDialog: No PopupManager available");
+        }
+    }
+    #else
+    // Sans ENABLE_CLOUD_SAVE, ouvrir directement
     if (!ImGui::IsPopupOpen("Mise à jour disponible")) {
         ImGui::OpenPopup("Mise à jour disponible");
     }
+    #endif
+    
+    // 2. Vérifier que c'est bien le popup actuel dans le PopupManager (pour éviter les popups simultanés)
+    #ifdef ENABLE_CLOUD_SAVE
+    if (m_uiManager && m_uiManager->getPopupManager()) {
+        if (m_uiManager->getPopupManager()->getCurrentPopup() != PopupManager::PopupType::UpdateAvailable) {
+            // Un autre popup est en cours, ne pas afficher celui-ci
+            return;
+        }
+    }
+    #endif
     
     // Centrer la fenêtre quand elle apparaît
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(500, 0), ImGuiCond_Appearing);
     
-    // 2. Utiliser le vrai composant Modal
-    if (ImGui::BeginPopupModal("Mise à jour disponible", NULL, 
-                                ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | 
-                                ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse)) {
+    bool modalOpen = false;
+    #ifdef ENABLE_CLOUD_SAVE
+    if (m_uiManager) {
+        modalOpen = m_uiManager->beginCenteredModal("Mise à jour disponible");
+    } else {
+        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        modalOpen = ImGui::BeginPopupModal("Mise à jour disponible", NULL, ImGuiWindowFlags_AlwaysAutoResize);
+    }
+    #else
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    modalOpen = ImGui::BeginPopupModal("Mise à jour disponible", NULL, ImGuiWindowFlags_AlwaysAutoResize);
+    #endif
+
+    if (modalOpen) {
         
         if (!userAccepted && stage == UpdateStage::None) {
             // Dialog initial : demander confirmation
@@ -1005,11 +1086,17 @@ void Application::renderUpdateDialog() {
             }
             ImGui::Spacing();
             if (ImGui::Button("Plus tard", ImVec2(-1, 0))) {
+                LOG_DEBUG("[Application] Update dialog: User clicked 'Plus tard'");
                 {
                     std::lock_guard<std::mutex> lock(m_updateState.mutex);
                     m_updateState.showDialog = false;
                 }
                 ImGui::CloseCurrentPopup();
+                // Notifier le PopupManager que ce popup se ferme (il consommera le suivant automatiquement)
+                if (m_uiManager && m_uiManager->getPopupManager()) {
+                    m_uiManager->getPopupManager()->notifyPopupClosed();
+                    LOG_DEBUG("[Application] Update dialog: Notified PopupManager, next popup should be consumed");
+                }
             }
         } else if (userAccepted) {
             // Afficher la progression
@@ -1056,6 +1143,12 @@ void Application::renderUpdateDialog() {
                         m_updateState.userAccepted = false;
                         m_updateState.stage = UpdateStage::None;
                     }
+                    #ifdef ENABLE_CLOUD_SAVE
+                    // Notifier le PopupManager que ce popup se ferme
+                    if (m_uiManager && m_uiManager->getPopupManager()) {
+                        m_uiManager->getPopupManager()->notifyPopupClosed();
+                    }
+                    #endif
                     ImGui::CloseCurrentPopup();
                 }
             } else if (stage == UpdateStage::Completed) {
@@ -1065,6 +1158,11 @@ void Application::renderUpdateDialog() {
             }
         }
         
+        #ifdef ENABLE_CLOUD_SAVE
+        if (m_uiManager) {
+            ImGui::PopTextWrapPos();
+        }
+        #endif
         ImGui::EndPopup();
     }
     

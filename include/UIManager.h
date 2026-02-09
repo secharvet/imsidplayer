@@ -10,10 +10,15 @@
 #include "RatingManager.h"
 #include "FilterWidget.h"
 #include "Logger.h"
+#ifdef ENABLE_CLOUD_SAVE
+#include "PopupManager.h"
+#endif
 #include <SDL2/SDL.h>
 #include <string>
 #include <vector>
 #include <functional>
+#include <memory>
+#include <atomic>
 
 // Macros de logging conditionnelles pour UIManager
 // Définir ENABLE_UI_LOGS lors de la compilation pour activer les logs UI
@@ -29,9 +34,22 @@
     #define UI_LOG_ERROR(...) ((void)0)
 #endif
 
+#ifdef ENABLE_CLOUD_SAVE
+class SupabaseClient;
+#endif
+
 class UIManager {
 public:
     UIManager(SidPlayer& player, PlaylistManager& playlist, BackgroundManager& background, FileBrowser& fileBrowser, DatabaseManager& database, HistoryManager& history, RatingManager& ratingManager);
+    
+#ifdef ENABLE_CLOUD_SAVE
+    // Définir la référence au SupabaseClient (appelé depuis Application)
+    void setSupabaseClient(SupabaseClient* client) { m_supabaseClient = client; }
+    
+    // Accès au PopupManager
+    PopupManager* getPopupManager() { return m_popupManager.get(); }
+    const PopupManager* getPopupManager() const { return m_popupManager.get(); }
+#endif
     
     // Initialiser ImGui (polices, styles)
     bool initialize(SDL_Window* window, SDL_Renderer* renderer);
@@ -198,7 +216,58 @@ private:
     
     // Obtenir le prochain fichier dans la liste filtrée (utilise le cache si disponible)
     PlaylistNode* getNextFilteredFile();
+    
+#ifdef ENABLE_CLOUD_SAVE
+public:
+    // Dialogs pour la gestion de compte Supabase
+    void renderAccountDialogs();  // Rendre tous les dialogs de compte
+    void renderStartupAccountDialog();  // Dialog de démarrage (Create/Recover)
+    void renderCreateAccountDialog();  // Dialog de création de compte
+    void renderRecoverAccountDialog();  // Dialog de récupération
+    void renderRecoveryKeyDialog();  // Dialog d'affichage recovery key
+    void renderDeleteAccountConfirmation(); // Dialog de confirmation de suppression
+    void renderPublishRatingsConfirmation(); // Dialog de confirmation de publication
+    
+    // Helpers pour l'affichage standardisé des modales
+    bool beginCenteredModal(const char* name);
+    void renderModalFooter(const char* cancelLabel, std::function<void()> onCancel, 
+                          const char* confirmLabel, std::function<void()> onConfirm, 
+                          bool confirmDisabled = false, bool isDestructive = false);
+    
+    // Constantes de style UI
+    static constexpr float MODAL_WIDTH = 600.0f;
+    static constexpr float MODAL_BUTTON_HEIGHT = 35.0f;
+    static constexpr float MODAL_BUTTON_WIDTH = 180.0f;
+    
+    // État des dialogs
+    enum class AccountDialogState {
+        None,              // Aucun dialog
+        StartupChoice,     // Choix Create/Recover au démarrage
+        Creating,         // Création en cours
+        Recovering,        // Récupération en cours
+        ShowingRecoveryKey, // Affichage recovery key
+        DeleteConfirmation,  // Confirmation de suppression
+        PublishConfirmation  // Confirmation de publication des ratings
+    };
+    
+    AccountDialogState m_accountDialogState;
+    SupabaseClient* m_supabaseClient;  // Pointeur vers SupabaseClient (géré par Application, ne pas delete)
+    
+    // Variables pour les dialogs
+    char m_usernameInput[256];
+    char m_recoveryCodeInput[16];
+    std::string m_recoveryKeyDisplay;  // Recovery key à afficher
+    std::string m_accountError;  // Message d'erreur pour les dialogs
+    std::string m_operationStatus; // Statut de l'opération en cours (ex: "Syncing batch 1/5...")
+    std::atomic<bool> m_accountOperationInProgress;  // True si opération en cours
+    bool m_usernameCheckInProgress;  // True si vérification de username en cours
+    bool m_usernameAvailable;  // True si le username est disponible (après vérification)
+    bool m_usernameChecked;  // True si le username a été vérifié
+    
+    // PopupManager - orchestrateur centralisé des popups
+    std::unique_ptr<PopupManager> m_popupManager;
+    bool m_popupManagerCallbackSet = false;  // Flag pour initialiser le callback une seule fois
+#endif
 };
 
 #endif // UI_MANAGER_H
-

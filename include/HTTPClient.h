@@ -30,10 +30,11 @@ public:
     bool loadRootCA(const std::string& caFilePath);
     
     // Requêtes HTTP
-    Response get(const std::string& url);
-    Response post(const std::string& url, const std::string& jsonData);
-    Response put(const std::string& url, const std::string& jsonData);
-    Response patch(const std::string& url, const std::string& jsonData);
+    Response get(const std::string& url, const std::map<std::string, std::string>& customHeaders = {});
+    Response post(const std::string& url, const std::string& jsonData, const std::map<std::string, std::string>& customHeaders = {});
+    Response put(const std::string& url, const std::string& jsonData, const std::map<std::string, std::string>& customHeaders = {});
+    Response patch(const std::string& url, const std::string& jsonData, const std::map<std::string, std::string>& customHeaders = {});
+    Response deleteRequest(const std::string& url, const std::map<std::string, std::string>& customHeaders = {});
     
     // Obtenir le dernier message d'erreur
            std::string getLastError() const { return m_lastError; }
@@ -49,7 +50,8 @@ public:
     std::string buildHTTPRequest(const std::string& method, 
                                  const std::string& path,
                                  const std::string& host,
-                                 const std::string& body = "");
+                                 const std::string& body = "",
+                                 const std::map<std::string, std::string>& customHeaders = {});
     int sendRequest(const std::string& request);
     Response parseResponse();
     

@@ -6,7 +6,7 @@
 #include "IconsFontAwesome6.h"
 #include "Logger.h"
 #ifdef ENABLE_CLOUD_SAVE
-#include "CloudSyncManager.h"
+#include "SupabaseClient.h"
 #endif
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
@@ -45,8 +45,23 @@ UIManager::UIManager(SidPlayer& player, PlaylistManager& playlist, BackgroundMan
       m_cachedCurrentIndex(-1), m_navigationCacheValid(false),
       m_currentFPS(0.0f), m_oscilloscopeTime(0.0f), m_oscilloscopePlot0Time(0.0f), 
       m_oscilloscopePlot1Time(0.0f), m_oscilloscopePlot2Time(0.0f),
-      m_rainbowCycleOffset(0) {
+      m_rainbowCycleOffset(0)
+#ifdef ENABLE_CLOUD_SAVE
+      , m_accountDialogState(AccountDialogState::None)
+      , m_supabaseClient(nullptr)
+      , m_accountOperationInProgress(false)
+      , m_usernameCheckInProgress(false)
+      , m_usernameAvailable(false)
+      , m_usernameChecked(false)
+      , m_popupManager(std::make_unique<PopupManager>())
+#endif
+{
     generateRainbowPalette();
+#ifdef ENABLE_CLOUD_SAVE
+    // Initialiser les buffers de saisie
+    m_usernameInput[0] = '\0';
+    m_recoveryCodeInput[0] = '\0';
+#endif
 }
 
 bool UIManager::initialize(SDL_Window* window, SDL_Renderer* renderer) {
@@ -170,6 +185,50 @@ void UIManager::render() {
     // Render main panel
     auto t2 = std::chrono::high_resolution_clock::now();
     renderMainPanel();
+    
+#ifdef ENABLE_CLOUD_SAVE
+    // Vérifier au démarrage si on doit afficher le dialog de compte
+    static bool startupCheckDone = false;
+    if (!startupCheckDone && m_accountDialogState == AccountDialogState::None) {
+        Config& config = Config::getInstance();
+        
+        // Vérifier si Community Ratings est activé
+        if (config.isCommunityRatingsEnabled()) {
+            std::string refreshToken = config.getSupabaseRefreshToken();
+            
+            // Vérifier si SupabaseClient est initialisé (peut être initialisé avec valeurs compilées ou config)
+            // On ne vérifie plus projectUrl/anonKey car ils peuvent être dans SupabaseConfig.h
+            
+            // Si pas de refresh_token, afficher le dialog (même si credentials manquants)
+            if (refreshToken.empty()) {
+                // Si SupabaseClient est initialisé, vérifier l'authentification
+                if (m_supabaseClient) {
+                    if (!m_supabaseClient->isAuthenticated()) {
+                        // Pas de compte configuré, ajouter à la queue (Priorité HAUTE car c'est le setup initial)
+                        m_accountDialogState = AccountDialogState::StartupChoice;
+                        LOG_INFO("[UIManager] Calling m_popupManager->queuePopup(AccountSetup). Ptr valid: {}", (m_popupManager ? "Yes" : "No"));
+                        if (m_popupManager) {
+                            m_popupManager->queuePopup(PopupManager::PopupType::AccountSetup, true);
+                        } else {
+                            LOG_ERROR("[UIManager] m_popupManager is NULL!");
+                        }
+                    }
+                } else {
+                    // SupabaseClient non initialisé
+                    m_accountDialogState = AccountDialogState::StartupChoice;
+                    LOG_INFO("[UIManager] Calling m_popupManager->queuePopup(AccountSetup) (No Client). Ptr valid: {}", (m_popupManager ? "Yes" : "No"));
+                    if (m_popupManager) {
+                        m_popupManager->queuePopup(PopupManager::PopupType::AccountSetup, true);
+                    } else {
+                        LOG_ERROR("[UIManager] m_popupManager is NULL!");
+                    }
+                }
+            }
+        }
+        startupCheckDone = true;
+    }
+#endif
+    
     auto t3 = std::chrono::high_resolution_clock::now();
     auto mainPanelTime = std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count();
     
@@ -210,11 +269,67 @@ void UIManager::render() {
                          storedRenderDrawDataTime, storedPresentTime, storedTotalFrameTime);
     }
     
-    // Appeler le callback pour rendre le dialog de mise à jour (si défini)
-    // Cela doit être fait après ImGui::NewFrame() mais avant ImGui::Render()
+    // PopupManager - orchestrateur centralisé des popups
+#ifdef ENABLE_CLOUD_SAVE
+    // Configurer le callback de rendu pour le PopupManager
+    if (!m_popupManagerCallbackSet) {
+        m_popupManager->setRenderCallback([this](PopupManager::PopupType type) {
+            // Le PopupManager demande de rendre un popup spécifique
+            if (type == PopupManager::PopupType::UpdateAvailable) {
+                // Rendre le popup de mise à jour
+                if (m_updateDialogCallback) {
+                    m_updateDialogCallback();
+                }
+            } else {
+                // Rendre les dialogs de compte (ils vérifieront le type eux-mêmes)
+                renderAccountDialogs();
+            }
+        });
+        m_popupManagerCallbackSet = true;
+    }
+    
+    // Vérifier si une mise à jour doit être ajoutée à la queue
+    // Ne vérifier que si aucun popup n'est actif (pour éviter d'ajouter UpdateAvailable à chaque frame)
+    auto currentPopupBefore = m_popupManager->getCurrentPopup();
+    auto queueSizeBefore = m_popupManager->getQueueSize();
+    // LOG_DEBUG("[UIManager] render() START - Current popup: {}, Queue size: {}", 
+    //           static_cast<int>(currentPopupBefore), queueSizeBefore);
+    
+    // Ne vérifier le popup de mise à jour QUE si aucun popup de compte n'est actif ou en queue
+    // Les popups de compte ont la priorité
+    bool hasAccountPopup = (currentPopupBefore == PopupManager::PopupType::AccountSetup ||
+                           currentPopupBefore == PopupManager::PopupType::CreateAccount ||
+                           currentPopupBefore == PopupManager::PopupType::RecoverAccount ||
+                           currentPopupBefore == PopupManager::PopupType::RecoveryKey);
+    
+    if (m_updateDialogCallback && currentPopupBefore == PopupManager::PopupType::None && !hasAccountPopup && queueSizeBefore == 0) {
+        // Le callback va vérifier et appeler queuePopup si nécessaire
+        // MAIS seulement si aucun popup de compte n'est en queue
+        // LOG_DEBUG("[UIManager] render(): Checking for update dialog (current popup is None, no account popups)");
+        m_updateDialogCallback();
+    } else if (hasAccountPopup || queueSizeBefore > 0) {
+        // LOG_DEBUG("[UIManager] render(): Skipping update dialog check (account popup active or in queue)");
+    }
+    
+    // Le PopupManager gère automatiquement la queue et le rendu
+    // LOG_DEBUG("[UIManager] render(): Calling PopupManager::render()");
+    m_popupManager->render();
+    
+    auto currentPopupAfter = m_popupManager->getCurrentPopup();
+    auto queueSizeAfter = m_popupManager->getQueueSize();
+    // LOG_DEBUG("[UIManager] render() END - Current popup: {} -> {}, Queue size: {} -> {}", 
+    //           static_cast<int>(currentPopupBefore), static_cast<int>(currentPopupAfter),
+    //           queueSizeBefore, queueSizeAfter);
+    
+    if (currentPopupAfter != currentPopupBefore) {
+        LOG_DEBUG("[UIManager] ✓ Popup changed from {} to {}", static_cast<int>(currentPopupBefore), static_cast<int>(currentPopupAfter));
+    }
+#else
+    // Sans ENABLE_CLOUD_SAVE, on rend directement le dialog de mise à jour
     if (m_updateDialogCallback) {
         m_updateDialogCallback();
     }
+#endif
     
     // Rendu ImGui
     auto t8 = std::chrono::high_resolution_clock::now();
@@ -943,8 +1058,27 @@ void UIManager::renderPlayerControls() {
                     UI_LOG_INFO("Rating mis à jour: {} étoiles pour {}", currentRating, metadata->title);
                     
 #ifdef ENABLE_CLOUD_SAVE
-                    // Push automatique vers le cloud
-                    CloudSyncManager::getInstance().queueRatingSync();
+                    // Push vers Supabase si authentifié
+                    if (m_supabaseClient && m_supabaseClient->isAuthenticated() && !metadata->md5Hash.empty()) {
+                        UI_LOG_INFO("Triggering Supabase sync for {}", metadata->title);
+                        // Upsert dans un thread séparé pour ne pas bloquer l'UI
+                        std::string hash = metadata->md5Hash;
+                        int rating = currentRating;
+                        SupabaseClient* client = m_supabaseClient;
+                        
+                        std::thread([client, hash, rating]() {
+                            if (client->upsertRating(hash, rating)) {
+                                LOG_INFO("Supabase sync SUCCESS for hash {}", hash);
+                            } else {
+                                LOG_ERROR("Supabase sync FAILED for hash {}: {}", hash, client->getLastError());
+                            }
+                        }).detach();
+                    } else {
+                         UI_LOG_WARNING("Skipping Supabase sync: Client={}, Auth={}, HashEmpty={}", 
+                            (m_supabaseClient != nullptr),
+                            (m_supabaseClient ? m_supabaseClient->isAuthenticated() : false),
+                            metadata->md5Hash.empty());
+                    }
 #endif
                 }
             }
@@ -1117,178 +1251,195 @@ void UIManager::renderConfigTab() {
     ImGui::Spacing();
     
 #ifdef ENABLE_CLOUD_SAVE
-    // Section Cloud Save
-    ImGui::Text("Cloud Save");
+    // Section Community Ratings (Supabase)
+    ImGui::Text("Community Ratings");
     ImGui::Separator();
     
-    bool cloudSaveEnabled = config.isCloudSaveEnabled();
-    if (ImGui::Checkbox("Enable cloud save", &cloudSaveEnabled)) {
-        config.setCloudSaveEnabled(cloudSaveEnabled);
+    bool communityRatingsEnabled = config.isCommunityRatingsEnabled();
+    if (ImGui::Checkbox("Enable community ratings", &communityRatingsEnabled)) {
+        config.setCommunityRatingsEnabled(communityRatingsEnabled);
         // Sauvegarder la config
         fs::path configDir = getConfigDir();
         std::string configPath = (configDir / "config.txt").string();
         config.save(configPath);
-        
-        // Mettre à jour CloudSyncManager
-        CloudSyncManager::getInstance().setEnabled(cloudSaveEnabled);
     }
-    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Synchronize ratings and history to cloud");
+    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Share and view community ratings on Supabase");
     
-    if (cloudSaveEnabled) {
+    if (communityRatingsEnabled) {
         ImGui::Spacing();
         
-        // Rating endpoint
-        char ratingEndpoint[512];
-        strncpy(ratingEndpoint, config.getCloudRatingEndpoint().c_str(), sizeof(ratingEndpoint) - 1);
-        ratingEndpoint[sizeof(ratingEndpoint) - 1] = '\0';
-        ImGui::Text("Rating endpoint:");
-        ImGui::PushItemWidth(-1);
-        if (ImGui::InputText("##rating_endpoint", ratingEndpoint, sizeof(ratingEndpoint))) {
-            config.setCloudRatingEndpoint(ratingEndpoint);
-            // Sauvegarder la config
-            fs::path configDir = getConfigDir();
-            std::string configPath = (configDir / "config.txt").string();
-            config.save(configPath);
-            
-            // Mettre à jour CloudSyncManager
-            CloudSyncManager::getInstance().setRatingEndpoint(ratingEndpoint);
-        }
-        ImGui::PopItemWidth();
-        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "npoint.io endpoint URL for ratings (e.g., https://api.npoint.io/...)");
+        // Afficher le username depuis la config locale uniquement (pas d'appel réseau)
+        std::string username = config.getCommunityRatingsUsername();
+        
+        ImGui::Text("Username: %s", username.empty() ? "(not set)" : username.c_str());
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Your community username (synced with account)");
         
         ImGui::Spacing();
         
-        // History endpoint
-        char historyEndpoint[512];
-        strncpy(historyEndpoint, config.getCloudHistoryEndpoint().c_str(), sizeof(historyEndpoint) - 1);
-        historyEndpoint[sizeof(historyEndpoint) - 1] = '\0';
-        ImGui::Text("History endpoint:");
-        ImGui::PushItemWidth(-1);
-        if (ImGui::InputText("##history_endpoint", historyEndpoint, sizeof(historyEndpoint))) {
-            config.setCloudHistoryEndpoint(historyEndpoint);
-            // Sauvegarder la config
-            fs::path configDir = getConfigDir();
-            std::string configPath = (configDir / "config.txt").string();
-            config.save(configPath);
-            
-            // Mettre à jour CloudSyncManager
-            CloudSyncManager::getInstance().setHistoryEndpoint(historyEndpoint);
+        // Recovery Key section (depuis config locale)
+        ImGui::Text("Recovery Key:");
+        std::string recoveryCode = config.getRecoveryCode();
+        
+        if (recoveryCode.empty()) {
+            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "(not available)");
+        } else {
+            // Afficher le code en lecture seule pour permettre la copie
+            ImGui::PushItemWidth(200);
+            ImGui::InputText("##recovery_code_display_config", const_cast<char*>(recoveryCode.c_str()), 
+                            recoveryCode.size() + 1, ImGuiInputTextFlags_ReadOnly | ImGuiInputTextFlags_AutoSelectAll);
+            ImGui::PopItemWidth();
         }
-        ImGui::PopItemWidth();
-        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "npoint.io endpoint URL for history (e.g., https://api.npoint.io/...)");
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Use this code to recover your account on another machine");
         
         ImGui::Spacing();
         
-        // Status display
-        auto& cloudSync = CloudSyncManager::getInstance();
-        CloudSyncManager::SyncStatus ratingStatus = cloudSync.getRatingStatus();
-        CloudSyncManager::SyncStatus historyStatus = cloudSync.getHistoryStatus();
+        // Boutons pour la gestion de compte
+        bool isAuthenticated = m_supabaseClient && m_supabaseClient->isAuthenticated();
         
-        ImGui::Text("Status:");
-        ImGui::SameLine();
-        const char* ratingStatusText = "Idle";
-        ImVec4 ratingStatusColor = ImVec4(0.7f, 0.7f, 0.7f, 1.0f);
-        switch (ratingStatus) {
-            case CloudSyncManager::SyncStatus::Idle:
-                ratingStatusText = "Idle";
-                ratingStatusColor = ImVec4(0.7f, 0.7f, 0.7f, 1.0f);
-                break;
-            case CloudSyncManager::SyncStatus::Syncing:
-                ratingStatusText = "Syncing";
-                ratingStatusColor = ImVec4(0.3f, 0.7f, 0.9f, 1.0f);
-                break;
-            case CloudSyncManager::SyncStatus::Success:
-                ratingStatusText = "Success";
-                ratingStatusColor = ImVec4(0.3f, 0.8f, 0.3f, 1.0f);
-                break;
-            case CloudSyncManager::SyncStatus::Error:
-                ratingStatusText = "Error";
-                ratingStatusColor = ImVec4(0.8f, 0.3f, 0.3f, 1.0f);
-                break;
-            case CloudSyncManager::SyncStatus::Disabled:
-                ratingStatusText = "Disabled";
-                ratingStatusColor = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
-                break;
-        }
-        ImGui::TextColored(ratingStatusColor, "Ratings: %s", ratingStatusText);
-        
-        ImGui::SameLine();
-        const char* historyStatusText = "Idle";
-        ImVec4 historyStatusColor = ImVec4(0.7f, 0.7f, 0.7f, 1.0f);
-        switch (historyStatus) {
-            case CloudSyncManager::SyncStatus::Idle:
-                historyStatusText = "Idle";
-                historyStatusColor = ImVec4(0.7f, 0.7f, 0.7f, 1.0f);
-                break;
-            case CloudSyncManager::SyncStatus::Syncing:
-                historyStatusText = "Syncing";
-                historyStatusColor = ImVec4(0.3f, 0.7f, 0.9f, 1.0f);
-                break;
-            case CloudSyncManager::SyncStatus::Success:
-                historyStatusText = "Success";
-                historyStatusColor = ImVec4(0.3f, 0.8f, 0.3f, 1.0f);
-                break;
-            case CloudSyncManager::SyncStatus::Error:
-                historyStatusText = "Error";
-                historyStatusColor = ImVec4(0.8f, 0.3f, 0.3f, 1.0f);
-                break;
-            case CloudSyncManager::SyncStatus::Disabled:
-                historyStatusText = "Disabled";
-                historyStatusColor = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
-                break;
-        }
-        ImGui::TextColored(historyStatusColor, "History: %s", historyStatusText);
-        
-        if (ratingStatus == CloudSyncManager::SyncStatus::Error || historyStatus == CloudSyncManager::SyncStatus::Error) {
-            ImGui::Spacing();
-            std::string lastError = cloudSync.getLastError();
-            if (!lastError.empty()) {
-                ImGui::TextColored(ImVec4(0.8f, 0.3f, 0.3f, 1.0f), "Error: %s", lastError.c_str());
+        if (ImGui::Button("Generate New Recovery Key", ImVec2(200, 0))) {
+            if (isAuthenticated) {
+                m_accountOperationInProgress = true;
+                m_accountError.clear();
+                
+                std::thread([this]() {
+                    auto recoveryResponse = m_supabaseClient->generateRecoveryCode();
+                    if (recoveryResponse.success) {
+                        m_recoveryKeyDisplay = recoveryResponse.recovery_code;
+                        m_accountDialogState = AccountDialogState::ShowingRecoveryKey;
+                    } else {
+                        m_accountError = recoveryResponse.error_message;
+                    }
+                    m_accountOperationInProgress = false;
+                }).detach();
+            } else {
+                m_accountError = "Not authenticated. Please create or recover an account first.";
             }
+        }
+        
+        ImGui::Spacing();
+        
+        // Bouton Publish Ratings
+        if (isAuthenticated) {
+            if (ImGui::Button("Publish Ratings", ImVec2(150, 0))) {
+                m_popupManager->queuePopup(PopupManager::PopupType::PublishRatingsConfirmation);
+            }
+            ImGui::SameLine();
+        }
+
+        // Boutons Recover Account et Delete Account
+        if (ImGui::Button("Recover Account", ImVec2(150, 0))) {
+            m_accountDialogState = AccountDialogState::Recovering;
+            m_recoveryCodeInput[0] = '\0';
+            m_accountError.clear();
+            m_popupManager->queuePopup(PopupManager::PopupType::RecoverAccount);
+            // Le popup sera activé automatiquement par le PopupManager
+        }
+        
+        ImGui::SameLine();
+        
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.2f, 0.2f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.8f, 0.3f, 0.3f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.9f, 0.4f, 0.4f, 1.0f));
+        
+        // Autoriser la suppression si authentifié OU si des données locales existent (pour nettoyer)
+        bool hasLocalData = !config.getCommunityRatingsUsername().empty() || 
+                           !config.getSupabaseAccessToken().empty();
+        
+        if (ImGui::Button("Delete Account", ImVec2(150, 0))) {
+            LOG_INFO("[UIManager] Delete Account button clicked. isAuthenticated: {}, hasLocalData: {}", 
+                     isAuthenticated, hasLocalData);
+                     
+            if (isAuthenticated || hasLocalData) {
+                // Confirmation avant suppression
+                LOG_INFO("[UIManager] Queueing DeleteAccountConfirmation popup");
+                m_popupManager->queuePopup(PopupManager::PopupType::DeleteAccountConfirmation);
+                // Le PopupManager ouvrira automatiquement le popup quand il le consommera
+            } else {
+                LOG_WARNING("[UIManager] Cannot delete account: not authenticated and no local data");
+                m_accountError = "No account to delete. Please create or recover an account first.";
+            }
+        }
+        
+        ImGui::PopStyleColor(3);
+        
+        // Dialog de confirmation pour la suppression
+        // Ne s'afficher QUE si c'est le popup actuel dans le PopupManager
+        if (m_popupManager && m_popupManager->getCurrentPopup() == PopupManager::PopupType::DeleteAccountConfirmation) {
+            ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+            ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+            if (ImGui::BeginPopupModal("Delete Account Confirmation", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
+                ImGui::Text("Are you sure you want to delete your account?");
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.0f, 1.0f), "This will:");
+            ImGui::BulletText("Sign out from your current session");
+            ImGui::BulletText("Clear all local account data");
+            ImGui::BulletText("Remove your recovery codes");
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Note: Your ratings in the database will remain.");
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+            
+            if (ImGui::Button("Cancel", ImVec2(120, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+                ImGui::CloseCurrentPopup();
+                // Notifier le PopupManager que ce popup se ferme
+                m_popupManager->notifyPopupClosed();
+            }
+            
+            ImGui::SameLine();
+            
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.2f, 0.2f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.8f, 0.3f, 0.3f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.9f, 0.4f, 0.4f, 1.0f));
+            
+            if (ImGui::Button("Delete", ImVec2(120, 0)) || ImGui::IsKeyPressed(ImGuiKey_Enter)) {
+                // Supprimer le compte
+                m_accountOperationInProgress = true;
+                m_accountError.clear();
+                
+                std::thread([this]() {
+                    // Sign out et nettoyer la config
+                    if (m_supabaseClient) {
+                        m_supabaseClient->signOut();
+                    }
+                    
+                    Config& config = Config::getInstance();
+                    config.setSupabaseAccessToken("");
+                    config.setSupabaseRefreshToken("");
+                    config.setSupabaseUserId("");
+                    config.setCommunityRatingsUsername("");
+                    config.setRecoveryCode("");
+                    config.save();
+                    
+                    m_accountOperationInProgress = false;
+                    ImGui::CloseCurrentPopup();
+                    // Le PopupManager détectera la fermeture automatiquement
+                }).detach();
+                
+                ImGui::CloseCurrentPopup();
+                // Le PopupManager détectera la fermeture automatiquement
+            }
+            
+                ImGui::PopStyleColor(3);
+                
+                ImGui::EndPopup();
+            }
+        }
+        
+        if (!m_accountError.empty()) {
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "%s", m_accountError.c_str());
+        }
+        
+        if (m_accountOperationInProgress) {
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Operation in progress...");
         }
         
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::Spacing();
-        
-        // Boutons Push et Pull
-        ImGui::Text("Actions:");
-        if (ImGui::Button(ICON_FA_UPLOAD " Push All", ImVec2(120, 0))) {
-            // Vérifier que CloudSyncManager est initialisé
-            if (!cloudSync.isEnabled() && cloudSync.getRatingEndpoint().empty() && cloudSync.getHistoryEndpoint().empty()) {
-                // Essayer d'initialiser si pas encore fait
-                // Note: CloudSyncManager devrait être initialisé dans Application.cpp
-                UI_LOG_WARNING("CloudSyncManager may not be initialized. Please ensure it's initialized in Application.cpp");
-            }
-            
-            // Récupérer les endpoints depuis la config (doivent être saisis manuellement)
-            std::string ratingEndpoint = config.getCloudRatingEndpoint();
-            std::string historyEndpoint = config.getCloudHistoryEndpoint();
-            
-            // Vérifier que les endpoints sont configurés
-            if (ratingEndpoint.empty() || historyEndpoint.empty()) {
-                UI_LOG_WARNING("Please configure both rating and history endpoints in the fields above before pushing.");
-            } else {
-                // Push ratings et history
-                if (!ratingEndpoint.empty()) {
-                    cloudSync.pushRatings();
-                }
-                if (!historyEndpoint.empty()) {
-                    cloudSync.pushHistory();
-                }
-            }
-        }
-        ImGui::SameLine();
-        if (ImGui::Button(ICON_FA_DOWNLOAD " Pull All", ImVec2(120, 0))) {
-            cloudSync.pullRatings();
-            cloudSync.pullHistory();
-        }
-        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Push: upload to cloud | Pull: download from cloud");
     }
-    
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
 #endif
     
     // Section Songlength database

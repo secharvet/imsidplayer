@@ -1,0 +1,12 @@
+#pragma once
+
+// Configuration Supabase - Généré automatiquement par CMake
+// Ces valeurs sont définies via des variables d'environnement ou GitHub Secrets
+
+#ifndef SUPABASE_URL
+#define SUPABASE_URL "@SUPABASE_URL@"
+#endif
+
+#ifndef SUPABASE_ANON_KEY
+#define SUPABASE_ANON_KEY "@SUPABASE_ANON_KEY@"
+#endif

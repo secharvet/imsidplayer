@@ -10,6 +10,9 @@
 #include "DatabaseManager.h"
 #include "HistoryManager.h"
 #include "RatingManager.h"
+#ifdef ENABLE_CLOUD_SAVE
+#include "SupabaseClient.h"
+#endif
 #include <SDL2/SDL.h>
 #include <string>
 #include <memory>
@@ -91,6 +94,9 @@ private:
     void waitForDatabaseThread();
     
 #ifdef ENABLE_CLOUD_SAVE
+    // Supabase Client
+    std::unique_ptr<SupabaseClient> m_supabaseClient;
+    
     // Vérification de mise à jour
     void checkForUpdatesAsync();
     

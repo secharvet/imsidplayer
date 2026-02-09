@@ -25,7 +25,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         testEndpoint = argv[1];
     } else {
-        testEndpoint = "https://api.npoint.io/0316f236087020c9dcc1";
+        testEndpoint = "https://httpbin.org/get";
         std::cout << "Usage: " << argv[0] << " <endpoint_url>" << std::endl;
         std::cout << "Using default endpoint: " << testEndpoint << std::endl;
     }

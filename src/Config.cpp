@@ -5,12 +5,26 @@
 #include <cctype>
 #include <functional>
 
+#ifdef ENABLE_CLOUD_SAVE
+#include "SupabaseConfig.h"
+#endif
+
+Config::Config() {
+#ifdef ENABLE_CLOUD_SAVE
+    // Initialiser avec les valeurs compilées (définies dans SupabaseConfig.h via CMake)
+    m_supabaseProjectUrl = SUPABASE_URL;
+    m_supabaseAnonKey = SUPABASE_ANON_KEY;
+#endif
+}
+
 Config& Config::getInstance() {
     static Config instance;
     return instance;
 }
 
 bool Config::load(const std::string& filename) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_configFilePath = filename;
     std::ifstream file(filename);
     if (!file.is_open()) {
         return false;
@@ -80,10 +94,18 @@ bool Config::load(const std::string& filename) {
 #ifdef ENABLE_CLOUD_SAVE
         } else if (key == "cloud_save_enabled") {
             m_cloudSaveEnabled = (value == "true" || value == "1");
-        } else if (key == "cloud_rating_endpoint") {
-            m_cloudRatingEndpoint = value;
-        } else if (key == "cloud_history_endpoint") {
-            m_cloudHistoryEndpoint = value;
+        } else if (key == "community_ratings_enabled") {
+            m_communityRatingsEnabled = (value == "true" || value == "1");
+        } else if (key == "community_ratings_username") {
+            m_communityRatingsUsername = value;
+        } else if (key == "supabase_access_token") {
+            m_supabaseAccessToken = value;
+        } else if (key == "supabase_refresh_token") {
+            m_supabaseRefreshToken = value;
+        } else if (key == "supabase_user_id") {
+            m_supabaseUserId = value;
+        } else if (key == "recovery_code") {
+            m_recoveryCode = value;
 #endif
         }
     }
@@ -92,6 +114,8 @@ bool Config::load(const std::string& filename) {
 }
 
 bool Config::save(const std::string& filename) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_configFilePath = filename;
     std::ofstream file(filename);
     if (!file.is_open()) {
         return false;
@@ -122,9 +146,28 @@ bool Config::save(const std::string& filename) {
     
 #ifdef ENABLE_CLOUD_SAVE
     file << "cloud_save_enabled: " << (m_cloudSaveEnabled ? "true" : "false") << "\n";
-    file << "cloud_rating_endpoint: " << m_cloudRatingEndpoint << "\n";
-    file << "cloud_history_endpoint: " << m_cloudHistoryEndpoint << "\n";
+    file << "community_ratings_enabled: " << (m_communityRatingsEnabled ? "true" : "false") << "\n";
+    file << "community_ratings_username: " << m_communityRatingsUsername << "\n";
+    // Les credentials Supabase ne sont plus sauvegardés dans le fichier de config (hardcodés/compilés)
+    file << "supabase_access_token: " << m_supabaseAccessToken << "\n";
+    file << "supabase_refresh_token: " << m_supabaseRefreshToken << "\n";
+    file << "supabase_user_id: " << m_supabaseUserId << "\n";
+    file << "recovery_code: " << m_recoveryCode << "\n";
 #endif
     
     return true;
+}
+
+bool Config::save() {
+    std::string path;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        path = m_configFilePath;
+    }
+    
+    if (path.empty()) {
+        return false;
+    }
+    
+    return save(path);
 }

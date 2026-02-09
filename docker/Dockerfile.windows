@@ -82,7 +82,9 @@ RUN cd /tmp && \
 RUN echo 'export PATH="/usr/x86_64-w64-mingw32/bin:/usr/bin:$PATH"' >> /etc/profile.d/mingw.sh && \
     echo 'export CC=x86_64-w64-mingw32-gcc' >> /etc/profile.d/mingw.sh && \
     echo 'export CXX=x86_64-w64-mingw32-g++' >> /etc/profile.d/mingw.sh && \
-    echo 'export SIDPLAYFP_ROOT=/usr/x86_64-w64-mingw32' >> /etc/profile.d/mingw.sh
+    echo 'export SIDPLAYFP_ROOT=/usr/x86_64-w64-mingw32' >> /etc/profile.d/mingw.sh && \
+    echo 'export SUPABASE_URL="https://mizxbtqltozqhuhanqyy.supabase.co"' >> /etc/profile.d/mingw.sh && \
+    echo 'export SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1penhidHFsdG96cWh1aGFucXl5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk4NTQwOTYsImV4cCI6MjA4NTQzMDA5Nn0.FtOC4bc3X3uv2VfHPCtfVH9hVhTuYhQY2e1ZOx4XKqo"' >> /etc/profile.d/mingw.sh
 
 # Définir le répertoire de travail
 WORKDIR /workspace

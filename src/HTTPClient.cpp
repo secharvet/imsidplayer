@@ -311,7 +311,8 @@ int HTTPClient::verifyCertificate(const std::string& hostname) {
 std::string HTTPClient::buildHTTPRequest(const std::string& method, 
                                          const std::string& path,
                                          const std::string& host,
-                                         const std::string& body) {
+                                         const std::string& body,
+                                         const std::map<std::string, std::string>& customHeaders) {
     std::ostringstream request;
     
     request << method << " " << path << " HTTP/1.1\r\n";
@@ -320,8 +321,18 @@ std::string HTTPClient::buildHTTPRequest(const std::string& method,
     request << "Accept: application/json\r\n";
     request << "Connection: close\r\n";
     
+    // Ajouter les headers personnalisés (avant Content-Type pour permettre l'override)
+    // Note: L'ordre peut être important pour certains serveurs
+    for (const auto& [key, value] : customHeaders) {
+        request << key << ": " << value << "\r\n";
+        LOG_DEBUG("buildHTTPRequest: Adding header {}: {}", key, value.length() > 50 ? value.substr(0, 50) + "..." : value);
+    }
+    
     if (!body.empty()) {
-        request << "Content-Type: application/json; charset=utf-8\r\n";
+        // Content-Type seulement si pas déjà défini dans customHeaders
+        if (customHeaders.find("Content-Type") == customHeaders.end()) {
+            request << "Content-Type: application/json; charset=utf-8\r\n";
+        }
         size_t bodySize = body.length();
         request << "Content-Length: " << bodySize << "\r\n";
         LOG_INFO("buildHTTPRequest: Body size={} bytes, Content-Length={}", bodySize, bodySize);
@@ -538,8 +549,15 @@ HTTPClient::Response HTTPClient::parseResponse() {
     
     LOG_DEBUG("parseResponse: Received {} bytes of data", responseData.length());
     if (responseData.length() > 0) {
-        size_t previewLen = std::min(responseData.length(), size_t(300));
-        LOG_DEBUG("parseResponse: First {} chars: {}", previewLen, responseData.substr(0, previewLen));
+        size_t previewLen = std::min(responseData.length(), size_t(500));
+        LOG_DEBUG("parseResponse: First {} chars:\n{}", previewLen, responseData.substr(0, previewLen));
+        
+        // Logger aussi les headers complets
+        size_t headerEnd = responseData.find("\r\n\r\n");
+        if (headerEnd != std::string::npos) {
+            std::string headers = responseData.substr(0, headerEnd);
+            LOG_DEBUG("parseResponse: Full response headers:\n{}", headers);
+        }
     }
     
     // Parser la réponse HTTP
@@ -662,7 +680,7 @@ HTTPClient::Response HTTPClient::parseResponse() {
     return response;
 }
 
-HTTPClient::Response HTTPClient::get(const std::string& url) {
+HTTPClient::Response HTTPClient::get(const std::string& url, const std::map<std::string, std::string>& customHeaders) {
     Response response;
     m_lastError.clear();
     
@@ -679,6 +697,7 @@ HTTPClient::Response HTTPClient::get(const std::string& url) {
         }
         
         std::string host;
+        std::string path;
         int port = 443;
         
         // Extraire le host et le path de l'URL
@@ -687,26 +706,45 @@ HTTPClient::Response HTTPClient::get(const std::string& url) {
             pathStart += 8; // "https://"
             size_t pathEnd = currentUrl.find('/', pathStart);
             if (pathEnd == std::string::npos) {
-                pathEnd = currentUrl.length();
-            }
-            host = currentUrl.substr(pathStart, pathEnd - pathStart);
-            
-            std::string path = "/";
-            if (pathEnd < currentUrl.length()) {
+                // Pas de slash après le host, chercher le query string ou la fin
+                size_t queryStart = currentUrl.find('?', pathStart);
+                if (queryStart != std::string::npos) {
+                    host = currentUrl.substr(pathStart, queryStart - pathStart);
+                    path = "/" + currentUrl.substr(queryStart);
+                } else {
+                    host = currentUrl.substr(pathStart);
+                    path = "/";
+                }
+            } else {
+                host = currentUrl.substr(pathStart, pathEnd - pathStart);
+                // Le path inclut le query string s'il existe
                 path = currentUrl.substr(pathEnd);
             }
             
+            // Si path est vide, utiliser "/"
+            if (path.empty()) {
+                path = "/";
+            }
+            
+            LOG_DEBUG("HTTPClient::get: Connecting to host={}, port={}, path={}", host, port, path);
             if (!connectSSL(host, port)) {
+                LOG_ERROR("HTTPClient::get: Failed to connect to {}:{}", host, port);
                 return response;
             }
             
-            std::string request = buildHTTPRequest("GET", path, host);
+            std::string request = buildHTTPRequest("GET", path, host, "", customHeaders);
+            LOG_DEBUG("HTTPClient::get: Request preview (first 500 chars): {}", request.substr(0, 500));
             if (sendRequest(request) != 0) {
+                LOG_ERROR("HTTPClient::get: Failed to send request");
                 disconnect();
                 return response;
             }
             
             response = parseResponse();
+            LOG_DEBUG("HTTPClient::get: Response status={}, body length={}", response.statusCode, response.body.length());
+            if (response.statusCode != 200 && response.body.length() < 500) {
+                LOG_DEBUG("HTTPClient::get: Response body: {}", response.body);
+            }
             disconnect();
             
             // Si c'est une redirection (301, 302, 303, 307, 308), suivre la redirection
@@ -754,7 +792,7 @@ HTTPClient::Response HTTPClient::get(const std::string& url) {
     return response;
 }
 
-HTTPClient::Response HTTPClient::post(const std::string& url, const std::string& jsonData) {
+HTTPClient::Response HTTPClient::post(const std::string& url, const std::string& jsonData, const std::map<std::string, std::string>& customHeaders) {
     Response response;
     m_lastError.clear();
     
@@ -766,7 +804,7 @@ HTTPClient::Response HTTPClient::post(const std::string& url, const std::string&
         return response;
     }
     
-    std::string host = "api.npoint.io";
+    std::string host;
     int port = 443;
     
     size_t pathStart = url.find("https://");
@@ -790,7 +828,7 @@ HTTPClient::Response HTTPClient::post(const std::string& url, const std::string&
             return response;
         }
         
-        std::string request = buildHTTPRequest("POST", path, host, jsonData);
+        std::string request = buildHTTPRequest("POST", path, host, jsonData, customHeaders);
         LOG_INFO("POST: Request built, total size={} bytes", request.length());
         
         if (sendRequest(request) != 0) {
@@ -808,7 +846,7 @@ HTTPClient::Response HTTPClient::post(const std::string& url, const std::string&
     return response;
 }
 
-HTTPClient::Response HTTPClient::put(const std::string& url, const std::string& jsonData) {
+HTTPClient::Response HTTPClient::put(const std::string& url, const std::string& jsonData, const std::map<std::string, std::string>& customHeaders) {
     Response response;
     m_lastError.clear();
     
@@ -818,7 +856,7 @@ HTTPClient::Response HTTPClient::put(const std::string& url, const std::string& 
         return response;
     }
     
-    std::string host = "api.npoint.io";
+    std::string host;
     int port = 443;
     
     size_t pathStart = url.find("https://");
@@ -839,7 +877,7 @@ HTTPClient::Response HTTPClient::put(const std::string& url, const std::string& 
             return response;
         }
         
-        std::string request = buildHTTPRequest("PUT", path, host, jsonData);
+        std::string request = buildHTTPRequest("PUT", path, host, jsonData, customHeaders);
         if (sendRequest(request) != 0) {
             disconnect();
             return response;
@@ -852,7 +890,7 @@ HTTPClient::Response HTTPClient::put(const std::string& url, const std::string& 
     return response;
 }
 
-HTTPClient::Response HTTPClient::patch(const std::string& url, const std::string& jsonData) {
+HTTPClient::Response HTTPClient::patch(const std::string& url, const std::string& jsonData, const std::map<std::string, std::string>& customHeaders) {
     Response response;
     m_lastError.clear();
     
@@ -862,7 +900,7 @@ HTTPClient::Response HTTPClient::patch(const std::string& url, const std::string
         return response;
     }
     
-    std::string host = "api.npoint.io";
+    std::string host;
     int port = 443;
     
     size_t pathStart = url.find("https://");
@@ -883,7 +921,51 @@ HTTPClient::Response HTTPClient::patch(const std::string& url, const std::string
             return response;
         }
         
-        std::string request = buildHTTPRequest("PATCH", path, host, jsonData);
+        std::string request = buildHTTPRequest("PATCH", path, host, jsonData, customHeaders);
+        if (sendRequest(request) != 0) {
+            disconnect();
+            return response;
+        }
+        
+        response = parseResponse();
+        disconnect();
+    }
+    
+    return response;
+}
+
+HTTPClient::Response HTTPClient::deleteRequest(const std::string& url, const std::map<std::string, std::string>& customHeaders) {
+    Response response;
+    m_lastError.clear();
+    
+    // Similaire à get, mais avec DELETE
+    if (url.find("https://") != 0) {
+        m_lastError = "Only HTTPS URLs are supported";
+        return response;
+    }
+    
+    std::string host;
+    int port = 443;
+    
+    size_t pathStart = url.find("https://");
+    if (pathStart != std::string::npos) {
+        pathStart += 8;
+        size_t pathEnd = url.find('/', pathStart);
+        if (pathEnd == std::string::npos) {
+            pathEnd = url.length();
+        }
+        host = url.substr(pathStart, pathEnd - pathStart);
+        
+        std::string path = "/";
+        if (pathEnd < url.length()) {
+            path = url.substr(pathEnd);
+        }
+        
+        if (!connectSSL(host, port)) {
+            return response;
+        }
+        
+        std::string request = buildHTTPRequest("DELETE", path, host, "", customHeaders);
         if (sendRequest(request) != 0) {
             disconnect();
             return response;

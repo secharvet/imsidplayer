@@ -28,6 +28,7 @@ compile_commands.json
 
 # Config files (peuvent contenir des chemins personnels)
 config.txt
+.env.local
 
 # Background images (peuvent être volumineuses)
 background/
@@ -52,3 +53,9 @@ docs/
 # Python virtual environment
 venv/
 build-win/
+dist-win/
+include/SupabaseConfig.h
+.envrc
+windows_release/
+host_check.txt
+tests/config_test.txt
