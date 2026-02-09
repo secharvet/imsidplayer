@@ -17,6 +17,7 @@
 #include <functional>
 #include <cstring>
 #include <chrono>
+#include <thread>
 
 namespace fs = std::filesystem;
 
@@ -209,6 +210,33 @@ bool Application::initialize() {
     
     // Vérifier les mises à jour en arrière-plan (non-bloquant)
     checkForUpdatesAsync();
+    
+    // Récupérer les ratings depuis Supabase au démarrage (non-bloquant, dans un thread)
+    if (m_supabaseClient && m_supabaseClient->isAuthenticated()) {
+        std::thread([this]() {
+            // Attendre un peu pour ne pas bloquer le démarrage
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            
+            LOG_INFO("Fetching ratings from Supabase at startup...");
+            std::vector<CommunityRating> ratings;
+            if (m_supabaseClient->getAllMyRatings(ratings)) {
+                LOG_INFO("Fetched {} ratings from Supabase", ratings.size());
+                int imported = 0;
+                for (const auto& r : ratings) {
+                    // Find song by MD5 hash
+                    const SidMetadata* meta = m_database->getMetadataByMD5(r.file_hash);
+                    if (meta && !meta->filepath.empty()) {
+                        // Update local rating
+                        m_ratingManager->updateRating(meta->metadataHash, r.rating);
+                        imported++;
+                    }
+                }
+                LOG_INFO("Imported {} ratings to local database at startup", imported);
+            } else {
+                LOG_WARNING("Failed to fetch ratings from Supabase at startup: {}", m_supabaseClient->getLastError());
+            }
+        }).detach();
+    }
 #endif
     
     return true;
