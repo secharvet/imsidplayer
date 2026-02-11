@@ -15,6 +15,9 @@ on:
 jobs:
   build-linux:
     runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -96,6 +99,8 @@ jobs:
       PKG_CONFIG_PATH: /usr/x86_64-w64-mingw32/lib/pkgconfig
       PKG_CONFIG_LIBDIR: /usr/x86_64-w64-mingw32/lib/pkgconfig
       PKG_CONFIG_SYSROOT_DIR: /
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
