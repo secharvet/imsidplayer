@@ -403,6 +403,12 @@ void UIManager::renderRecoverAccountDialog() {
                 if (authResponse.success) {
                     LOG_INFO("Account recovered successfully");
                     
+                    // Persister le recovery code dans la config (réutilisable pour autres appareils)
+                    Config& config = Config::getInstance();
+                    config.setRecoveryCode(recoveryCode);
+                    config.save();
+                    m_recoveryKeyDisplay = recoveryCode;
+                    
                     // Fetch ratings from cloud immediately
                     LOG_INFO("Fetching ratings from cloud...");
                     std::vector<CommunityRating> ratings;

@@ -593,7 +593,7 @@ bool SupabaseClient::syncRatingsFromCloud(std::map<std::string, int>& localRatin
 
 // Méthodes privées
 
-HTTPClient::Response SupabaseClient::get(const std::string& endpoint, const std::map<std::string, std::string>& queryParams) {
+HTTPClient::Response SupabaseClient::get(const std::string& endpoint, const std::map<std::string, std::string>& queryParams, bool includeAuth) {
     // buildUrl() retourne déjà une URL complète (avec m_projectUrl)
     std::string url = buildUrl(endpoint);
     if (!queryParams.empty()) {
@@ -610,7 +610,7 @@ HTTPClient::Response SupabaseClient::get(const std::string& endpoint, const std:
         }
     }
     LOG_DEBUG("GET request URL: {}", url);
-    std::map<std::string, std::string> headers = buildHeaders(true);
+    std::map<std::string, std::string> headers = buildHeaders(includeAuth);
     
     // Debug détaillé via logger uniquement (pas de std::cout)
     LOG_DEBUG("GET request headers:");
@@ -625,8 +625,8 @@ HTTPClient::Response SupabaseClient::get(const std::string& endpoint, const std:
         LOG_DEBUG("GET response body: {}", response.body);
     }
     
-    // Vérifier si le token a expiré et renouveler si nécessaire
-    if (handleTokenExpiration(response)) {
+    // Vérifier si le token a expiré et renouveler si nécessaire (sauf si requête sans auth)
+    if (includeAuth && handleTokenExpiration(response)) {
         // Relancer la requête avec le nouveau token
         headers = buildHeaders(true);
         response = m_httpClient->get(url, headers);
@@ -1330,9 +1330,17 @@ AuthResponse SupabaseClient::recoverAccountWithCode(const std::string& recoveryC
     queryParams["code"] = "eq." + recoveryCode;
     queryParams["select"] = "refresh_token,username";
     
-    HTTPClient::Response httpResponse = get("/rest/v1/account_transfer", queryParams);
+    // Même requête que isUsernameAvailable : avec auth si session disponible (anon ou autre)
+    // Sans auth (anon pur), le rôle anon peut ne pas voir les lignes selon RLS/GRANT.
+    HTTPClient::Response httpResponse = get("/rest/v1/account_transfer", queryParams, true);
     
     if (httpResponse.statusCode == 200) {
+        // Sans refresh_token dans la réponse = code inexistant ou non trouvé (RLS/GRANT, etc.)
+        if (httpResponse.body.find("\"refresh_token\"") == std::string::npos) {
+            response.error_message = "Code invalide ou non trouvé. Vérifie le code ou génère-en un nouveau sur l'autre appareil.";
+            LOG_WARNING("Recovery code '{}' not found. Body length={}", recoveryCode, httpResponse.body.length());
+            return response;
+        }
         // Parser le JSON pour extraire refresh_token
         // Format: [{"refresh_token":"..."}]
         size_t refreshPos = httpResponse.body.find("\"refresh_token\"");
@@ -1374,12 +1382,15 @@ AuthResponse SupabaseClient::recoverAccountWithCode(const std::string& recoveryC
                                 }
                             }
                             
-                            // Supprimer le code utilisé (DELETE)
-                            std::string deleteUrl = buildUrl("/rest/v1/account_transfer");
-                            deleteUrl += "?code=eq." + recoveryCode;
-                            deleteRequest(deleteUrl);
-                            
-                            LOG_INFO("Account recovered successfully with code: {}", recoveryCode);
+                            // Mettre à jour le refresh_token dans account_transfer : Supabase fait une rotation,
+                            // l'ancien est invalidé, le nouveau doit être stocké pour garder le code valide
+                            std::string patchUrl = m_projectUrl + "/rest/v1/account_transfer?code=eq." + recoveryCode;
+                            std::ostringstream jsonUpdate;
+                            jsonUpdate << "{\"refresh_token\":\"" << m_refreshToken << "\"}";
+                            std::map<std::string, std::string> patchHeaders = buildHeaders(true);
+                            patchHeaders["Prefer"] = "return=minimal";
+                            m_httpClient->patch(patchUrl, jsonUpdate.str(), patchHeaders);
+                            LOG_INFO("Account recovered successfully with code: {}, refresh_token updated in account_transfer", recoveryCode);
                         } else {
                             response.error_message = "Failed to refresh session: " + refreshResponse.error_message;
                         }

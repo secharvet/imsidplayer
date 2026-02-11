@@ -52,6 +52,7 @@ $CONTAINER_CMD run --rm --name "$CONTAINER_NAME" \
   -w /workspace \
   -e SUPABASE_URL="$SUPABASE_URL" \
   -e SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
+  -e DEBUG="${DEBUG:-0}" \
   "$IMAGE_NAME" \
   bash -c "
     set -e
@@ -75,6 +76,13 @@ $CONTAINER_CMD run --rm --name "$CONTAINER_NAME" \
     rm -rf build-win
     mkdir -p build-win
     
+    # BUILD_TYPE: Debug si DEBUG=1 (logs détaillés HTTP/Supabase), sinon Release
+    BUILD_TYPE=Release
+    if [ \"\${DEBUG:-0}\" = \"1\" ]; then
+      BUILD_TYPE=Debug
+      echo '🔍 Mode DEBUG activé (logs détaillés HTTP/Supabase)'
+    fi
+    
     # Configuration CMake pour la cross-compilation
     cmake -B build-win -S . \
       -DCMAKE_SYSTEM_NAME=Windows \
@@ -82,7 +90,7 @@ $CONTAINER_CMD run --rm --name "$CONTAINER_NAME" \
       -DCMAKE_CXX_COMPILER=\$CXX \
       -DCMAKE_CXX_STANDARD=23 \
       -DCMAKE_CXX_STANDARD_REQUIRED=ON \
-      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_BUILD_TYPE=\$BUILD_TYPE \
       -DENABLE_CLOUD_SAVE=ON \
       -DPython3_EXECUTABLE=\"\$(which python3)\" \
       -DCMAKE_FIND_ROOT_PATH=/usr/x86_64-w64-mingw32 \
@@ -94,7 +102,7 @@ $CONTAINER_CMD run --rm --name "$CONTAINER_NAME" \
     
     echo ''
     echo '=== Compilation ==='
-    cmake --build build-win --config Release -j\$(nproc)
+    cmake --build build-win --config \$BUILD_TYPE -j\$(nproc)
     
     echo ''
     echo '=== Installation (Bundle) ==='

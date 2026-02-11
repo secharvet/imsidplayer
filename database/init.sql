@@ -10,8 +10,7 @@ CREATE TABLE IF NOT EXISTS public.account_transfer (
   code TEXT PRIMARY KEY,              -- Code de récupération (8 chiffres)
   refresh_token TEXT NOT NULL,       -- Le refresh_token à transférer
   username TEXT UNIQUE NOT NULL,     -- Username logique (unique)
-  created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-  expires_at TIMESTAMPTZ DEFAULT (now() + INTERVAL '24 hours') NOT NULL
+  created_at TIMESTAMPTZ DEFAULT now() NOT NULL
 );
 
 -- Index
@@ -25,8 +24,13 @@ ALTER TABLE public.account_transfer ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can create recovery codes" ON public.account_transfer 
   FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
 
-CREATE POLICY "Anyone can read non-expired codes" ON public.account_transfer 
-  FOR SELECT USING (expires_at > now());
+-- Les codes de récupération ne expirent pas ; régénération manuelle uniquement
+CREATE POLICY "Anyone can read recovery codes" ON public.account_transfer 
+  FOR SELECT USING (true);
+
+-- UPDATE : après recovery, Supabase renvoie un nouveau refresh_token (rotation), on doit le mettre à jour
+CREATE POLICY "Authenticated users can update recovery codes" ON public.account_transfer 
+  FOR UPDATE USING (auth.uid() IS NOT NULL);
 
 CREATE POLICY "Users can delete their own codes" ON public.account_transfer 
   FOR DELETE USING (auth.uid() IS NOT NULL);

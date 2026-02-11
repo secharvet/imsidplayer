@@ -98,7 +98,7 @@ public:
     
 private:
     // Requêtes HTTP vers Supabase REST API
-    HTTPClient::Response get(const std::string& endpoint, const std::map<std::string, std::string>& queryParams = {});
+    HTTPClient::Response get(const std::string& endpoint, const std::map<std::string, std::string>& queryParams = {}, bool includeAuth = true);
     HTTPClient::Response post(const std::string& endpoint, const std::string& jsonBody);
     HTTPClient::Response patch(const std::string& endpoint, const std::string& jsonBody);
     HTTPClient::Response deleteRequest(const std::string& endpoint);
