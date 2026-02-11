@@ -172,6 +172,12 @@ jobs:
     if: github.ref_type == 'tag' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout (for tag message)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
       - name: Get version from tag
         id: get_version
         run: |
@@ -226,21 +232,32 @@ jobs:
           echo "=== Final release files ==="
           ls -lh release-files/ || true
 
+      - name: Prepare release notes from tag
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          TAG="${{ steps.get_version.outputs.tag }}"
+          REPO="${{ github.repository }}"
+          # Message du tag annoté (git tag -a -m "...")
+          TAG_BODY=$(git tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "$TAG" 2>/dev/null || echo "")
+          {
+            echo "$TAG_BODY"
+            echo ""
+            echo "---"
+            echo "## 📦 Downloads"
+            echo ""
+            echo "### Linux"
+            echo "- **[imSidPlayer-${VERSION}-linux.tar.gz](https://github.com/${REPO}/releases/download/${TAG}/imSidPlayer-${VERSION}-linux.tar.gz)**"
+            echo ""
+            echo "### Windows"
+            echo "- **[imSidPlayer-${VERSION}-windows.zip](https://github.com/${REPO}/releases/download/${TAG}/imSidPlayer-${VERSION}-windows.zip)**"
+          } > release-notes.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.get_version.outputs.tag }}
           name: Release ${{ steps.get_version.outputs.tag }}
-          body: |
-            ## imSid Player ${{ steps.get_version.outputs.version }} (Alpha)
-            
-            ## 📦 Downloads
-            
-            ### Linux
-            - **[Download imSidPlayer-${{ steps.get_version.outputs.version }}-linux.tar.gz](https://github.com/${{ github.repository }}/releases/download/${{ steps.get_version.outputs.tag }}/imSidPlayer-${{ steps.get_version.outputs.version }}-linux.tar.gz)**
-            
-            ### Windows
-            - **[Download imSidPlayer-${{ steps.get_version.outputs.version }}-windows.zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.get_version.outputs.tag }}/imSidPlayer-${{ steps.get_version.outputs.version }}-windows.zip)**
+          body_path: release-notes.md
           files: release-files/*
           prerelease: true
         env:
