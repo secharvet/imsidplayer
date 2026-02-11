@@ -1300,6 +1300,7 @@ void UIManager::renderConfigTab() {
             if (isAuthenticated) {
                 m_accountOperationInProgress = true;
                 m_accountError.clear();
+                m_operationStatus.clear();
                 
                 std::thread([this]() {
                     auto recoveryResponse = m_supabaseClient->generateRecoveryCode();
@@ -1321,6 +1322,7 @@ void UIManager::renderConfigTab() {
         // Bouton Publish Ratings
         if (isAuthenticated) {
             if (ImGui::Button("Publish Ratings", ImVec2(150, 0))) {
+                m_operationStatus.clear();
                 m_popupManager->queuePopup(PopupManager::PopupType::PublishRatingsConfirmation);
             }
             ImGui::SameLine();
@@ -1331,6 +1333,7 @@ void UIManager::renderConfigTab() {
             m_accountDialogState = AccountDialogState::Recovering;
             m_recoveryCodeInput[0] = '\0';
             m_accountError.clear();
+            m_operationStatus.clear();
             m_popupManager->queuePopup(PopupManager::PopupType::RecoverAccount);
             // Le popup sera activé automatiquement par le PopupManager
         }
@@ -1396,6 +1399,7 @@ void UIManager::renderConfigTab() {
                 // Supprimer le compte
                 m_accountOperationInProgress = true;
                 m_accountError.clear();
+                m_operationStatus.clear();
                 
                 std::thread([this]() {
                     // Sign out et nettoyer la config
@@ -1429,6 +1433,11 @@ void UIManager::renderConfigTab() {
         if (!m_accountError.empty()) {
             ImGui::Spacing();
             ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "%s", m_accountError.c_str());
+        }
+        
+        if (!m_operationStatus.empty()) {
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(0.3f, 0.8f, 0.3f, 1.0f), "%s", m_operationStatus.c_str());
         }
         
         if (m_accountOperationInProgress) {

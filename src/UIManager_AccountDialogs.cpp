@@ -586,6 +586,7 @@ void UIManager::renderPublishRatingsConfirmation() {
         auto onCancel = [this]() {
             m_accountDialogState = AccountDialogState::None;
             m_accountError.clear();
+            m_operationStatus.clear();
             s_publishActionStarted = false;
             ImGui::CloseCurrentPopup();
             m_popupManager->notifyPopupClosed();
@@ -628,9 +629,16 @@ void UIManager::renderPublishRatingsConfirmation() {
                 // 3. Envoyer
                 if (m_supabaseClient->syncRatingsToCloud(ratingsToSync)) {
                     LOG_INFO("Ratings published successfully.");
+                    m_operationStatus = std::to_string(ratingsToSync.size()) + " ratings successfully published.";
+                    m_accountError.clear();
                     m_accountDialogState = AccountDialogState::None;
                 } else {
-                    m_accountError = m_supabaseClient->getLastError();
+                    m_accountError = "Failed to publish ratings.";
+                    std::string err = m_supabaseClient->getLastError();
+                    if (!err.empty()) {
+                        m_accountError += " " + err;
+                    }
+                    m_operationStatus.clear();
                 }
                 
                 m_accountOperationInProgress = false;
